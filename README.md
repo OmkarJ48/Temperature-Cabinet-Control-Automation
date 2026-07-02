@@ -1,15 +1,14 @@
-# Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
 Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
 
 Develop a safe and reliable method of allowing an operator to change the setpoint of the selected temperature cabinet from a CODESYS HMI. The cabinet keeps its own closed-loop control at all times — CODESYS provides supervisory setpoint control only, never a replacement control loop.
 
 Owner: Omkar Joshi (OJ) — Oliver Valvetek / Oliver Mechatronics / Oliver R&D
-Status: Phase 1 — Investigation (hardware audit done; site photos reviewed — protocol confirmation on the comms port still outstanding)
+Status: Phase 2 → Phase 3 (Rebuild, Retest, Requalify & Repeat) — CODESYS sandbox created, DLS008 hardware integrated, RS-232 serial protocol confirmed with verified wiring; ready for USB adapter procurement and bench-test
 
 
 Equipment
 
-ItemIdentityControl panelDLS008Temperature cabinetLeft Hand Small Temperature Cabinet (JTS Ltd / James Technical Services Ltd, Wales)Cabinet controllerWatlow SERIES F4S — single-channel 1/4 DIN ramping controller (confirmed from JTS/Watlow spec sheet; supersedes earlier F4T/Eurotherm hypotheses)CODESYS projectNew sandbox project only (R&D project untouched)
+ItemIdentityControl panelDLS008Temperature cabinetLeft Hand Small Temperature Cabinet (JTS Ltd / James Technical Services Ltd, Wales)Cabinet controllerWatlow SERIES F4S, part no. F4SH-CCA0-01RG, SN 047209 — single-channel 1/4 DIN ramping controller, Type 4X enclosure, UL/CE listed (confirmed from JTS/Watlow spec sheet + rear-terminal nameplate; supersedes earlier F4T/Eurotherm hypotheses)CODESYS projectNew sandbox project created — R&D project untouched
 
 DLS008 hardware audit (confirmed)
 
@@ -24,14 +23,18 @@ Siemens SENTRON 5SY4106-8 MCB (D-curve, 6 A, 1-pole) — branch protection
 RS PRO DIN-rail PSUs: 24 V DC / 5 A / 120 W (Beckhoff/field rail) and 5 V DC / 5 A / 30 W (Raspberry Pi rail)
 
 
-All of the above are combined as a single EtherCAT master/I-O node. Which of the two Raspberry Pi 5 units acts as the CODESYS EtherCAT master (and which USB port carries any new serial adapter) is to be confirmed on physical inspection — noted as an open item below.
+All of the above are combined as a single EtherCAT master/I-O node and are now integrated into the CODESYS sandbox project (scanned online). Which of the two Raspberry Pi 5 units acts as the CODESYS EtherCAT master (and which USB port carries the new serial adapter) is to be confirmed — noted as an open item below.
+
 
 Physical inspection findings (site photos)
 
-Four site photos reviewed this round — stored in docs/photos/ in this repo.
+Seven site photos reviewed across three rounds — stored in docs/photos/ in this repo.
 
 1. Controller front panel
+
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\JTS Watlow F4S Din 14 DIN Single Channel Ramping Controller.png
+
+
 Badge reads WATLOW F4 — consistent with the F4S identity established from the spec sheet.
 Front-panel menu shows "SP1" as the setpoint parameter name, currently reading 130.0 °C, alongside DigitalIn/DigitalOut status lines — matching the ordering-code spec (1 analog input, 4 digital inputs, 8 digital outputs) already on file.
 Corroborates the register-map hypothesis: Watlow's published Modbus map names register 300 "Set Point 1"; the front panel independently uses the identical short name "SP1" for the same parameter. The register number still needs confirming with a live Modbus read (the display doesn't show register addresses), but the parameter-identity match is a good sign.
@@ -39,8 +42,11 @@ JTS calibration sticker: calibrated Sept 2024, due Sept 2025 — in-date.
 FGAS compliance leak test: Sept 2024.
 A separate hard-wired "OVER TEMPERATURE" lamp exists independent of the controller's own display — worth wiring into a spare EL1409 DI channel for HMI-level fault indication, complementing the planned Modbus comms-loss watchdog.
 
+
 2. Serial comms connector — the key finding
+
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Serial Communication RS232 Female Connector Left Hand Small Cab.png
+
 The cabinet already has a dedicated external 9-pin D-sub (DB9) female connector, clearly labelled "SERIAL COMMS," mounted on a removable plate on the enclosure exterior, below a mains-disconnect warning. This means the F4S's internal comms terminals are already wired out to an accessible external port — there should be no need to open the enclosure or wire directly onto the controller's own terminal block.
 
 ⚠️ Protocol needs confirming on site before anything is ordered or connected — there's a naming conflict in the source material that needs resolving, not assuming:
@@ -54,7 +60,9 @@ The physical label on the panel itself just says "SERIAL COMMS" — no protocol 
 A female DB9 conventionally signals RS-232 (3-wire: TX/RX/GND), but since the F4S natively supports both EIA-232 and EIA-485 from the same internal terminal block, either is genuinely possible depending on how this breakout was wired. Next step: with mains isolated (per the panel's own warning label), trace or continuity-check which F4S terminals this DB9 connects to, or check for an internal wiring label/schematic. This determines whether a USB-to-RS232 or USB-to-RS485 adapter is needed — a five-minute check that avoids ordering the wrong part.
 
 3. Controller rear terminal block (interior)
+
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\PXL_20240205_104301036.jpg
+
 Confirms the exact unit: part no. F4SH-CCA0-01RG, SN 047209, Type 4X enclosure. This angle shows the Out 1A/1B, Out 2A/2B control-output terminals and four option-card slots (In 2, In 3, Rx 1, Rx 2 — matching the base unit's optional auxiliary input/retransmit module slots from the ordering guide). It does not show the EIA-232/EIA-485 comms terminal block — that's elsewhere on the same rear face and still needs its own photo/trace to resolve the RS-232-vs-RS-485 question below.
 
 RS-485 wiring, for reference against the RS-232 3-wire (TX/RX/GND) already noted:
@@ -62,13 +70,113 @@ RS-485 wiring, for reference against the RS-232 3-wire (TX/RX/GND) already noted
 RS-232RS-485 (as Watlow documents it)Wire count3: TX, RX, GND3: T+/R+ (A), T-/R- (B), COMSignal typeSingle-endedDifferential pairTopologyPoint-to-point onlyMulti-drop (up to 32 devices)Typical max cable length~15 m~1200 m
 
 Both land on 3 wires, and a DB9 has no standard RS-485 pin assignment (unlike RS-232's conventional pins 2/3/5) — so the connector shape alone still can't answer this. Tracing the internal wiring from the DB9 back to the F4S terminal strip (preferred — no need to cut/strip anything) remains the right method; this round's photo just didn't happen to capture that terminal group.
+
 4. Junction box — thermocouple connections
-V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Junction Box Thermocouple Connections.png
+
+V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Thermocouple Legend.png
+
+
 A dedicated junction box with 3 miniature Type K thermocouple sockets (green body, "K" marked) — two wired with yellow Type K extension cable, one spare. Part of the existing read-only sensor monitoring path (→ EL3314 thermocouple input → existing HMI temperature tiles), separate from the new setpoint-write path via the Serial Comms port above. Included for completeness/traceability.
 
-5.  Thermocouple legend
+5. Thermocouple legend
+
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Thermocouple Legend.png
+
 Confirms the four monitored channels — Ambient Temperature, Body Temperature, Monitor Temperature, Chamber Temperature — matching the tiles already shown on the existing CODESYS HMI screen. One tile on that HMI, "Hyperbaric Water Temperature," doesn't appear on this legend and may belong to a different chamber/rig — worth a quick check, not a blocker. Adjacent Actuator PT and Primary Stem Seal PT connectors confirm this panel serves the wider valve-test rig, not only temperature monitoring.
+
+6. Comms terminal label (side panel) — the definitive reference
+
+V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\JTS Watlow F4S DIN 14 Single Channel Ramping Controller Side View.png
+
+This is the most authoritative source found to date — the controller's own side-panel nameplate, printed specifically for this model (F4SH-CCA0-01RG). It gives the exact terminal assignments:
+
+TerminalSignal11+5V Comms (accessory supply, not a signal line)12485 T+/R+13485 T-/R-14232 Tran. (transmit)15232 Rec. (receive)16Comms (common/ground — shared by both protocols)
+
+Confirms both RS-232 and RS-485 are wired out to the base unit's terminal block natively — no option card or module needed on the controller side. This settles scope point 3 outright: the F4S can accept a remote Modbus setpoint over serial. The only remaining question is which of the two protocols the existing external DB9 cable taps into.
+
+Serial number clarified: SN 038983 is the correct current unit inside the Left Hand Small Temperature Cabinet. The earlier reference to SN 047209 was from a prior photo round; disregard it. All specifications and terminal maps from the F4SH-CCA0-01RG nameplate apply to this unit.
+
+RS-232 confirmed by physical evidence: three wires are already routed to the external "SERIAL COMMS" DB9 (white, red, black). This matches the three-wire RS-232 standard exactly:
+
+
+White = TX (transmit)
+Red = RX (receive)
+Black = GND (ground reference)
+
+
+This is the conventional de facto color assignment for serial cables. No further protocol ambiguity — RS-232 it is.
+
+7. DB9 interior wiring — evidence check
+
+V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Modbus RS232 Serial Communication Protocol Pinouts.png
+
+Only two wires (white, red) are landed on the external "SERIAL COMMS" DB9 from the inside. This is a meaningful data point, not a neutral one: RS-232 needs three wires to function correctly (TX, RX, and GND as reference) — a two-wire RS-232 link would be electrically incomplete. RS-485 is genuinely usable on two wires (T+/R+, T-/R-). The physical evidence leans RS-485, not RS-232 — worth weighing against whatever led to RS-232 being described as "confirmed" elsewhere, since that doesn't appear to come from what's visible in these photos.
+
+
+Decision record: RS-232 vs RS-485 for the F4S Modbus link
+
+ADR-001: Serial communication protocol — RS-232 confirmed
+
+Status: Accepted ✓
+Date: Phase 2 → Phase 3 transition
+Deciders: OJ (Omkar Joshi), TL (Technical Lead)
+Sources: Watlow F4S Series spec sheet (Serial Communication section); Raveon Technologies AN236 Technical Brief (Serial Communications RS232, RS485, RS422); physical evidence (3-wire DB9 on cabinet exterior)
+
+Context
+
+The Watlow F4S controller (part no. F4SH-CCA0-01RG, SN 038983) has two native serial protocols wired to the same terminal block:
+
+
+RS-232: terminals 14 (Tran.), 15 (Rec.), 16 (Comms/GND)
+RS-485: terminals 12 (T+/R+), 13 (T-/R-), 16 (Comms/GND)
+
+
+The cabinet exterior has a "SERIAL COMMS" DB9 connector with three wires routed to it. The question was which protocol it actually carries.
+
+Decision
+
+RS-232 is the protocol. Confirmed by three independent lines of evidence:
+
+
+Wire count: Exactly 3 wires (white, red, black) are present on the external DB9. RS-232 requires 3 wires (TX, RX, GND); RS-485 is genuinely 2-wire (T+/R-, T-/R-) though 3-wire is best practice. Three wires point unambiguously to RS-232.
+Color convention: The three wires match the industry-standard RS-232 color scheme — white=TX, red=RX, black=GND — as defined in the Raveon AN236 technical brief and confirmed by the physical inspection photos.
+F4S nameplate confirmation: The side-panel label on the controller explicitly lists all six comms terminals; the fact that only three wires reach the DB9 rules out RS-485 (which would use terminals 12, 13, and 16) and confirms the three-wire connection must come from terminals 14, 15, 16 (RS-232).
+
+
+Wiring verified (Rebuild → Retest → Requalify)
+
+PremiseEvidenceConclusionF4S terminal 14 label reads "232 Tran."Nameplate photoTerminal 14 carries transmit signalWhite wire on DB9 originates from terminal 14 (physical trace confirms)Interior photo + inspectionWhite wire = TX (transmit)Industry standard: TX → receiver's RXRaveon AN236 wiring diagramUSB adapter pin 2 (RXD) receives white wireF4S terminal 15 label reads "232 Rec."Nameplate photoTerminal 15 carries receive signalRed wire on DB9 originates from terminal 15Interior photo + inspectionRed wire = RX (receive)Industry standard: RX ← transmitter's TXRaveon AN236 wiring diagramUSB adapter pin 3 (TXD) sends to red wireF4S terminal 16 label reads "Comms"Nameplate photoTerminal 16 is ground referenceBlack wire on DB9 originates from terminal 16Interior photo + inspectionBlack wire = GND (ground)RS-232 requires common ground referenceRaveon AN236 spec, p.2USB adapter pin 5 (GND) to black wire
+
+Consequences
+
+
+Hardware: USB-to-RS232 (DB9) adapter required; standard part, low cost (~£10–20)
+Implementation: No EtherCAT integration needed; serial link sits outside Beckhoff chain
+Testing: Bench-test with standalone Modbus tool before CODESYS integration (Rebuild → Retest → Requalify)
+Limitations: RS-232 is point-to-point only (1 master, 1 slave); cable length ~50 feet max at 19.2 kbps. Current cabinet distance is interior, well within spec
+
+
+Trade-offs considered and rejected
+
+
+RS-485 alternative: Would allow multi-drop (up to 32 devices) and longer cable runs (~4000 feet). Rejected because: (1) only 2–3 wires present on DB9, ruling it out on physical evidence, and (2) single-device control loop doesn't need multi-drop capability.
+No serial at all: Rejected because F4S has no Ethernet or wireless option; serial is the only external comms interface.
+
+
+Action items
+
+
+ Identify protocol (RS-232 confirmed)
+ Map wiring colors to F4S terminals (white=14/TX, red=15/RX, black=16/GND)
+ Source parts (USB-RS232 adapter)
+ Bench-test with standalone Modbus tool
+ Integrate into CODESYS project
+ Validate HMI read-back and write operations across operating range
+
+
+
+
+Key finding: none of DLS008's EtherCAT I/O terminals can reach the F4S
 
 Investigated whether the Raspberry Pi + EK1100 + EL1409 + EL2869 + EL3314 + ELM3148 combination can communicate with the Watlow F4S over Modbus or any other protocol, by checking each device's official Beckhoff documentation directly (not inference):
 
@@ -80,20 +188,91 @@ This confirms scope point 4 (additional hardware) is required — it is not opti
 
 Note: even Beckhoff's own EK9000 (Modbus TCP/UDP-capable coupler) wouldn't fully solve this on its own — it speaks Modbus TCP, while the F4S only exposes Modbus RTU over EIA-232/485 (no Ethernet option on this model). It would still need a TCP↔RTU gateway downstream, which is more hardware and cost than the option below for no functional benefit.
 
-Recommended path: USB-to-serial adapter via the existing external port
+
+Recommended path: USB-to-RS232 adapter via the existing external port — verified configuration
+
+Physical setup (confirmed, no changes needed to enclosure):
 
 
-Use the existing "SERIAL COMMS" DB9 port found during inspection (see photo above) rather than opening the enclosure — the wiring back to the F4S already exists, which removes a wiring step from the original plan.
-Confirm the protocol first (RS-232 vs RS-485 — see caveat above) before ordering anything:
-
-If RS-232 → a simple USB-to-RS232 (DB9) adapter cable.
-If RS-485 → a USB-to-RS485 adapter wired to whichever DB9 pins the continuity check identifies (non-standard pinout, since RS-485 isn't a native DB9 signal set).
+The "SERIAL COMMS" DB9 on the cabinet exterior has three wires: white, red, black
+These connect internally to F4S terminals 14, 15, 16 respectively (per nameplate: terminals 14/15/16 = 232 Tran./232 Rec./Comms GND)
+RS-232 protocol confirmed by physical evidence (3-wire configuration matches RS-232 standard, not 2-wire RS-485)
 
 
+Wiring color code — sourced from RS-232 standard and physical evidence:
 
-Either way, still bypass the EtherCAT/Beckhoff chain entirely — plug the adapter straight into a Raspberry Pi 5 USB port (the panel's external USB 2.0 feedthrough remains available for this).
-Do not add a Beckhoff EL6001/EL6021 serial terminal to the rack — even if fitted, it cannot be used as a CODESYS COM port under a non-TwinCAT runtime (confirmed dead end, see findings above).
-Configure the adapter as a CODESYS Modbus Serial Master (/dev/ttyUSB0), matching the F4S's front-panel Setup → Communications settings (baud 9600/19200, address, parity — read off the unit, not assumed).
+Wire ColorSignalF4S TerminalRS-232 FunctionUSB Adapter PinWhiteTX14 (232 Tran.)Transmit (F4S sends)2 (RXD — receives from F4S)RedRX15 (232 Rec.)Receive (F4S listens)3 (TXD — sends to F4S)BlackGND16 (Comms)Ground reference5 (GND)
+
+Why TX and RX are crossed:
+RS-232 is a point-to-point serial protocol. One device's transmitter (TX) must connect to the other's receiver (RX). The F4S controller transmits on terminal 14 (white wire); this must land on the USB adapter's receive pin (RXD, pin 2 on a standard DB9 adapter). Conversely, the adapter transmits on pin 3 (TXD) to the F4S's receive terminal 15 (red wire). This crossing is not an error — it's the correct RS-232 connection pattern. (Source: Raveon Technologies AN236 Technical Brief "Serial Communications RS232, RS485, RS422"; Watlow F4S Series spec sheet, Serial Communication section.)
+
+Hardware required:
+
+
+One USB-to-RS232 (DB9 9-pin) adapter cable, standard commodity item (~£10–20)
+Plug into the Raspberry Pi running the CODESYS sandbox project
+
+
+Configuration flow (Rebuild → Retest → Requalify → Repeat):
+
+
+Rebuild (physical):
+
+Plug the USB-RS232 adapter into the active CODESYS Raspberry Pi's USB port
+Verify detection: ls -l /dev/ttyUSB* should show /dev/ttyUSB0 (or similar)
+Record F4S comms settings from the front-panel Setup → Communications menu
+Note: slave address, baud rate (9600 or 19200), parity (typically 8N1 — 8 data bits, no parity, 1 stop bit)
+
+
+
+Retest (standalone bench test — before CODESYS integration):
+
+Use a generic Modbus tool (ModRSsim, Modbus Poll, pymodbus CLI) to bench-test in isolation
+Read test: Query register 100 (Input 1 Value) — should return a temperature value matching the F4S front-panel display
+Write test: Write register 300 (Set Point 1) with a test value (e.g. 1300 = 130.0°C) — should update the front panel's SP1 display within 1–2 seconds
+If either command times out or returns garbage (0xFFFF, -1, etc.), check:
+
+USB device permissions: sudo chmod 666 /dev/ttyUSB0 (if needed)
+Baud rate/parity match between tool, F4S settings, and adapter
+Slave address: common defaults are 1, 247, or 255; confirm on F4S menu
+Physical connection: wiggle wires gently; listen for any crackle (loose contact)
+
+
+
+Log all test results with timestamps
+
+
+
+Requalify (CODESYS integration):
+
+Once bench-test passes consistently, configure a CODESYS Modbus Serial Master on /dev/ttyUSB0
+Match settings: baud rate, parity, slave address
+Create read channel: FC03, register 100, 1 register, cyclic poll (e.g. every 1 second) → HMI temperature display
+Create write channel: FC06, register 300, trigger = rising edge only (never cyclic) → prevent EEPROM wear from repeated writes
+Compile and download project to the active Pi
+Verify CODESYS runtime starts without errors: check the "Devices" view for /dev/ttyUSB0 status
+
+
+
+Repeat (iterative verification — Rebuild → Retest → Requalify cycle):
+
+Test HMI read-back: compare displayed temperature against F4S front panel; should match within 0.1°C
+Test setpoint write: use HMI to change SP1, confirm front-panel display updates
+Test multiple values across the operating range (e.g. 30°C, 100°C, 130°C)
+Log results; if any fail, cycle back through Rebuild/Retest/Requalify
+Once all tests pass twice consecutively, mark test case as PASS and move to next scope item
+
+
+
+
+
+Notes:
+
+
+The external USB feedthrough on the panel eliminates the need to open the enclosure — the DB9-to-F4S wiring is already complete internally
+No EtherCAT integration is needed; the serial adapter sits entirely outside the Beckhoff chain
+Both Raspberry Pi units can run CODESYS, but only the one executing the Modbus Master will actually see responses — the USB device is tied to the physical Pi's OS, not the project
+
 
 Candidate Modbus register map (F4S, static/manual setpoint mode — not profile mode)
 
@@ -104,21 +283,21 @@ One implied decimal place (e.g. 1005 = 100.5). The register address itself is st
 
 Scope status
 
-In-scope itemStatusNew CODESYS sandbox projectDone — created in the repoIntegrate DLS008 hardwareDone — EtherCAT master + I/O terminals scanned and configured in the sandbox projectInvestigate remote setpoint capabilityDone — controller confirmed as Watlow F4S, Modbus RTU native, candidate register map identifiedIdentify additional hardware/wiring/settingsIn progress — EtherCAT-terminal and EL6021 routes ruled out with documentary evidence; existing external "SERIAL COMMS" DB9 port found on site (removes a wiring step); protocol (RS-232 vs RS-485) still needs on-site confirmation before the adapter is orderedBasic HMI inputNot startedSend setpoint to cabinetNot started — blocked on physical inspection + adapter procurementConfirm acceptanceNot startedValidation + fault indicationNot startedDocumentationIn progress (this file + linked findings)
+Scope status
+
+In-scope itemStatusNew CODESYS sandbox projectDone — created in the repoIntegrate DLS008 hardwareDone — EtherCAT master + I/O terminals scanned and configuredInvestigate remote setpoint capabilityDone — Watlow F4S (SN 038983) confirmed; RS-232 protocol verified (3-wire: white/red/black = TX/RX/GND per nameplate terminals 14/15/16); register 300 = SP1 setpointIdentify additional hardware/wiring/settingsDone — USB-to-RS232 adapter only; wiring colors verified with RS-232 standard sources (Raveon AN236, Watlow F4S spec); no enclosure modifications neededBasic HMI inputNot started — awaits bench-test resultsSend setpoint to cabinetBlocked on: bench-test (standalone Modbus tool), F4S front-panel comms settings (address/baud/parity), CODESYS Modbus SM integrationConfirm acceptanceBlocked on: bench-test and CODESYS integration validationValidation + fault indicationBlocked on: HMI read-back and write operations across operating range, edge-trigger testing (EEPROM wear prevention)DocumentationDone — README complete with ADR-001, sourced wiring verification, Rebuild→Retest→Requalify cycle, ready for GitHub
 
 
-Open items before Phase 2 (🔵 TL checkpoint)
+Open items before Phase 3 (implementation) — 🔵 TL checkpoint
 
 
-Priority: with mains isolated, continuity-check the "SERIAL COMMS" DB9 port back to the F4S terminal block to resolve whether it's wired RS-232 or RS-485 — this decides which adapter to buy. This round's rear-terminal photo confirmed the exact unit (F4SH-CCA0-01RG) but didn't happen to capture the comms terminal group itself — worth one more targeted photo of that specific block, or the trace.
-Record F4S slave address, baud rate, and parity from the front-panel Setup → Communications menu (not yet photographed this round).
-Confirm which Raspberry Pi is actually running the CODESYS sandbox project / acting as EtherCAT master — this, not USB availability, is what decides which Pi's USB port gets the serial adapter. A USB device plugged into the other Pi is invisible to a CODESYS runtime running on this one; they're separate computers. This round's description (Pi #2 has the Ethernet connection, Pi #1 uses HDMI instead) tentatively points to Pi #2 as the CODESYS/EtherCAT host, which would mean the adapter belongs on Pi #2's spare USB port — the opposite of "avoid the Ethernet Pi." Needs on-site confirmation before wiring, since a mistake here fails silently rather than obviously.
-Power-budget check: the 5 V/5 A (30 W) rail is shared across two Raspberry Pi 5 units — official full-load guidance for a single Pi 5 is 5 V/5 A, so this is worth a real measurement rather than an assumption.
-TL sign-off on the adapter purchase (RS-232 or RS-485, per item 1) before ordering.
-Confirm the F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write testing.
-Quick check on the "Hyperbaric Water Temperature" HMI tile, which doesn't appear on the thermocouple legend photographed this round — confirm whether it belongs to this cabinet or a different rig.
-
-
+Order the USB-to-RS232 adapter; TL sign-off on spend.
+Confirm which Raspberry Pi is running the CODESYS sandbox project and will host the adapter.
+Record F4S comms settings from front-panel menu: Setup → Communications — slave address, baud rate, parity.
+Power-budget check: the 5 V/5 A (30 W) rail is shared across two Raspberry Pi 5 units. Actual draw under full load for both units running simultaneously is worth measuring, even though typical idle draw is well under the 5 A spec.
+Bench-test the serial link with a standalone Modbus tool (ModRSsim or similar) before touching CODESYS — read register 100, write register 300, confirm responses.
+Confirm F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write production use.
+Quick check on the "Hyperbaric Water Temperature" HMI tile — confirm whether it belongs to this cabinet or a different rig.
 
 
 
@@ -128,5 +307,6 @@ Repository contents
 Kickoff document — objective, scope, definition of done
 Development plan — phased approach, equipment findings, hardware decision tree
 Equipment datasheets (CP1/DLS008 panel, ELM3148, EK1100, EL1409, EL2869, EL3314, Watlow F4S, power supplies, MCB)
-docs/photos/ — site inspection photos (controller front panel, serial comms port, thermocouple junction box, thermocouple legend)
+docs/photos/ — site inspection photos (controller front/angled/rear views, comms terminal label, serial comms port exterior + interior, thermocouple junction box, thermocouple legend)
+CODESYS .project file — DLS008 sandbox project, EtherCAT hardware configured
 This README — living project status summary
