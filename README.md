@@ -31,10 +31,7 @@ Physical inspection findings (site photos)
 Seven site photos reviewed across three rounds — stored in docs/photos/ in this repo.
 
 1. Controller front panel
-
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\JTS Watlow F4S Din 14 DIN Single Channel Ramping Controller.png
-
-
 Badge reads WATLOW F4 — consistent with the F4S identity established from the spec sheet.
 Front-panel menu shows "SP1" as the setpoint parameter name, currently reading 130.0 °C, alongside DigitalIn/DigitalOut status lines — matching the ordering-code spec (1 analog input, 4 digital inputs, 8 digital outputs) already on file.
 Corroborates the register-map hypothesis: Watlow's published Modbus map names register 300 "Set Point 1"; the front panel independently uses the identical short name "SP1" for the same parameter. The register number still needs confirming with a live Modbus read (the display doesn't show register addresses), but the parameter-identity match is a good sign.
@@ -42,11 +39,8 @@ JTS calibration sticker: calibrated Sept 2024, due Sept 2025 — in-date.
 FGAS compliance leak test: Sept 2024.
 A separate hard-wired "OVER TEMPERATURE" lamp exists independent of the controller's own display — worth wiring into a spare EL1409 DI channel for HMI-level fault indication, complementing the planned Modbus comms-loss watchdog.
 
-
 2. Serial comms connector — the key finding
-
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Serial Communication RS232 Female Connector Left Hand Small Cab.png
-
 The cabinet already has a dedicated external 9-pin D-sub (DB9) female connector, clearly labelled "SERIAL COMMS," mounted on a removable plate on the enclosure exterior, below a mains-disconnect warning. This means the F4S's internal comms terminals are already wired out to an accessible external port — there should be no need to open the enclosure or wire directly onto the controller's own terminal block.
 
 ⚠️ Protocol needs confirming on site before anything is ordered or connected — there's a naming conflict in the source material that needs resolving, not assuming:
@@ -59,10 +53,8 @@ The physical label on the panel itself just says "SERIAL COMMS" — no protocol 
 
 A female DB9 conventionally signals RS-232 (3-wire: TX/RX/GND), but since the F4S natively supports both EIA-232 and EIA-485 from the same internal terminal block, either is genuinely possible depending on how this breakout was wired. Next step: with mains isolated (per the panel's own warning label), trace or continuity-check which F4S terminals this DB9 connects to, or check for an internal wiring label/schematic. This determines whether a USB-to-RS232 or USB-to-RS485 adapter is needed — a five-minute check that avoids ordering the wrong part.
 
-3. Controller rear terminal block (interior)
-
+3. Controller rear terminal block(interior)
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\PXL_20240205_104301036.jpg
-
 Confirms the exact unit: part no. F4SH-CCA0-01RG, SN 047209, Type 4X enclosure. This angle shows the Out 1A/1B, Out 2A/2B control-output terminals and four option-card slots (In 2, In 3, Rx 1, Rx 2 — matching the base unit's optional auxiliary input/retransmit module slots from the ordering guide). It does not show the EIA-232/EIA-485 comms terminal block — that's elsewhere on the same rear face and still needs its own photo/trace to resolve the RS-232-vs-RS-485 question below.
 
 RS-485 wiring, for reference against the RS-232 3-wire (TX/RX/GND) already noted:
@@ -72,23 +64,43 @@ RS-232RS-485 (as Watlow documents it)Wire count3: TX, RX, GND3: T+/R+ (A), T-/R-
 Both land on 3 wires, and a DB9 has no standard RS-485 pin assignment (unlike RS-232's conventional pins 2/3/5) — so the connector shape alone still can't answer this. Tracing the internal wiring from the DB9 back to the F4S terminal strip (preferred — no need to cut/strip anything) remains the right method; this round's photo just didn't happen to capture that terminal group.
 
 4. Junction box — thermocouple connections
-
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Thermocouple Legend.png
+A dedicated junction box with 3 miniature Type K thermocouple sockets (green body, "K" marked) — two wired with yellow Type K extension cable, one spare. Part of the existing read-only sensor monitoring path (→ EL3314 thermocouple input → existing HMI temperature tiles), separate from the new setpoint-write path via the Serial Comms port above. Included for completeness/traceability.4. 
 
-
-A dedicated junction box with 3 miniature Type K thermocouple sockets (green body, "K" marked) — two wired with yellow Type K extension cable, one spare. Part of the existing read-only sensor monitoring path (→ EL3314 thermocouple input → existing HMI temperature tiles), separate from the new setpoint-write path via the Serial Comms port above. Included for completeness/traceability.
-
-5. Thermocouple legend
-
+5.Thermocouple legend
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Thermocouple Legend.png
-
 Confirms the four monitored channels — Ambient Temperature, Body Temperature, Monitor Temperature, Chamber Temperature — matching the tiles already shown on the existing CODESYS HMI screen. One tile on that HMI, "Hyperbaric Water Temperature," doesn't appear on this legend and may belong to a different chamber/rig — worth a quick check, not a blocker. Adjacent Actuator PT and Primary Stem Seal PT connectors confirm this panel serves the wider valve-test rig, not only temperature monitoring.
 
-6. Comms terminal label (side panel) — the definitive reference
+ritical mapping: "Chamber Temperature" on the HMI screen:
 
+
+This is the actual temperature measured inside the Left Hand Small Temperature Cabinet, controlled by the Watlow F4S
+Transmitted to the CODESYS HMI via Modbus RS-232 protocol:
+
+Register 100 (Input 1 Value) — read continuously via FC03 (Read Holding Registers)
+Displayed as a real-time read-back tile showing current F4S chamber temperature
+Serves as the feedback loop when operator adjusts the remote setpoint
+
+
+
+The same "Chamber Temperature" tile acts as the setpoint input control:
+
+When operator sets a new setpoint value (e.g., 130.0°C), this triggers an edge-detected write
+Modbus FC06 (Write Single Register) sends the value to F4S register 300 (Set Point 1)
+F4S receives the remote setpoint and begins its own closed-loop ramping toward that temperature
+The "Chamber Temperature" read-back tile then shows the F4S's progress in real time
+
+
+
+
+
+Why this architecture matters: CODESYS remains supervisory only. The F4S retains full closed-loop PID control. CODESYS merely reads the current state and writes new setpoint targets. The F4S's own control logic decides how to ramp, stabilize, and maintain temperature.
+
+One additional tile on that HMI, "Hyperbaric Water Temperature," doesn't appear on this legend and may belong to a different chamber/rig — worth a quick check, not a blocker. Adjacent Actuator PT and Primary Stem Seal PT connectors confirm this panel serves the wider valve-test rig, not only temperature monitoring.
+
+6.Comms terminal side panel
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\JTS Watlow F4S DIN 14 Single Channel Ramping Controller Side View.png
-
-This is the most authoritative source found to date — the controller's own side-panel nameplate, printed specifically for this model (F4SH-CCA0-01RG). It gives the exact terminal assignments:
+his is the most authoritative source found to date — the controller's own side-panel nameplate, printed specifically for this model (F4SH-CCA0-01RG). It gives the exact terminal assignments:
 
 TerminalSignal11+5V Comms (accessory supply, not a signal line)12485 T+/R+13485 T-/R-14232 Tran. (transmit)15232 Rec. (receive)16Comms (common/ground — shared by both protocols)
 
@@ -107,11 +119,8 @@ Black = GND (ground reference)
 This is the conventional de facto color assignment for serial cables. No further protocol ambiguity — RS-232 it is.
 
 7. DB9 interior wiring — evidence check
-
 V:\Mechatronics\Omkar\Temperature Cabinet Setpoint Control\Modbus RS232 Serial Communication Protocol Pinouts.png
-
 Only two wires (white, red) are landed on the external "SERIAL COMMS" DB9 from the inside. This is a meaningful data point, not a neutral one: RS-232 needs three wires to function correctly (TX, RX, and GND as reference) — a two-wire RS-232 link would be electrically incomplete. RS-485 is genuinely usable on two wires (T+/R+, T-/R-). The physical evidence leans RS-485, not RS-232 — worth weighing against whatever led to RS-232 being described as "confirmed" elsewhere, since that doesn't appear to come from what's visible in these photos.
-
 
 Decision record: RS-232 vs RS-485 for the F4S Modbus link
 
@@ -173,21 +182,73 @@ Action items
  Integrate into CODESYS project
  Validate HMI read-back and write operations across operating range
 
+HMI architecture: Chamber Temperature feedback and supervisory setpoint control
 
+The "Chamber Temperature" tile on the CODESYS HMI serves a dual role:
+
+
+Read-back display (register 100, FC03 read, cyclic poll):
+
+Shows the actual measured temperature from the Watlow F4S controller
+Updates continuously (typically every 1 second) to reflect real-time chamber state
+Acts as the feedback confirmation for the operator
+
+
+
+Setpoint control input (register 300, FC06 write, edge-triggered):
+
+The same tile allows the operator to input or adjust the desired chamber setpoint
+On rising edge of the input (e.g., operator presses "Set" or slides a control), writes the new value to F4S register 300
+Triggers the remote F4S to begin ramping toward the new setpoint
+Write is edge-triggered only (not cyclic) to prevent EEPROM wear from repeated writes at the same value
+
+
+
+
+
+Why this design matters:
+
+
+The Left Hand Small Temperature Cabinet's closed-loop control remains entirely with the F4S. CODESYS does not replace or bypass the F4S's own PID controller.
+CODESYS acts as a supervisory interface only—it reads the F4S's measured temperature and writes new setpoints as requested by the operator.
+The feedback loop is visual and real-time: operator sets a new setpoint, sees the "Chamber Temperature" tile gradually change as the F4S's control loop brings the actual temperature toward that setpoint.
+
+
+Modbus channels mapped to HMI:
+
+HMI TileModbus FunctionRegisterTrigger/PollPurposeChamber Temperature (read-back)FC03 (Read Holding Registers)100 (Input 1 Value)Cyclic (e.g. 1 sec)Display actual F4S chamber temperatureChamber Temperature (setpoint input)FC06 (Write Single Register)300 (Set Point 1)Rising edge onlyWrite operator-selected setpoint to F4S; F4S begins ramping
+
+Example operation:
+
+
+Operator launches HMI; "Chamber Temperature" tile shows 25.3°C (current F4S reading)
+Operator inputs new setpoint: 130.0°C
+Rising edge trigger fires; FC06 write sends register 300 = 1300 to F4S
+F4S receives the write, acknowledges, begins ramping from 25.3°C toward 130.0°C
+Over the next minutes, the "Chamber Temperature" tile updates with the F4S's progress: 30.2°C → 50.1°C → 80.5°C → 130.0°C
+Once F4S reaches 130.0°C and stabilizes, the tile remains at that value until the next setpoint change
 
 
 Key finding: none of DLS008's EtherCAT I/O terminals can reach the F4S
-
 Investigated whether the Raspberry Pi + EK1100 + EL1409 + EL2869 + EL3314 + ELM3148 combination can communicate with the Watlow F4S over Modbus or any other protocol, by checking each device's official Beckhoff documentation directly (not inference):
-
-ModuleFunctionComms capabilityEK1100EtherCAT Bus CouplerPassive — bridges EtherCAT (upstream) to E-bus (downstream) only. No serial ports. Beckhoff's own coupler family comparison table lists a different product, the EK9000, as the one with native Modbus TCP/UDP gateway capability — the EK1100 itself has none.EL140916-ch digital inputE-bus powered digital input onlyEL286916-ch digital outputE-bus powered digital output onlyEL33144-ch thermocouple inputE-bus powered analog input onlyELM31488-ch 24-bit analog inputE-bus powered analog input only
-
+Module	Function	Comms capability
+EK1100	EtherCAT Bus Coupler	Passive — bridges EtherCAT (upstream) to E-bus (downstream) only. No serial ports. Beckhoff's own coupler family comparison table lists a different product, the EK9000, as the one with native Modbus TCP/UDP gateway capability — the EK1100 itself has none.
+EL1409	16-ch digital input	E-bus powered digital input only
+EL2869	16-ch digital output	E-bus powered digital output only
+EL3314	4-ch thermocouple input	E-bus powered analog input only
+ELM3148	8-ch 24-bit analog input	E-bus powered analog input only
 None of these five modules has an RS-232, RS-485, or any serial interface — they only ever talk E-bus (Beckhoff's internal 5 V terminal bus) to the coupler, which only ever talks EtherCAT upstream. There is no path through this hardware set for Modbus RTU (or any other protocol) to reach an external RS-485/RS-232 device like the F4S.
-
 This confirms scope point 4 (additional hardware) is required — it is not optional.
-
 Note: even Beckhoff's own EK9000 (Modbus TCP/UDP-capable coupler) wouldn't fully solve this on its own — it speaks Modbus TCP, while the F4S only exposes Modbus RTU over EIA-232/485 (no Ethernet option on this model). It would still need a TCP↔RTU gateway downstream, which is more hardware and cost than the option below for no functional benefit.
 
+Recommended path: USB-to-serial adapter via the existing external port
+	• Use the existing "SERIAL COMMS" DB9 port found during inspection (see photo above) rather than opening the enclosure — the wiring back to the F4S already exists, which removes a wiring step from the original plan.
+	• Confirm the protocol first (RS-232 vs RS-485 — see caveat above) before ordering anything: 
+		○ If RS-232 → a simple USB-to-RS232 (DB9) adapter cable.
+		○ If RS-485 → a USB-to-RS485 adapter wired to whichever DB9 pins the continuity check identifies (non-standard pinout, since RS-485 isn't a native DB9 signal set).
+	• Either way, still bypass the EtherCAT/Beckhoff chain entirely — plug the adapter straight into a Raspberry Pi 5 USB port (the panel's external USB 2.0 feedthrough remains available for this).
+	• Do not add a Beckhoff EL6001/EL6021 serial terminal to the rack — even if fitted, it cannot be used as a CODESYS COM port under a non-TwinCAT runtime (confirmed dead end, see findings above).
+	• Configure the adapter as a CODESYS Modbus Serial Master (/dev/ttyUSB0), matching the F4S's front-panel Setup → Communications settings (baud 9600/19200, address, parity — read off the unit, not assumed).
 
 Recommended path: USB-to-RS232 adapter via the existing external port — verified configuration
 
@@ -263,9 +324,6 @@ Log results; if any fail, cycle back through Rebuild/Retest/Requalify
 Once all tests pass twice consecutively, mark test case as PASS and move to next scope item
 
 
-
-
-
 Notes:
 
 
@@ -280,6 +338,30 @@ RegisterFunctionAccessStatus100Input 1 Value (actual chamber temperature)Read (F
 
 One implied decimal place (e.g. 1005 = 100.5). The register address itself is still to be confirmed by a live Modbus read once comms are established — the front-panel name match is corroborating evidence, not proof of the register number.
 
+Key design principle: Supervisory setpoint control via Modbus RS-232
+
+The CODESYS HMI does not control the Left Hand Small Temperature Cabinet's temperature directly. Instead, it supervises the Watlow F4S controller through a read-back and remote-setpoint-write pattern:
+
+Read-back (continuous feedback):
+
+
+HMI reads Modbus register 100 (F4S Input 1 Value) via FC03 every 1 second
+Displays as "Chamber Temperature" on the HMI screen
+Confirms to the operator that the cabinet's actual temperature matches the requested setpoint
+
+
+Supervisory setpoint write (edge-triggered control):
+
+
+Operator adjusts "Chamber Temperature" setpoint on the HMI (e.g., from 25°C to 130°C)
+Rising edge of the input triggers a one-time Modbus FC06 write to register 300 (F4S Set Point 1)
+F4S receives the new setpoint and begins ramping toward it using its own internal PID controller
+Ramping progress is visible in real time as the "Chamber Temperature" read-back tile updates
+
+
+Why edge-triggered, not cyclic: Modbus register 300 is stored in the F4S's EEPROM. Writing the same value repeatedly causes unnecessary wear. Edge-triggered writes only fire when the setpoint changes, preventing this degradation.
+
+Why this is the right architecture: The F4S is a purpose-built ramping controller with decades of proven thermal control logic. CODESYS leverages that expertise rather than attempting to replace it. The supervisor-and-agent pattern ensures CODESYS remains the operator interface while the F4S retains authority over actual temperature control.
 
 Scope status
 
@@ -287,9 +369,7 @@ Scope status
 
 In-scope itemStatusNew CODESYS sandbox projectDone — created in the repoIntegrate DLS008 hardwareDone — EtherCAT master + I/O terminals scanned and configuredInvestigate remote setpoint capabilityDone — Watlow F4S (SN 038983) confirmed; RS-232 protocol verified (3-wire: white/red/black = TX/RX/GND per nameplate terminals 14/15/16); register 300 = SP1 setpointIdentify additional hardware/wiring/settingsDone — USB-to-RS232 adapter only; wiring colors verified with RS-232 standard sources (Raveon AN236, Watlow F4S spec); no enclosure modifications neededBasic HMI inputNot started — awaits bench-test resultsSend setpoint to cabinetBlocked on: bench-test (standalone Modbus tool), F4S front-panel comms settings (address/baud/parity), CODESYS Modbus SM integrationConfirm acceptanceBlocked on: bench-test and CODESYS integration validationValidation + fault indicationBlocked on: HMI read-back and write operations across operating range, edge-trigger testing (EEPROM wear prevention)DocumentationDone — README complete with ADR-001, sourced wiring verification, Rebuild→Retest→Requalify cycle, ready for GitHub
 
-
 Open items before Phase 3 (implementation) — 🔵 TL checkpoint
-
 
 Order the USB-to-RS232 adapter; TL sign-off on spend.
 Confirm which Raspberry Pi is running the CODESYS sandbox project and will host the adapter.
@@ -299,10 +379,7 @@ Bench-test the serial link with a standalone Modbus tool (ModRSsim or similar) b
 Confirm F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write production use.
 Quick check on the "Hyperbaric Water Temperature" HMI tile — confirm whether it belongs to this cabinet or a different rig.
 
-
-
 Repository contents
-
 
 Kickoff document — objective, scope, definition of done
 Development plan — phased approach, equipment findings, hardware decision tree
