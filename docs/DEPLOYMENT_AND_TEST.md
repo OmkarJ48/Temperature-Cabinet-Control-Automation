@@ -26,7 +26,34 @@ target and read state; we never close the thermal loop.
 
 ## 2. Import the ST into the sandbox project
 
-The POUs are stored as text so they diff in Git. Recreate them inside CODESYS:
+Two ways to get this into the real `.project` — pick whichever suits how far
+along the sandbox already is.
+
+### Option A — PLCopen XML import (fastest, recommended)
+
+`src/PLCopenXML/CabinetSetpointControl.xml` is a standard PLCopen TC6 XML
+export containing both DUTs, both GVLs, `FB_CabinetSetpointControl`, and
+`PLC_PRG` — ready to import directly into the existing sandbox `.project`:
+
+1. Open the sandbox project in CODESYS.
+2. **Project → Import PLCopen XML File...** → select `src/PLCopenXML/CabinetSetpointControl.xml`.
+3. CODESYS creates the DUTs, GVLs, and POUs under **Application**. It will
+   prompt if `PLC_PRG` already exists (it does, empty, in the sandbox) —
+   choose **overwrite/merge** so the imported body replaces the empty stub.
+4. Move the imported POUs into your preferred folder structure if desired —
+   folder placement isn't part of the PLCopen interchange format, only the
+   POUs/DUTs/GVLs themselves are.
+5. Add the **Standard** library (for `R_TRIG` / `TON`) if not already referenced.
+6. **Build** → expect 0 errors, 0 warnings.
+
+A real CODESYS `.project` file is a proprietary binary/compiled format that
+only the CODESYS IDE itself can write — it cannot be authored or validated
+outside the IDE. This PLCopen XML is the legitimate, tool-supported bridge
+from version-controlled text into that binary project.
+
+### Option B — manual paste (if you prefer to see each POU as you create it)
+
+The same code, split out per-POU as plain text so it diffs cleanly in Git:
 
 1. **DUTs** → add two enumerations, paste bodies:
    - `E_SetpointState` ← `src/DUTs/E_SetpointState.dut`
