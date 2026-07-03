@@ -1,0 +1,41 @@
+(*
+    GVL:      GVL_HMI
+    Project:  Temperature Cabinet Setpoint Control from CODESYS HMI
+    Author:   OJ (Omkar Joshi) - Oliver Mechatronics
+    Purpose:  Every tag the WebVisu screen binds to. Keeping the HMI
+              interface in one GVL makes the Visualization wiring obvious
+              and keeps the control logic (FB_CabinetSetpointControl) free
+              of screen concerns.
+
+    WebVisu layout (design guidance handed to the Visualization editor):
+      - Oliver Mechatronics logo, top of screen.
+      - Gear button labelled "Set the cabinet temperature setpoint".
+        The gear opens a pop-up dialog that binds:
+            rReqSetpoint   -> numeric entry (degC)
+            xSetButton     -> "SET" momentary button
+            xResetFault    -> "RESET" momentary button
+      - Chamber Temperature tile   -> rActualTemp (read-back, live)
+      - Confirmed setpoint tile     -> rConfirmedSetpoint
+      - Status banner               -> sStatusText, colour driven by xFault
+*)
+VAR_GLOBAL
+    (* ---- Operator inputs (WebVisu -> logic) ---- *)
+    rReqSetpoint        : REAL := 20.0;   (* Desired setpoint, degC          *)
+    xSetButton          : BOOL;           (* Momentary: apply the setpoint   *)
+    xResetFault         : BOOL;           (* Momentary: clear a latched fault *)
+
+    (* ---- Configurable safe limits (commission-time, editable in HMI) ---- *)
+    rMinSetpoint        : REAL := 0.0;    (* Lower validation bound, degC    *)
+    rMaxSetpoint        : REAL := 200.0;  (* Upper validation bound, degC    *)
+
+    (* ---- Displayed feedback (logic -> WebVisu) ---- *)
+    rActualTemp         : REAL;           (* Live chamber temperature, degC  *)
+    rConfirmedSetpoint  : REAL;           (* Last setpoint the F4S accepted  *)
+    xSetpointConfirmed  : BOOL;           (* TRUE once read-back matches      *)
+    xFault              : BOOL;           (* Any latched fault present        *)
+    eActiveFault        : E_FaultCode;    (* Which fault (for icon/lookup)    *)
+    sStatusText         : STRING(80);     (* Human-readable banner text       *)
+
+    (* ---- Hard-wired cabinet signal (spare EL1409 DI, see README) ---- *)
+    xOverTempLamp       : BOOL;           (* TRUE = OVER TEMPERATURE lamp lit *)
+END_VAR
