@@ -1,0 +1,24 @@
+(*
+    DUT:      E_FaultCode
+    Project:  Temperature Cabinet Setpoint Control from CODESYS HMI
+    Author:   OJ (Omkar Joshi) - Oliver Mechatronics
+    Purpose:  Single, prioritised fault/warning code surfaced to the HMI
+              so the operator sees a clear reason when a setpoint change
+              is refused or the link is unhealthy. Maps directly to the
+              Definition-of-Done requirement:
+                "see a clear warning or fault if the write fails,
+                 communication is lost, or the setpoint is not accepted."
+
+    IEC 61131-3 Structured Text (CODESYS 3.5). Paste into a new DUT
+    of type Enumeration named E_FaultCode.
+*)
+TYPE E_FaultCode :
+(
+    NONE            := 0,   (* Everything healthy                                  *)
+    COMMS_LOSS      := 1,   (* Modbus master link to F4S is down / timing out     *)
+    WRITE_FAILED    := 2,   (* FC06 write reported an error or timed out           *)
+    NOT_ACCEPTED    := 3,   (* Read-back of SP1 did not match commanded value      *)
+    OUT_OF_RANGE    := 4,   (* Requested setpoint outside configured safe limits   *)
+    OVER_TEMP       := 5    (* Cabinet hard-wired OVER TEMPERATURE lamp is active  *)
+) INT;
+END_TYPE
