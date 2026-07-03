@@ -1,0 +1,23 @@
+(*
+    DUT:      E_SetpointState
+    Project:  Temperature Cabinet Setpoint Control from CODESYS HMI
+    Author:   OJ (Omkar Joshi) - Oliver Mechatronics
+    Purpose:  Sequencer states for FB_CabinetSetpointControl.
+              Drives the write -> confirm -> latch flow of a single
+              supervisory setpoint change to the Watlow F4S over Modbus.
+
+    IEC 61131-3 Structured Text (CODESYS 3.5). Paste into a new DUT
+    of type Enumeration named E_SetpointState.
+*)
+TYPE E_SetpointState :
+(
+    INIT        := 0,   (* Power-up / first scan, clear latches            *)
+    IDLE        := 10,  (* Healthy, waiting for operator Set command       *)
+    VALIDATE    := 20,  (* Range-check the requested setpoint              *)
+    WRITE_REQ   := 30,  (* Assert FC06 write trigger to register 300       *)
+    WRITE_WAIT  := 40,  (* Wait for the Modbus write to complete           *)
+    CONFIRM     := 50,  (* Read register 300 back, compare to command      *)
+    CONFIRMED   := 60,  (* Setpoint accepted by cabinet - latched OK        *)
+    FAULT       := 90   (* A fault is latched; requires operator reset     *)
+) INT;
+END_TYPE
