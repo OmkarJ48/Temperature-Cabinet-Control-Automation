@@ -109,6 +109,32 @@
       border-radius: 2px;
     }
 
+    .hmi-header-branding {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .hmi-header-branding svg {
+      display: flex;
+      align-items: center;
+    }
+
+    .hmi-logo-checkmark {
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+    }
+
+    .hmi-logo-main {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
     .hmi-header-back {
       width: 64px;
       height: 64px;
@@ -786,15 +812,25 @@
     <div class="hmi-screen">
       <!-- Header -->
       <div class="hmi-header">
-        <div id="header-logo" class="hmi-header-logo">
-          <div class="hmi-header-logo-dot"></div><div class="hmi-header-logo-dot"></div><div class="hmi-header-logo-dot"></div>
-          <div class="hmi-header-logo-dot"></div><div class="hmi-header-logo-dot"></div><div class="hmi-header-logo-dot"></div>
-          <div class="hmi-header-logo-dot"></div><div class="hmi-header-logo-dot"></div><div class="hmi-header-logo-dot"></div>
+        <!-- Branding (Home Screen) -->
+        <div id="header-branding" class="hmi-header-branding" style="display: flex;">
+          <!-- Checkmark Icon -->
+          <svg class="hmi-logo-checkmark" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="24" cy="24" r="22" fill="none" stroke="#5A6B6D" stroke-width="2"/>
+            <path d="M 16 24 L 21 29 L 32 18" stroke="#5A6B6D" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <!-- Oliver Mechatronics Logo -->
+          <svg class="hmi-logo-main" viewBox="0 0 280 60" xmlns="http://www.w3.org/2000/svg">
+            <text x="0" y="45" font-family="'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="42" font-weight="600" fill="#EE2A24">oliver</text>
+            <text x="135" y="45" font-family="'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="32" font-weight="500" fill="#5A6B6D">mechatronics</text>
+          </svg>
         </div>
+
+        <!-- Navigation (Non-Home Screens) -->
         <button id="header-back" class="hmi-header-back" style="display: none;">
           <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>
         </button>
-        <div class="hmi-header-title">
+        <div id="header-title-section" class="hmi-header-title" style="display: none;">
           <div class="hmi-header-title-main" id="header-title">Left Hand Small Temperature Cabinet</div>
           <div class="hmi-header-title-sub" id="header-subtitle">Omkar Joshi</div>
         </div>
@@ -833,7 +869,14 @@
               <div class="control-value-text setpoint" id="sp-value">25.0 °C</div>
             </div>
           </div>
-          <button id="edit-setpoint-btn" class="hmi-btn hmi-btn-primary">Edit Setpoint</button>
+          <button id="edit-setpoint-btn" class="hmi-btn hmi-btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="3" stroke="#ffffff" stroke-width="2"/>
+              <path d="M12 1V3M12 21V23M23 12H21M3 12H1" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+              <path d="M20.485 3.515L19.071 4.929M4.929 19.071L3.515 20.485M20.485 20.485L19.071 19.071M4.929 4.929L3.515 3.515" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span>Edit Setpoint</span>
+          </button>
         </div>
         <div class="control-sensors-label">OTHER SENSORS · READ-ONLY (EL3314 THERMOCOUPLE INPUT)</div>
         <div class="control-sensors" id="sensor-tiles"></div>
@@ -990,8 +1033,9 @@
       screenHome: document.getElementById('screen-home'),
       screenControl: document.getElementById('screen-control'),
       screenConfigure: document.getElementById('screen-configure'),
-      headerLogo: document.getElementById('header-logo'),
+      headerBranding: document.getElementById('header-branding'),
       headerBack: document.getElementById('header-back'),
+      headerTitleSection: document.getElementById('header-title-section'),
       headerTitle: document.getElementById('header-title'),
       headerSubtitle: document.getElementById('header-subtitle'),
       headerTime: document.getElementById('header-time'),
@@ -1076,10 +1120,9 @@
         ui.screenHome.classList.add('active');
         ui.screenControl.classList.remove('active');
         ui.screenConfigure.classList.remove('active');
-        ui.headerLogo.style.display = 'grid';
+        ui.headerBranding.style.display = 'flex';
         ui.headerBack.style.display = 'none';
-        ui.headerTitle.textContent = 'Left Hand Small Temperature Cabinet';
-        ui.headerSubtitle.textContent = 'Omkar Joshi';
+        ui.headerTitleSection.style.display = 'none';
         ui.btnConfigure.style.background = 'var(--slate)';
         ui.btnControl.style.background = 'var(--slate-600)';
         ui.btnControl.style.color = '#ffffff';
@@ -1088,8 +1131,9 @@
         ui.screenHome.classList.remove('active');
         ui.screenControl.classList.add('active');
         ui.screenConfigure.classList.remove('active');
-        ui.headerLogo.style.display = 'none';
+        ui.headerBranding.style.display = 'none';
         ui.headerBack.style.display = 'flex';
+        ui.headerTitleSection.style.display = 'block';
         ui.headerTitle.textContent = 'Watlow F4S Setpoint Control';
         ui.headerSubtitle.textContent = 'Chamber Temperature';
         ui.btnConfigure.style.background = 'var(--slate-600)';
@@ -1100,8 +1144,9 @@
         ui.screenHome.classList.remove('active');
         ui.screenControl.classList.remove('active');
         ui.screenConfigure.classList.add('active');
-        ui.headerLogo.style.display = 'none';
+        ui.headerBranding.style.display = 'none';
         ui.headerBack.style.display = 'flex';
+        ui.headerTitleSection.style.display = 'block';
         ui.headerTitle.textContent = 'Modbus Configuration';
         ui.headerSubtitle.textContent = 'RS-232 · Modbus RTU';
         ui.btnConfigure.style.background = '#BBC5C5';
