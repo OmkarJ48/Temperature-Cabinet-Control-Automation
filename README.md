@@ -1182,5 +1182,9 @@ You have aligned the physical F4S controller to match the CODESYS device configu
 - Development plan — phased approach, equipment findings, hardware decision tree
 - Equipment datasheets (CP1/DLS008 panel, ELM3148, EK1100, EL1409, EL2869, EL3314, Watlow F4S, power supplies, MCB)
 - `docs/photos/` — site inspection photos (controller front/angled/rear views, comms terminal label, serial comms port exterior + interior, thermocouple junction box, thermocouple legend)
+- `docs/DEPLOYMENT_AND_TEST.md` — CODESYS import guide, Modbus channel config, WebVisu layout, T1–T9 test plan
+- `linux-integration/` — step-by-step guide for the Raspberry Pi ↔ CODESYS ↔ GitHub workflow over remote SSH (device identification, port permissions, `mbpoll` bench test, CODESYS runtime mapping, Git push/pull from the Pi)
+- `mockups/watlow-f4s-setpoint-hmi.html` — self-contained HTML/CSS/JS HMI mockup with embedded Oliver Mechatronics branding
+- `src/` — Structured Text POUs, DUTs, GVLs, and PLCopen XML import for `FB_CabinetSetpointControl`
 - CODESYS `.project` file — DLS008 sandbox project, EtherCAT hardware configured
 - This README — living project status summary
