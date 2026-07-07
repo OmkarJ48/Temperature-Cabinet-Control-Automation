@@ -7,8 +7,8 @@
 #
 # Usage: ./bench-test-modbus.sh [device] [baud] [register] [slave]
 #   device:   /dev/ttyUSB0 (default)
-#   baud:     19200 (default) — confirm against the F4S front panel first; the root
-#             README and docs/DEPLOYMENT_AND_TEST.md currently disagree (9600 vs 19200)
+#   baud:     19200 (default) — confirmed F4S setting per root README; re-verify against
+#             the front panel (Setup -> Communications -> Baud Rate) if this still times out
 #   register: 100 (default) = Input 1 Value, read-only, FC03
 #   slave:    1 (default) — confirm on F4S Setup -> Communications if this fails
 set -euo pipefail
