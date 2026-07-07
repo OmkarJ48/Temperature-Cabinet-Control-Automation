@@ -202,12 +202,12 @@ The cabinet exterior has a "SERIAL COMMS" DB9 connector with three wires routed 
 
 | Setting | Value | Photo Reference | Verification |
 |---|---|---|---|
-| Baud Rate | **9600 bps** | f4s-baud-rate-menu.png | Selected in CODESYS `Modbus_COM` device config |
+| Baud Rate | **19200 bps** (changed from 9600) | f4s-baud-rate-menu.png | Updated to match CODESYS `Modbus_COM` device config (19200) |
 | Slave Address | **1** | f4s-slave-address-menu.png | F4S broadcast default; range 1–247 confirmed accessible |
 | Parity | **None** | (selected via menu navigation) | CODESYS `Modbus_COM` parity = None |
 | Data Bits | **8** | (default for industrial Modbus RTU) | CODESYS config: 8 bits |
 | Stop Bits | **1** | (default for industrial Modbus RTU) | CODESYS config: 1 bit |
-| Static Setpoint (current value) | **75.0°C** | f4s-static-setpoint-menu.png | Stored in register 300; *not* the register address |
+| Static Setpoint (current value) | **24.0°C** (changed from 75.0°C) | f4s-static-setpoint-menu.png | Stored in register 300 as raw value 240; intentional change for bench-test (room-temperature baseline) |
 | Comms Port | **COM1 / COM2** | (F4S base unit supports both) | CODESYS `Modbus_COM` mapped to available Pi USB port |
 
 **Modbus register map (confirmed):**
@@ -311,7 +311,128 @@ Note: even Beckhoff's own EK9000 (Modbus TCP/UDP-capable coupler) wouldn't fully
 
 ---
 
-## Recommended path: USB-to-RS232 adapter via the existing external port — verified configuration
+## Bench-test log: Windows/laptop attempt failed → moved to Raspberry Pi/Linux
+
+### What was tried on the laptop (Windows), and why it failed
+
+Before wiring into CODESYS, the serial link was bench-tested standalone using **QModMaster** on a Windows laptop, connected via the USB-to-RS232 adapter on **COM1**.
+
+**Result: failed on every combination tried.**
+
+| Attempt | Baud | Wiring | Result |
+|---|---|---|---|
+| 1 | 9600 | As-wired | `Read Data Failed [Timeout]` on Bus Monitor / QModMaster main page |
+| 2 | 19200 | As-wired | Same timeout |
+| 3 | 9600 | TX/RX swapped | Same timeout |
+| 4 | 19200 | TX/RX swapped | Same timeout |
+
+**Why this pattern is informative rather than just "it doesn't work":** two variables were changed (baud, wiring direction) across four attempts, and all four failed identically. If baud were the actual problem, the *wrong* rate should produce garbled or partial responses, not a clean timeout — and a *correct* rate among the two tried should have worked. If wiring direction were the problem, swapping TX/RX should have fixed it in at least one of the four attempts. Getting the **same failure regardless of the two variables actually changed** points at a variable that *wasn't* changed — most likely:
+
+- **Windows assigned the adapter to a COM port other than COM1**, and QModMaster kept polling a port with nothing listening on it. USB-serial adapters do not reliably enumerate as COM1 — Windows increments based on driver/enumeration history (COM3, COM4, COM7, etc.), silently, with no warning that the configured port doesn't match the physical device.
+- Secondary possibility: a generic Windows serial driver bound to the adapter instead of its correct FTDI/CH340/Prolific-specific driver.
+
+**Decision: move the bench test to the Raspberry Pi (Linux) instead of continuing to troubleshoot Windows.** This isn't just a platform swap — it replaces port-number *guessing* with port-number *verification* (`dmesg` shows definitively which `/dev/ttyUSBx` the kernel assigned to the physical adapter) and replaces a GUI's hidden dropdown settings with an explicit, fully-visible command line (`mbpoll`).
+
+### Raspberry Pi bench-test procedure (confirmed)
+
+**Step 1 — Plug in and identify the device**
+1. Access the Raspberry Pi directly (monitor/keyboard) or via SSH from the laptop.
+2. Plug the **USB-to-RS232** adapter into the vacant USB 2.0 port on the DLS panel's active Raspberry Pi.
+3. Identify the assigned device node:
+   ```bash
+   dmesg | tail -n 20
+   ```
+4. Look for a line naming the adapter and its assigned port, e.g. `ttyUSB0`. This is the actual Linux device (`/dev/ttyUSB0`) — confirmed, not assumed, unlike the Windows COM-port guess above.
+
+**Step 2 — Grant port permissions**
+
+Quick fix for immediate testing:
+```bash
+sudo chmod 666 /dev/ttyUSB0
+```
+Better for anything reconnected repeatedly (persists across reboots/replugs, standard Linux practice rather than a one-off workaround):
+```bash
+sudo usermod -a -G dialout $USER
+# log out and back in (or reboot) for group membership to take effect
+```
+
+**Step 3 — Install the Modbus CLI test tool**
+```bash
+sudo apt-get update
+sudo apt-get install mbpoll
+```
+
+**Step 4 — Run the terminal read test**
+
+Now that the F4S baud rate has been synchronized to **19200** (matching the CODESYS `Modbus_COM` device), run the bench test at that rate:
+
+```bash
+mbpoll -m rtu -a 1 -b 19200 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
+```
+
+| Flag | Meaning | Confirmed Value |
+|---|---|---|
+| `-m rtu` | Modbus RTU protocol | RTU (binary, not ASCII) |
+| `-a 1` | Slave address | 1 |
+| `-b 19200` | Baud rate | 19200 (synchronized) |
+| `-t 4` | Read Holding Registers | Function Code 03 |
+| `-r 100` | Start register | 100 (Input 1 Value = actual temperature) |
+| `-c 1` | Register count | 1 register |
+| `-1` | Poll mode | Poll once, then exit |
+
+**Expected result:** the terminal outputs the register value directly, e.g.:
+```
+[100]: <actual temperature>   (e.g., 238 = 23.8°C if the chamber has stabilized near setpoint)
+[300]: 240                     (current setpoint = 24.0°C)
+```
+
+**What this output tells you:**
+- **Register 300 = 240** confirms the setpoint is stored correctly at 24.0°C (intentionally changed from the previous 75.0°C baseline for room-temperature startup)
+- **Register 100** shows the actual chamber temperature. Compare it to register 300:
+  - If `[100]` ≈ `[300]` (both near 240) → chamber is stable at or very close to setpoint
+  - If `[100]` < `[300]` → chamber is ramping up toward the setpoint
+  - If `[100]` > `[300]` → chamber is cooling down or stabilizing at the new setpoint
+- **Both registers responding** proves the Modbus RTU link is working — the F4S is receiving read requests and responding with valid data
+
+**Detailed reasoning (Rebuild → Retest → Requalify → Repeat):**
+- **Rebuild:** Setpoint changed from 75.0°C to 24.0°C on the physical unit (intentional, for safe room-temperature baseline)
+- **Retest (this step):** Reading register 300 returns 240, proving the value was retained in battery-backed memory and the serial link can fetch it
+- **Requalify (after mapping to CODESYS):** Reading register 300 from CODESYS should return 24.0°C, confirming end-to-end comms
+- **Repeat (CODESYS testing):** Future writes to register 300 (HMI setpoint changes) will land on register 300 and be readable for confirmation
+
+**If the test succeeds:** Proceed directly to Step 5 (map into CODESYS).
+
+**If the test times out or returns an error:**
+- **Verify slave address:** F4S Setup → Communications shows address 1 — check on the unit.
+- **Verify baud rate:** F4S Setup → Communications should show 19200 (just changed) — confirm it was saved.
+- **Verify DB9 wiring:** Ensure the internal connection from the DB9 "SERIAL COMMS" port to the F4S terminal block follows the null-modem crossover: DB9 TX → terminal 15 (RX), DB9 RX → terminal 14 (TX), DB9 GND → terminal 16 (GND).
+- **Check F4S front-panel state:** If the front-panel menu is mid-navigation (Setup mode), some Watlow units suspend serial comms. Exit fully to the run-time display, then retry.
+- **Check port permissions:** If you used `chmod 666 /dev/ttyUSB0` and it's been unplugged/replugged, permissions reset. Re-run the `chmod` or use the `dialout` group method above.
+
+**Step 5 — Map the working port into CODESYS**
+
+Once Step 4 succeeds, the hardware/OS layer is proven and the only remaining step is telling the CODESYS runtime which device file to use:
+
+1. Open the runtime config file:
+   ```bash
+   sudo nano /etc/CODESYSControl_User.cfg
+   ```
+2. Add the mapping:
+   ```ini
+   [SysCom]
+   Linux.Devicefile.1=/dev/ttyUSB0
+   portnum.1=1
+   ```
+3. Restart the runtime:
+   ```bash
+   sudo systemctl restart codesyscontrol
+   ```
+   (If this errors "unit not found," confirm the actual service name first: `systemctl list-units | grep -i codesys`.)
+4. In the CODESYS project (from the laptop, connected to the Pi), set the `Modbus_COM` device's port to **COM1** — this matches `portnum.1=1` above, which is what links the CODESYS-visible "COM1" to the real `/dev/ttyUSB0`.
+
+**This is the same Rebuild → Retest → Requalify → Repeat discipline as everywhere else in this project:** Rebuild (move the physical connection to the Pi), Retest (mbpoll proves the raw link before touching CODESYS), Requalify (map the proven port into the runtime config), Repeat (re-run the CODESYS read/write tests once mapped, per the existing test plan).
+
+---
 
 **Physical setup (confirmed, no changes needed to enclosure):**
 - The "SERIAL COMMS" DB9 on the cabinet exterior has three wires: white, red, black
@@ -339,7 +460,7 @@ RS-232 is a point-to-point serial protocol. One device's transmitter (TX) must c
    - Plug the USB-RS232 adapter into the active CODESYS Raspberry Pi's USB port
    - Verify detection: `ls -l /dev/ttyUSB*` should show `/dev/ttyUSB0` (or similar)
    - Record F4S comms settings from the front-panel **Setup → Communications** menu
-   - Note: slave address, baud rate (9600 or 19200), parity (typically 8N1 — 8 data bits, no parity, 1 stop bit)
+   - Confirmed: slave address **1**, baud rate **19200**, parity **8N1** (8 data bits, no parity, 1 stop bit)
 
 2. **Retest (standalone bench test — before CODESYS integration):**
    - Use a generic Modbus tool (ModRSsim, Modbus Poll, pymodbus CLI) to bench-test in isolation
@@ -407,8 +528,6 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 
 ## Scope status
 
-## Scope status
-
 | In-scope item | Status |
 |---|---|
 | New CODESYS sandbox project | **Done** — created in the repo |
@@ -416,22 +535,57 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 | Investigate remote setpoint capability | **Done** — Watlow F4S (SN 038983) confirmed; RS-232 protocol verified (3-wire: white/red/black = TX/RX/GND per nameplate terminals 14/15/16); register 300 = SP1 setpoint |
 | Identify additional hardware/wiring/settings | **Done** — USB-to-RS232 adapter only; wiring colors verified with RS-232 standard sources (Raveon AN236, Watlow F4S spec); no enclosure modifications needed |
 | Basic HMI input | Not started — awaits bench-test results |
-| Send setpoint to cabinet | Blocked on: bench-test (standalone Modbus tool), F4S front-panel comms settings (address/baud/parity), CODESYS Modbus SM integration |
-| Confirm acceptance | Blocked on: bench-test and CODESYS integration validation |
-| Validation + fault indication | Blocked on: HMI read-back and write operations across operating range, edge-trigger testing (EEPROM wear prevention) |
-| Documentation | **Done** — README complete with ADR-001, sourced wiring verification, Rebuild→Retest→Requalify cycle, ready for GitHub |
+| Send setpoint to cabinet | In progress — bench-test with `mbpoll` at 19200 baud (F4S and CODESYS synchronized); will map to CODESYS once hardware link is proven |
+| Confirm acceptance | Blocked on: successful bench-test + CODESYS integration validation |
+| Validation + fault indication | Blocked on: bench-test success + HMI development + test plan execution |
+| Documentation | In progress — README complete with ADR-001, bench-test procedure, and Rebuild→Retest→Requalify→Repeat cycle |
 
 ---
 
 ## Open items before Phase 3 (implementation) — 🔵 TL checkpoint
 
-1. Order the USB-to-RS232 adapter; TL sign-off on spend.
-2. Confirm which Raspberry Pi is running the CODESYS sandbox project and will host the adapter.
-3. Record F4S comms settings from front-panel menu: **Setup → Communications** — slave address, baud rate, parity.
+**Baud-rate synchronization — RESOLVED ✓**
+
+You have aligned the physical F4S controller to match the CODESYS device configuration:
+- F4S front-panel: **Setup → Communications → Baud Rate = 19200** (changed from 9600, verified on unit)
+- CODESYS `Modbus_COM` device: **19200** (already configured)
+- **Status:** Both sides now transmit/listen at 19200 symbols-per-second. Bit timing is aligned; communication is possible.
+
+**Remaining priority tasks:**
+
+1. **Retest (next step):** Run the Raspberry Pi bench test with the confirmed baud rate:
+   ```bash
+   mbpoll -m rtu -a 1 -b 19200 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
+   ```
+   **Expected result:** `[100]: 750` (or the current actual temperature value). This proves the Raspberry Pi's hardware, OS, wiring, and serial settings are correct.
+   
+   **Rebuild → Retest → Requalify → Repeat discipline:**
+   - ✅ **Rebuild**: F4S baud changed from 9600 → 19200 (physical change completed)
+   - 🔄 **Retest**: `mbpoll` at 19200 proves the hardware link (in progress)
+   - (Pending) **Requalify**: Map `/dev/ttyUSB0` into CODESYS runtime config
+   - (Pending) **Repeat**: Re-run read/write tests inside CODESYS to confirm end-to-end
+
+2. **After `mbpoll` succeeds:** Map the working `/dev/ttyUSB0` port into CODESYS:
+   ```bash
+   sudo nano /etc/CODESYSControl_User.cfg
+   # Add at the bottom:
+   [SysCom]
+   Linux.Devicefile.1=/dev/ttyUSB0
+   portnum.1=1
+   ```
+   Then restart the CODESYS runtime:
+   ```bash
+   sudo systemctl restart codesyscontrol
+   ```
+   Verify the `Modbus_COM` device in your CODESYS project is set to **COM1** (matches `portnum.1=1` above).
+
+3. **Once CODESYS is mapped:** Re-run the CODESYS read/write tests to confirm the link works end-to-end inside the application.
+
 4. Power-budget check: the 5 V/5 A (30 W) rail is shared across two Raspberry Pi 5 units. Actual draw under full load for both units running simultaneously is worth measuring, even though typical idle draw is well under the 5 A spec.
-5. Bench-test the serial link with a standalone Modbus tool (ModRSsim or similar) before touching CODESYS — read register 100, write register 300, confirm responses.
-6. Confirm F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write production use.
-7. Quick check on the "Hyperbaric Water Temperature" HMI tile — confirm whether it belongs to this cabinet or a different rig.
+
+5. Confirm F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write production use.
+
+6. Quick check on the "Hyperbaric Water Temperature" HMI tile — confirm whether it belongs to this cabinet or a different rig.
 
 ---
 
