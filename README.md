@@ -3,7 +3,7 @@
 Develop a safe and reliable method of allowing an operator to change the setpoint of the selected temperature cabinet from a CODESYS HMI. The cabinet keeps its own closed-loop control at all times — CODESYS provides **supervisory setpoint control only**, never a replacement control loop.
 
 **Owner:** Omkar Joshi (OJ) — Oliver Valvetek / Oliver Mechatronics / Oliver R&D  
-**Status:** Phase 2 → Phase 3 (Rebuild, Retest, Requalify & Repeat) — CODESYS sandbox created, DLS008 hardware integrated, RS-232 serial protocol confirmed with verified wiring; ready for USB adapter procurement and bench-test
+**Status:** Phase 2 → Phase 3 (Rebuild, Retest, Requalify & Repeat) — CODESYS sandbox created, DLS008 hardware integrated, RS-232 serial protocol confirmed with verified wiring; Raspberry Pi ↔ F4S serial link **bench-tested and proven** (`mbpoll`, register 100 read matches front panel); next: map into CODESYS (Requalify phase — see `codesys-integration/README.md`)
 
 ---
 
@@ -249,12 +249,13 @@ Application
 
 **Key CODESYS device parameters (Modbus_COM):**
 - **Port:** `/dev/ttyUSB0` (USB-to-RS232 adapter on Raspberry Pi 5)
-- **Baud Rate:** 9600 (matches F4S setting)
+- **Baud Rate:** 19200 (matches F4S setting — changed from an earlier 9600 reading)
 - **Parity:** None
 - **Data Bits:** 8
 - **Stop Bits:** 1
 - **Transmission Mode:** RTU (raw binary, not ASCII)
 - **Bus Cycle Task:** Parent bus cycle (synchronized with MainTask)
+- **Channel addressing:** 0-based (PDU) — confirmed via on-hardware testing. Set the channel **Offset** field to the register number directly (`100`, `300`), not `99`/`299` — see `codesys-integration/README.md` for the full explanation
 
 ---
 
@@ -312,6 +313,16 @@ Note: even Beckhoff's own EK9000 (Modbus TCP/UDP-capable coupler) wouldn't fully
 ---
 
 ## Progress Checkpoint: Rebuild Phase Complete → Retest Phase Executing
+
+> 📜 **This section (through "Raspberry Pi bench-test procedure" below) is the historical
+> debugging log** — it records the actual troubleshooting journey (Windows COM-port dead end →
+> parity mismatch → TX/RX wiring swap → confirmed working link) and is kept for traceability.
+> **For the current, confirmed, step-by-step procedure to follow, use:**
+> - [`linux-integration/README.md`](linux-integration/README.md) — Raspberry Pi/Linux OS layer (device ID, permissions, `mbpoll` bench test)
+> - [`codesys-integration/README.md`](codesys-integration/README.md) — CODESYS runtime + device tree configuration
+> - [`remote-ssh-vscode/README.md`](remote-ssh-vscode/README.md) — VS Code Remote-SSH + GitHub workflow
+>
+> or the consolidated "[Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub](#linux--raspberry-pi--codesys--github--remote-ssh-integration)" section further down this same README. Two confirmed facts from this debugging history that the canonical procedure already incorporates: (1) the F4S needed **both** a parity-flag fix (`-P none`) **and** a physical **TX/RX wiring swap** at the terminal block — fixing one without the other still timed out; (2) Modbus register addressing on this link is **0-based (PDU)** — `mbpoll` needs `-0`, and CODESYS channel offsets are set to the register number directly (`100`, `300`), not `99`/`299`.
 
 **Date/Time:** Phase transition to Retest (bench-test execution)  
 **Status:** Ready to prove hardware serial link works independently of CODESYS
@@ -920,330 +931,74 @@ Diagnostic reasoning:
 
 **Decision: move the bench test to the Raspberry Pi (Linux) instead of continuing to troubleshoot Windows.** This isn't just a platform swap — it replaces port-number *guessing* with port-number *verification* (`dmesg` shows definitively which `/dev/ttyUSBx` the kernel assigned to the physical adapter) and replaces a GUI's hidden dropdown settings with an explicit, fully-visible command line (`mbpoll`).
 
-### Raspberry Pi bench-test procedure (confirmed)
+### Raspberry Pi bench-test procedure — confirmed final command
 
-**Step 1 — Plug in and identify the device**
-1. Access the Raspberry Pi directly (monitor/keyboard) or via SSH from the laptop.
-2. Plug the **USB-to-RS232** adapter into the vacant USB 2.0 port on the DLS panel's active Raspberry Pi.
-3. Identify the assigned device node:
-   ```bash
-   dmesg | tail -n 20
-   ```
-4. Look for a line naming the adapter and its assigned port, e.g. `ttyUSB0`. This is the actual Linux device (`/dev/ttyUSB0`) — confirmed, not assumed, unlike the Windows COM-port guess above.
+> An earlier version of this section showed a bench-test command missing both fixes discovered
+> during troubleshooting (`-P none` for parity, `-0` for 0-based/PDU register addressing) and a
+> large duplicated block of wiring/config notes already covered elsewhere in this README. Both
+> have been condensed here; the full step-by-step walkthrough (permissions, `dmesg`, `mbpoll`
+> install, troubleshooting table) now lives in `linux-integration/README.md` so it isn't
+> maintained in two places.
 
-**Step 2 — Grant port permissions**
-
-Quick fix for immediate testing:
-```bash
-sudo chmod 666 /dev/ttyUSB0
-```
-Better for anything reconnected repeatedly (persists across reboots/replugs, standard Linux practice rather than a one-off workaround):
-```bash
-sudo usermod -a -G dialout $USER
-# log out and back in (or reboot) for group membership to take effect
-```
-
-**Step 3 — Install the Modbus CLI test tool**
-```bash
-sudo apt-get update
-sudo apt-get install mbpoll
-```
-
-**Step 4 — Run the terminal read test**
-
-Now that the F4S baud rate has been synchronized to **19200** (matching the CODESYS `Modbus_COM` device), run the bench test at that rate:
+**Confirmed working command** (both fixes applied — parity **and** 0-based addressing):
 
 ```bash
-mbpoll -m rtu -a 1 -b 19200 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
 ```
 
-| Flag | Meaning | Confirmed Value |
-|---|---|---|
-| `-m rtu` | Modbus RTU protocol | RTU (binary, not ASCII) |
-| `-a 1` | Slave address | 1 |
-| `-b 19200` | Baud rate | 19200 (synchronized) |
-| `-t 4` | Read Holding Registers | Function Code 03 |
-| `-r 100` | Start register | 100 (Input 1 Value = actual temperature) |
-| `-c 1` | Register count | 1 register |
-| `-1` | Poll mode | Poll once, then exit |
+**Confirmed result:** `[100]: 232` → 23.2°C, matching the F4S front-panel display exactly. This
+proves the wiring (post TX/RX-swap correction), baud (19200), parity (None/8N1), slave address
+(1), and register addressing (0-based/PDU) are all correct — the Raspberry Pi ↔ F4S serial link
+is fully proven, independent of CODESYS.
 
-**Expected result:** the terminal outputs the register value directly, e.g.:
-```
-[100]: <actual temperature>   (e.g., 238 = 23.8°C if the chamber has stabilized near setpoint)
-[300]: 240                     (current setpoint = 24.0°C)
-```
-
-**What this output tells you:**
-- **Register 300 = 240** confirms the setpoint is stored correctly at 24.0°C (intentionally changed from the previous 75.0°C baseline for room-temperature startup)
-- **Register 100** shows the actual chamber temperature. Compare it to register 300:
-  - If `[100]` ≈ `[300]` (both near 240) → chamber is stable at or very close to setpoint
-  - If `[100]` < `[300]` → chamber is ramping up toward the setpoint
-  - If `[100]` > `[300]` → chamber is cooling down or stabilizing at the new setpoint
-- **Both registers responding** proves the Modbus RTU link is working — the F4S is receiving read requests and responding with valid data
-
-**Detailed reasoning (Rebuild → Retest → Requalify → Repeat):**
-- **Rebuild:** Setpoint changed from 75.0°C to 24.0°C on the physical unit (intentional, for safe room-temperature baseline)
-- **Retest (this step):** Reading register 300 returns 240, proving the value was retained in battery-backed memory and the serial link can fetch it
-- **Requalify (after mapping to CODESYS):** Reading register 300 from CODESYS should return 24.0°C, confirming end-to-end comms
-- **Repeat (CODESYS testing):** Future writes to register 300 (HMI setpoint changes) will land on register 300 and be readable for confirmation
-
-**If the test succeeds:** Proceed directly to Step 5 (map into CODESYS).
-
-**If the test times out or returns an error:**
-- **Verify slave address:** F4S Setup → Communications shows address 1 — check on the unit.
-- **Verify baud rate:** F4S Setup → Communications should show 19200 (just changed) — confirm it was saved.
-- **Verify DB9 wiring:** Ensure the internal connection from the DB9 "SERIAL COMMS" port to the F4S terminal block follows the null-modem crossover: DB9 TX → terminal 15 (RX), DB9 RX → terminal 14 (TX), DB9 GND → terminal 16 (GND).
-- **Check F4S front-panel state:** If the front-panel menu is mid-navigation (Setup mode), some Watlow units suspend serial comms. Exit fully to the run-time display, then retry.
-- **Check port permissions:** If you used `chmod 666 /dev/ttyUSB0` and it's been unplugged/replugged, permissions reset. Re-run the `chmod` or use the `dialout` group method above.
-
-**Step 5 — Map the working port into CODESYS**
-
-Once Step 4 succeeds, the hardware/OS layer is proven and the only remaining step is telling the CODESYS runtime which device file to use:
-
-1. Open the runtime config file:
-   ```bash
-   sudo nano /etc/CODESYSControl_User.cfg
-   ```
-2. Add the mapping:
-   ```ini
-   [SysCom]
-   Linux.Devicefile.1=/dev/ttyUSB0
-   portnum.1=1
-   ```
-3. Restart the runtime:
-   ```bash
-   sudo systemctl restart codesyscontrol
-   ```
-   (If this errors "unit not found," confirm the actual service name first: `systemctl list-units | grep -i codesys`.)
-4. In the CODESYS project (from the laptop, connected to the Pi), set the `Modbus_COM` device's port to **COM1** — this matches `portnum.1=1` above, which is what links the CODESYS-visible "COM1" to the real `/dev/ttyUSB0`.
-
-**This is the same Rebuild → Retest → Requalify → Repeat discipline as everywhere else in this project:** Rebuild (move the physical connection to the Pi), Retest (mbpoll proves the raw link before touching CODESYS), Requalify (map the proven port into the runtime config), Repeat (re-run the CODESYS read/write tests once mapped, per the existing test plan).
-
----
-
-**Physical setup (confirmed, no changes needed to enclosure):**
-- The "SERIAL COMMS" DB9 on the cabinet exterior has three wires: white, red, black
-- These connect internally to **F4S terminals 14, 15, 16** respectively (per nameplate: terminals 14/15/16 = 232 Tran./232 Rec./Comms GND)
-- **RS-232 protocol confirmed** by physical evidence (3-wire configuration matches RS-232 standard, not 2-wire RS-485)
-
-**Wiring color code — sourced from RS-232 standard and physical evidence:**
-
-| Wire Color | Signal | F4S Terminal | RS-232 Function | USB Adapter Pin |
-|---|---|---|---|---|
-| **White** | TX | 14 (232 Tran.) | Transmit (F4S sends) | 2 (RXD — receives from F4S) |
-| **Red** | RX | 15 (232 Rec.) | Receive (F4S listens) | 3 (TXD — sends to F4S) |
-| **Black** | GND | 16 (Comms) | Ground reference | 5 (GND) |
-
-**Why TX and RX are crossed:**
-RS-232 is a point-to-point serial protocol. One device's transmitter (TX) must connect to the other's receiver (RX). The F4S controller transmits on terminal 14 (white wire); this must land on the USB adapter's receive pin (RXD, pin 2 on a standard DB9 adapter). Conversely, the adapter transmits on pin 3 (TXD) to the F4S's receive terminal 15 (red wire). This crossing is not an error — it's the correct RS-232 connection pattern. (Source: Raveon Technologies AN236 Technical Brief "Serial Communications RS232, RS485, RS422"; Watlow F4S Series spec sheet, Serial Communication section.)
-
-**Hardware required:**
-- One USB-to-RS232 (DB9 9-pin) adapter cable, standard commodity item (~£10–20)
-- Plug into the Raspberry Pi running the CODESYS sandbox project
-
-**Configuration flow (Rebuild → Retest → Requalify → Repeat):**
-
-1. **Rebuild (physical):**
-   - Plug the USB-RS232 adapter into the active CODESYS Raspberry Pi's USB port
-   - Verify detection: `ls -l /dev/ttyUSB*` should show `/dev/ttyUSB0` (or similar)
-   - Record F4S comms settings from the front-panel **Setup → Communications** menu
-   - Confirmed: slave address **1**, baud rate **19200**, parity **8N1** (8 data bits, no parity, 1 stop bit)
-
-2. **Retest (standalone bench test — before CODESYS integration):**
-   - Use a generic Modbus tool (ModRSsim, Modbus Poll, pymodbus CLI) to bench-test in isolation
-   - **Read test:** Query register 100 (Input 1 Value) — should return a temperature value matching the F4S front-panel display
-   - **Write test:** Write register 300 (Set Point 1) with a test value (e.g. 1300 = 130.0°C) — should update the front panel's SP1 display within 1–2 seconds
-   - If either command times out or returns garbage (0xFFFF, -1, etc.), check:
-     - USB device permissions: `sudo chmod 666 /dev/ttyUSB0` (if needed)
-     - Baud rate/parity match between tool, F4S settings, and adapter
-     - Slave address: common defaults are 1, 247, or 255; confirm on F4S menu
-     - Physical connection: wiggle wires gently; listen for any crackle (loose contact)
-   - Log all test results with timestamps
-
-3. **Requalify (CODESYS integration):**
-   - Once bench-test passes consistently, configure a CODESYS Modbus Serial Master on `/dev/ttyUSB0`
-   - Match settings: baud rate, parity, slave address
-   - Create read channel: FC03, register 100, 1 register, cyclic poll (e.g. every 1 second) → HMI temperature display
-   - Create write channel: FC06, register 300, trigger = rising edge only (never cyclic) → prevent EEPROM wear from repeated writes
-   - Compile and download project to the active Pi
-   - Verify CODESYS runtime starts without errors: check the "Devices" view for `/dev/ttyUSB0` status
-
-4. **Repeat (iterative verification — Rebuild → Retest → Requalify cycle):**
-   - Test HMI read-back: compare displayed temperature against F4S front panel; should match within 0.1°C
-   - Test setpoint write: use HMI to change SP1, confirm front-panel display updates
-   - Test multiple values across the operating range (e.g. 30°C, 100°C, 130°C)
-   - Log results; if any fail, cycle back through Rebuild/Retest/Requalify
-   - Once all tests pass twice consecutively, mark test case as **PASS** and move to next scope item
-
-**Notes:**
-- The external USB feedthrough on the panel eliminates the need to open the enclosure — the DB9-to-F4S wiring is already complete internally
-- No EtherCAT integration is needed; the serial adapter sits entirely outside the Beckhoff chain
-- Both Raspberry Pi units can run CODESYS, but only the one executing the Modbus Master will actually see responses — the USB device is tied to the physical Pi's OS, not the project
+**Mapping into CODESYS from here:** see `codesys-integration/README.md` — including the same
+0-based addressing rule applied to the CODESYS channel **Offset** field (set to `100`/`300`
+directly, not `99`/`299`).
 
 ---
 
 ## Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub — Remote SSH Integration
 
-This section covers everything **below** CODESYS — the Linux host, the serial hardware, and the GitHub workflow that ties the Pi back to this repo. Read this first if you are new to doing PLC work from a Linux terminal instead of Windows/COM ports.
+This is the **canonical, current, confirmed procedure** — the numbered order below is the path
+every engineer coming to this project should follow, from a bare SSH login all the way to a
+running CODESYS project reading/writing the F4S. The detailed step-by-step instructions, helper
+scripts, and troubleshooting for each phase live in **three separate, self-contained folders**
+so each concern (Linux/hardware, CODESYS, remote tooling) is documented independently and stays
+easy to find:
+
+| Folder | Covers | Steps below |
+|---|---|---|
+| [`remote-ssh-vscode/`](remote-ssh-vscode/README.md) | VS Code Remote-SSH connection + Git/GitHub workflow from the Pi | 1, 6 |
+| [`linux-integration/`](linux-integration/README.md) | Raspberry Pi OS layer — device identification, serial port permissions, `mbpoll` bench test | 2, 3, 4 |
+| [`codesys-integration/`](codesys-integration/README.md) | CODESYS runtime config, Modbus device tree, channel addressing, build/deploy | 5 |
+
+**Do not skip ahead** — each step assumes the previous one is proven. Bench-test the raw serial
+link with `mbpoll` (Linux layer) *before* touching CODESYS; don't debug CODESYS Modbus errors
+until `mbpoll` reads cleanly on its own.
 
 ### Why this is different from Windows
 
-| Windows habit | Linux equivalent | Where it shows up |
-|---|---|---|
-| `COM3`, `COM4`, … | `/dev/ttyUSB0`, `/dev/ttyACM0`, … — a device *file*, not a port name | Serial device identification |
-| Ports "just work" for any user | Serial devices are permission-gated (`crw-rw----`, group `dialout`) | Step 3 below |
-| QModMaster / Modbus Poll (GUI) | `mbpoll` (CLI) — same bench-test role, no GUI needed | Step 4 below |
-| Editing files locally, then FTP/copy to the PLC | VS Code **Remote-SSH** edits the Pi's filesystem directly; Git push/pull happens from the same remote window | Step 6 below |
-| CODESYS Windows runtime config (GUI dialog) | `/etc/CODESYSControl_User.cfg` (plain text) | Step 5 below |
+| Windows habit | Linux equivalent |
+|---|---|
+| `COM3`, `COM4`, … | `/dev/ttyUSB0`, `/dev/ttyACM0`, … — a device *file*, not a port name |
+| Ports "just work" for any user | Serial devices are permission-gated (`crw-rw----`, group `dialout`) |
+| QModMaster / Modbus Poll (GUI) | `mbpoll` (CLI) — same bench-test role, no GUI needed |
+| Editing files locally, then FTP/copy to the PLC | VS Code **Remote-SSH** edits the Pi's filesystem directly; Git push/pull happens from the same remote window |
+| CODESYS Windows runtime config (GUI dialog) | `/etc/CODESYSControl_User.cfg` (plain text) |
 
-### Step 1: Connect to the Pi from VS Code (Remote-SSH)
+### The six-step sequence
 
-1. Install the **Remote - SSH** extension in VS Code (once, on your laptop).
-2. `Ctrl+Shift+P` → **Remote-SSH: Connect to Host…** → enter `mechatronics@10.1.6.17`
-3. VS Code re-opens with its terminal, file explorer, and extensions all running **on the Pi**, not your laptop. Everything from here on (dmesg, apt-get, git, nano) executes on the Pi.
-4. Open the folder `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI` via **File → Open Folder**. This is the same repo as GitHub, branch `OJ4884-patch-1` — VS Code's Source Control panel talks to GitHub exactly like it would locally, it's just physically running on the Pi.
-
-### Step 2: Identify the serial adapter
-
-Plug the USB-to-RS232 adapter into a free USB port on the active Pi, then:
-
-```bash
-dmesg | tail -n 20
-```
-
-Look for the attach line — on this hardware it's a Prolific PL2303-based adapter:
-
-```
-usb 1-2: pl2303 converter detected
-usb 1-2: pl2303 converter now attached to ttyUSB0
-```
-
-The device file is **`/dev/ttyUSB0`**. This is what goes into both `mbpoll` commands and the CODESYS Modbus device tree.
-
-> Re-plugging the adapter (or a power cycle) can reassign it to `ttyUSB1` if something else claims `ttyUSB0` first. Always re-check `dmesg | tail` after a reconnect rather than assuming.
-
-### Step 3: Grant port permissions
-
-Serial devices on Debian/Raspberry Pi OS are owned by `root:dialout` with group-only access. One-off fix for bench testing:
-
-```bash
-sudo chmod 666 /dev/ttyUSB0
-```
-
-This does not survive a reboot or re-plug. The permanent fix is to add your user to the `dialout` group:
-
-```bash
-sudo usermod -aG dialout $USER
-# then log out / re-open the SSH session for the group change to take effect
-```
-
-CODESYS's own runtime process needs the same access — if the runtime is not running as `root`, add its service user to `dialout` too, otherwise the Modbus device in CODESYS will silently show "no response" even though `mbpoll` works fine from your own shell.
-
-A helper script is at `linux-integration/scripts/grant-serial-permissions.sh`.
-
-### Step 4: Bench-test the link with `mbpoll` (before touching CODESYS)
-
-Install once:
-
-```bash
-sudo apt-get update
-sudo apt-get install mbpoll
-```
-
-**Known-good command for this cabinet:**
-
-```bash
-mbpoll -m rtu -a 1 -b 19200 -P none -s 1 -d 8 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
-```
-
-| Flag | Meaning | Value |
-|---|---|---|
-| `-m rtu` | Modbus RTU (not ASCII/TCP) | — |
-| `-a 1` | Slave address | `1` (F4S default) |
-| `-b 19200` | Baud rate | **19200** (confirmed on F4S front panel) |
-| `-P none` | Parity | **None** — critical: `mbpoll` defaults to Even (8E1), which will timeout on this 8N1 device |
-| `-s 1` | Stop bits | `1` |
-| `-d 8` | Data bits | `8` (8N1 overall) |
-| `-t 4` | Register type | 16-bit holding register |
-| `-r 100` | Start register | `100` = Input 1 Value (actual chamber temp) |
-| `-c 1` | Count | `1` |
-| `-1` | Poll once | — |
-
-**Why the first attempt times out:** `mbpoll` defaults to Even parity (8E1) when `-P` is not given. This F4S is configured **8N1 (no parity)**. Talking 8E1 to an 8N1 device is a framing mismatch — the F4S never recognizes a valid frame, so every request times out. This is not a wiring fault; it's purely a missing `-P none`.
-
-**Troubleshooting if it still times out:**
-
-| Symptom | Likely cause | Check |
-|---|---|---|
-| Timeout with default 8E1 shown in banner | Parity mismatch | Add `-P none` |
-| Timeout even with `-P none` / `8N1` confirmed | Wrong baud rate | Verify on F4S front panel: **Setup → Communications → Baud Rate** (should be 19200) |
-| Timeout persists at correct baud/parity | Permissions | `ls -l /dev/ttyUSB0` — should be `crw-rw-rw-` after `chmod 666`, or your user in `dialout` |
-| Timeout persists, permissions OK | Wrong slave address | F4S defaults vary (1, 247, 255) — read it off the front panel |
-| Garbage/CRC error | Wiring TX/RX swapped, or adapter on wrong `/dev/ttyUSB*` | Re-check `dmesg | tail` for the current device node |
-| Works for register 100 but register 300 write (FC06) refused | F4S in profile/ramp mode, not static setpoint | Confirm F4S is in **static/manual setpoint mode** — a running profile owns SP1 |
-
-**Expected result:**
-
-```
-[100]: 1400
-```
-
-(or whatever raw value corresponds to the current front-panel temperature ×10). Once this matches the F4S display within rounding, the OS + hardware layer is proven.
-
-A helper script wrapping the known-good command is at `linux-integration/scripts/bench-test-modbus.sh`.
-
-### Step 5: Map the verified port into the CODESYS runtime
-
-Once `mbpoll` reads cleanly and repeatably (run it two or three times — see Rebuild → Retest → Requalify → Repeat in `docs/DEPLOYMENT_AND_TEST.md`):
-
-```bash
-sudo nano /etc/CODESYSControl_User.cfg
-```
-
-Add (or confirm) at the bottom:
-
-```ini
-[SysCom]
-Linux.Devicefile.1=/dev/ttyUSB0
-portnum.1=1
-```
-
-Restart the runtime so it picks up the mapping:
-
-```bash
-sudo systemctl restart codesyscontrol
-```
-
-In the CODESYS IDE (on your laptop, connected to this same Pi), configure the Modbus Serial Master device on **COM1** (matching `portnum.1=1`), with the baud/parity/slave settings confirmed in Step 4.
-
-A ready-to-copy version of this config snippet is at `linux-integration/codesyscontrol-user-snippet.cfg`.
-
-### Step 6: GitHub workflow from the Pi (VS Code Remote-SSH)
-
-Because VS Code's Remote-SSH session is running the Source Control panel *on the Pi*, working with this repo from `10.1.6.17` is the same Git workflow as any other clone:
-
-```bash
-cd ~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
-git status
-git fetch origin OJ4884-patch-1
-git pull origin OJ4884-patch-1
-git add <files>
-git commit -m "…"
-git push -u origin OJ4884-patch-1
-```
-
-This is how the `.html`, `.md`, `.dut`, `.gvl`, `.xml`, and `.st` files in this repo arrived — authored/edited through this same Remote-SSH + GitHub path.
-
-### End-to-end order of operations (summary)
-
-1. **Connect** — VS Code Remote-SSH → `10.1.6.17`.
-2. **Identify** — `dmesg | tail -n 20` → confirm `/dev/ttyUSB0`.
-3. **Permission** — `chmod 666` (or `dialout` group membership).
-4. **Bench-test** — `mbpoll` with explicit `-P none -s 1 -d 8` at **19200** baud.
-5. **Map** — `/etc/CODESYSControl_User.cfg` → `Linux.Devicefile.1=/dev/ttyUSB0` → restart `codesyscontrol`.
-6. **Deploy** — open sandbox project in CODESYS on your laptop, configure Modbus Serial Master on COM1, download to Pi.
-7. **Requalify** — run the T1–T9 test plan in `docs/DEPLOYMENT_AND_TEST.md` §5.
-8. **Version** — commit/push any doc or code changes from Remote-SSH VS Code back to `OJ4884-patch-1`.
+1. **Connect** — VS Code Remote-SSH to `mechatronics@10.1.6.17`, open the repo folder. → `remote-ssh-vscode/README.md`
+2. **Identify** — `dmesg | tail -n 20` → confirm the adapter enumerated as `/dev/ttyUSB0` (or wherever it landed after a replug). → `linux-integration/README.md`
+3. **Permission** — grant serial port access (temporary `chmod 666`, or permanent `dialout` group membership); confirm with `ls -la`. → `linux-integration/README.md`
+4. **Bench-test** — `mbpoll` against the F4S, independent of CODESYS. **Confirmed working command:**
+   ```bash
+   mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
+   ```
+   Two fixes are required together — `-P none` (this F4S is 8N1, not `mbpoll`'s default 8E1) **and** `-0` (0-based/PDU register addressing, confirmed on hardware) — plus the physical TX/RX wiring at the F4S terminal block must be correct (not swapped). Full troubleshooting table in `linux-integration/README.md`.
+5. **Map & deploy** — `/etc/CODESYSControl_User.cfg` → `Linux.Devicefile.1=/dev/ttyUSB0` → restart `codesyscontrol` → configure the Modbus Serial Master device in the CODESYS IDE on **COM1**, with channel **Offset** set 0-based (`100`, `300` directly). Build → Clean All → Build → Login → Run. → `codesys-integration/README.md`
+6. **Version** — commit/push any doc or code changes from the same Remote-SSH VS Code window back to `OJ4884-patch-1`. → `remote-ssh-vscode/README.md`
+7. **Requalify** — run the T1–T9 test plan in `docs/DEPLOYMENT_AND_TEST.md` §5 once steps 1–6 are proven end-to-end.
 
 ---
 
@@ -1288,11 +1043,11 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 | Integrate DLS008 hardware | **Done** — EtherCAT master + I/O terminals scanned and configured |
 | Investigate remote setpoint capability | **Done** — Watlow F4S (SN 038983) confirmed; RS-232 protocol verified (3-wire: white/red/black = TX/RX/GND per nameplate terminals 14/15/16); register 300 = SP1 setpoint |
 | Identify additional hardware/wiring/settings | **Done** — USB-to-RS232 adapter in hand; wiring colors verified with RS-232 standard sources (Raveon AN236, Watlow F4S spec); no enclosure modifications needed |
-| Basic HMI input | Not started — awaits bench-test results |
-| Send setpoint to cabinet | **In progress — Retest phase executing with correction** — Initial bench-test failed due to parity mismatch (8E1 vs 8N1); corrected command with -p N flag staged; awaiting execution |
-| Confirm acceptance | Blocked on: successful bench-test result (hardware proven) + CODESYS Requalify |
-| Validation + fault indication | Blocked on: Retest success + Requalify + HMI development + test plan execution |
-| Documentation | **In progress** — README updated with progress checkpoint; Rebuild → Retest → Requalify → Repeat cycle documented |
+| Basic HMI input | Not started — HMI mockup exists (`mockups/watlow-f4s-setpoint-hmi.html`); awaits CODESYS WebVisu build-out |
+| Send setpoint to cabinet | **Retest phase complete ✓** — Raspberry Pi bench-test (`mbpoll`) proven: `[100]: 232` matches F4S front panel, with parity fix, TX/RX wiring fix, and 0-based addressing all applied. Requalify (CODESYS mapping) is next — see `codesys-integration/README.md` |
+| Confirm acceptance | Blocked on: CODESYS Requalify (mapping the proven Pi↔F4S link into the runtime and device tree) |
+| Validation + fault indication | Blocked on: Requalify + HMI development + T1–T9 test plan execution (`docs/DEPLOYMENT_AND_TEST.md` §5) |
+| Documentation | **Done** — README documents the full Rebuild → Retest → Requalify → Repeat cycle through a proven Raspberry Pi bench test; `linux-integration/`, `codesys-integration/`, and `remote-ssh-vscode/` folders document each phase in detail |
 
 ---
 
@@ -1300,46 +1055,37 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 
 **Baud-rate synchronization — RESOLVED ✓**
 
-You have aligned the physical F4S controller to match the CODESYS device configuration:
+The physical F4S controller was aligned to match the CODESYS device configuration:
 - F4S front-panel: **Setup → Communications → Baud Rate = 19200** (changed from 9600, verified on unit)
 - CODESYS `Modbus_COM` device: **19200** (already configured)
-- **Status:** Both sides now transmit/listen at 19200 symbols-per-second. Bit timing is aligned; communication is possible.
+
+**Raspberry Pi bench-test (`mbpoll`) — RESOLVED ✓**
+
+Confirmed working, with **both** the parity flag (`-P none`) and 0-based addressing (`-0`)
+present, and after correcting a physical TX/RX wiring swap at the F4S terminal block:
+
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
+```
+
+Result: `[100]: 232` (23.2°C), matching the F4S front-panel display. Full details, the two
+independent root causes, and the troubleshooting table are in `linux-integration/README.md` §4.
 
 **Remaining priority tasks:**
 
-1. **Retest (next step):** Run the Raspberry Pi bench test with the confirmed baud rate **and explicit parity** — `mbpoll` defaults to Even parity when `-P` is omitted, which does not match this F4S's 8N1 configuration and will time out on its own even at the correct baud rate:
-   ```bash
-   mbpoll -m rtu -a 1 -b 19200 -P none -s 1 -d 8 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
-   ```
-   **Expected result:** `[100]: 750` (or the current actual temperature value). This proves the Raspberry Pi's hardware, OS, wiring, and serial settings are correct. See `linux-integration/README.md` §4 for the full troubleshooting table (parity, baud, permissions, slave address) if this still times out.
-   
-   **Rebuild → Retest → Requalify → Repeat discipline:**
-   - ✅ **Rebuild**: F4S baud changed from 9600 → 19200 (physical change completed)
-   - 🔄 **Retest**: `mbpoll` at 19200 proves the hardware link (in progress)
-   - (Pending) **Requalify**: Map `/dev/ttyUSB0` into CODESYS runtime config
-   - (Pending) **Repeat**: Re-run read/write tests inside CODESYS to confirm end-to-end
+1. **CODESYS mapping (Requalify phase):** Map the proven `/dev/ttyUSB0` port into the CODESYS
+   runtime and device tree, including the confirmed 0-based channel addressing (offset = `100`/
+   `300` directly, not `99`/`299`). Full steps in `codesys-integration/README.md`.
 
-2. **After `mbpoll` succeeds:** Map the working `/dev/ttyUSB0` port into CODESYS:
-   ```bash
-   sudo nano /etc/CODESYSControl_User.cfg
-   # Add at the bottom:
-   [SysCom]
-   Linux.Devicefile.1=/dev/ttyUSB0
-   portnum.1=1
-   ```
-   Then restart the CODESYS runtime:
-   ```bash
-   sudo systemctl restart codesyscontrol
-   ```
-   Verify the `Modbus_COM` device in your CODESYS project is set to **COM1** (matches `portnum.1=1` above).
+2. **Once CODESYS is mapped:** Re-run the CODESYS read/write tests to confirm the link works
+   end-to-end inside the application (Repeat phase — T1–T9 test plan in
+   `docs/DEPLOYMENT_AND_TEST.md` §5).
 
-3. **Once CODESYS is mapped:** Re-run the CODESYS read/write tests to confirm the link works end-to-end inside the application.
+3. Power-budget check: the 5 V/5 A (30 W) rail is shared across two Raspberry Pi 5 units. Actual draw under full load for both units running simultaneously is worth measuring, even though typical idle draw is well under the 5 A spec.
 
-4. Power-budget check: the 5 V/5 A (30 W) rail is shared across two Raspberry Pi 5 units. Actual draw under full load for both units running simultaneously is worth measuring, even though typical idle draw is well under the 5 A spec.
+4. Confirm F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write production use.
 
-5. Confirm F4S is in static/manual setpoint mode (not running an internal profile) before any register-300 write production use.
-
-6. Quick check on the "Hyperbaric Water Temperature" HMI tile — confirm whether it belongs to this cabinet or a different rig.
+5. Quick check on the "Hyperbaric Water Temperature" HMI tile — confirm whether it belongs to this cabinet or a different rig.
 
 ---
 
@@ -1350,8 +1096,10 @@ You have aligned the physical F4S controller to match the CODESYS device configu
 - Equipment datasheets (CP1/DLS008 panel, ELM3148, EK1100, EL1409, EL2869, EL3314, Watlow F4S, power supplies, MCB)
 - `docs/photos/` — site inspection photos (controller front/angled/rear views, comms terminal label, serial comms port exterior + interior, thermocouple junction box, thermocouple legend)
 - `docs/DEPLOYMENT_AND_TEST.md` — CODESYS import guide, Modbus channel config, WebVisu layout, T1–T9 test plan
-- `linux-integration/scripts/` and `linux-integration/codesyscontrol-user-snippet.cfg` — helper scripts and config snippets for the Linux/Raspberry Pi workflow documented in this README's "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub" section
+- `linux-integration/` — Raspberry Pi/Linux OS layer guide + scripts (device identification, serial permissions, `mbpoll` bench test)
+- `codesys-integration/` — CODESYS runtime + device tree configuration guide (`/etc/CODESYSControl_User.cfg`, Modbus Serial Master setup, 0-based channel addressing, build/deploy)
+- `remote-ssh-vscode/` — VS Code Remote-SSH connection guide + Git/GitHub workflow from the Pi
 - `mockups/watlow-f4s-setpoint-hmi.html` — self-contained HTML/CSS/JS HMI mockup with embedded Oliver Mechatronics branding
 - `src/` — Structured Text POUs, DUTs, GVLs, and PLCopen XML import for `FB_CabinetSetpointControl`
 - CODESYS `.project` file — DLS008 sandbox project, EtherCAT hardware configured
-- This README — living project status summary, including full Linux/Raspberry Pi/CODESYS/GitHub integration guide
+- This README — living project status summary; see the "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub" section for the canonical integration sequence and links to the three folders above
