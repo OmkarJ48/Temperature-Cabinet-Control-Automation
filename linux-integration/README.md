@@ -141,16 +141,20 @@ run still times out, work through the checklist below before suspecting the code
 | Garbage/CRC error instead of timeout | Wiring TX/RX swapped, or adapter on wrong `/dev/ttyUSB*` after a re-plug | Re-check `dmesg \| tail` for the current device node |
 | Works for register 100 (read) but register 300 write (FC06) is refused | F4S in profile/ramp mode, not static setpoint mode | Confirm F4S is in **static/manual setpoint mode** — see root README "Recommended path" §, open item — a running profile owns SP1 |
 
-### 4.3 Open item: baud rate discrepancy — resolve on site
+### 4.3 Baud rate — resolved, but don't assume it stays that way
 
-The root `README.md` (Phase 2→3 section) records the F4S baud rate as **9600 bps**, sourced
-from an earlier front-panel photo. `docs/DEPLOYMENT_AND_TEST.md` and this session's live
-`mbpoll` commands use **19200**. These two numbers cannot both be the live setting — **before
-relying on either, read it directly off the F4S front panel** (`Setup → Communications → Baud
-Rate`) and update whichever document is stale. Do not guess between them; a baud mismatch
-produces the exact same symptom as the parity mismatch above (clean timeout, no data), so it's
-worth ruling out explicitly rather than assuming 19200 is correct just because it was used
-here.
+The root `README.md`'s original Phase 2→3 section recorded the F4S baud rate as **9600 bps**
+from an earlier front-panel photo, while `docs/DEPLOYMENT_AND_TEST.md` and the live `mbpoll`
+testing in this session used **19200**. This has since been resolved: the F4S front panel was
+physically changed to **19200** to match the CODESYS `Modbus_COM` device config (see root
+README, "Baud-rate synchronization — RESOLVED"). The 9600 figure in the earlier section is now
+stale history, not a live discrepancy.
+
+The lesson still applies going forward: if a bench test times out cleanly (no data, no CRC
+error) even with parity fixed, re-read the baud rate off the F4S front panel
+(`Setup → Communications → Baud Rate`) rather than trusting either document — a baud mismatch
+produces the exact same "clean timeout" symptom as the parity mismatch in §4.2, and the two are
+easy to conflate when debugging.
 
 ### 4.4 A note on the `-0` flag
 
@@ -250,7 +254,7 @@ arrived — authored/edited through this same Remote-SSH + GitHub path, on top o
 2. **Identify** — `dmesg | tail -n 20` → confirm `/dev/ttyUSB0`.
 3. **Permission** — `chmod 666` (or `dialout` group membership).
 4. **Bench-test** — `mbpoll` with explicit `-P none -s 1 -d 8`, matching the F4S's confirmed
-   baud (verify 9600 vs 19200 on the front panel first).
+   baud rate (**19200**, per the root README).
 5. **Map** — `/etc/CODESYSControl_User.cfg` → `Linux.Devicefile.1=/dev/ttyUSB0` → restart
    `codesyscontrol`.
 6. **Deploy** — open the sandbox project in CODESYS on your laptop, configure Modbus Serial
@@ -263,8 +267,6 @@ arrived — authored/edited through this same Remote-SSH + GitHub path, on top o
 
 ## 8. Open items carried into this guide
 
-- **Baud rate conflict (9600 vs 19200)** — resolve against the live F4S front panel, not either
-  document, before production use (§4.3).
 - Confirm which of the two Raspberry Pi 5 units is the one actually running the CODESYS sandbox
   and hosting the adapter — the USB device and this whole guide are tied to that physical Pi's
   OS, not to the CODESYS project file.

@@ -1140,11 +1140,11 @@ You have aligned the physical F4S controller to match the CODESYS device configu
 
 **Remaining priority tasks:**
 
-1. **Retest (next step):** Run the Raspberry Pi bench test with the confirmed baud rate:
+1. **Retest (next step):** Run the Raspberry Pi bench test with the confirmed baud rate **and explicit parity** — `mbpoll` defaults to Even parity when `-P` is omitted, which does not match this F4S's 8N1 configuration and will time out on its own even at the correct baud rate:
    ```bash
-   mbpoll -m rtu -a 1 -b 19200 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
+   mbpoll -m rtu -a 1 -b 19200 -P none -s 1 -d 8 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
    ```
-   **Expected result:** `[100]: 750` (or the current actual temperature value). This proves the Raspberry Pi's hardware, OS, wiring, and serial settings are correct.
+   **Expected result:** `[100]: 750` (or the current actual temperature value). This proves the Raspberry Pi's hardware, OS, wiring, and serial settings are correct. See `linux-integration/README.md` §4 for the full troubleshooting table (parity, baud, permissions, slave address) if this still times out.
    
    **Rebuild → Retest → Requalify → Repeat discipline:**
    - ✅ **Rebuild**: F4S baud changed from 9600 → 19200 (physical change completed)
