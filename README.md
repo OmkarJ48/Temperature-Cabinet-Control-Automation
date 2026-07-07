@@ -1080,6 +1080,173 @@ RS-232 is a point-to-point serial protocol. One device's transmitter (TX) must c
 - No EtherCAT integration is needed; the serial adapter sits entirely outside the Beckhoff chain
 - Both Raspberry Pi units can run CODESYS, but only the one executing the Modbus Master will actually see responses — the USB device is tied to the physical Pi's OS, not the project
 
+---
+
+## Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub — Remote SSH Integration
+
+This section covers everything **below** CODESYS — the Linux host, the serial hardware, and the GitHub workflow that ties the Pi back to this repo. Read this first if you are new to doing PLC work from a Linux terminal instead of Windows/COM ports.
+
+### Why this is different from Windows
+
+| Windows habit | Linux equivalent | Where it shows up |
+|---|---|---|
+| `COM3`, `COM4`, … | `/dev/ttyUSB0`, `/dev/ttyACM0`, … — a device *file*, not a port name | Serial device identification |
+| Ports "just work" for any user | Serial devices are permission-gated (`crw-rw----`, group `dialout`) | Step 3 below |
+| QModMaster / Modbus Poll (GUI) | `mbpoll` (CLI) — same bench-test role, no GUI needed | Step 4 below |
+| Editing files locally, then FTP/copy to the PLC | VS Code **Remote-SSH** edits the Pi's filesystem directly; Git push/pull happens from the same remote window | Step 6 below |
+| CODESYS Windows runtime config (GUI dialog) | `/etc/CODESYSControl_User.cfg` (plain text) | Step 5 below |
+
+### Step 1: Connect to the Pi from VS Code (Remote-SSH)
+
+1. Install the **Remote - SSH** extension in VS Code (once, on your laptop).
+2. `Ctrl+Shift+P` → **Remote-SSH: Connect to Host…** → enter `mechatronics@10.1.6.17`
+3. VS Code re-opens with its terminal, file explorer, and extensions all running **on the Pi**, not your laptop. Everything from here on (dmesg, apt-get, git, nano) executes on the Pi.
+4. Open the folder `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI` via **File → Open Folder**. This is the same repo as GitHub, branch `OJ4884-patch-1` — VS Code's Source Control panel talks to GitHub exactly like it would locally, it's just physically running on the Pi.
+
+### Step 2: Identify the serial adapter
+
+Plug the USB-to-RS232 adapter into a free USB port on the active Pi, then:
+
+```bash
+dmesg | tail -n 20
+```
+
+Look for the attach line — on this hardware it's a Prolific PL2303-based adapter:
+
+```
+usb 1-2: pl2303 converter detected
+usb 1-2: pl2303 converter now attached to ttyUSB0
+```
+
+The device file is **`/dev/ttyUSB0`**. This is what goes into both `mbpoll` commands and the CODESYS Modbus device tree.
+
+> Re-plugging the adapter (or a power cycle) can reassign it to `ttyUSB1` if something else claims `ttyUSB0` first. Always re-check `dmesg | tail` after a reconnect rather than assuming.
+
+### Step 3: Grant port permissions
+
+Serial devices on Debian/Raspberry Pi OS are owned by `root:dialout` with group-only access. One-off fix for bench testing:
+
+```bash
+sudo chmod 666 /dev/ttyUSB0
+```
+
+This does not survive a reboot or re-plug. The permanent fix is to add your user to the `dialout` group:
+
+```bash
+sudo usermod -aG dialout $USER
+# then log out / re-open the SSH session for the group change to take effect
+```
+
+CODESYS's own runtime process needs the same access — if the runtime is not running as `root`, add its service user to `dialout` too, otherwise the Modbus device in CODESYS will silently show "no response" even though `mbpoll` works fine from your own shell.
+
+A helper script is at `linux-integration/scripts/grant-serial-permissions.sh`.
+
+### Step 4: Bench-test the link with `mbpoll` (before touching CODESYS)
+
+Install once:
+
+```bash
+sudo apt-get update
+sudo apt-get install mbpoll
+```
+
+**Known-good command for this cabinet:**
+
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -s 1 -d 8 -t 4 -r 100 -c 1 -1 /dev/ttyUSB0
+```
+
+| Flag | Meaning | Value |
+|---|---|---|
+| `-m rtu` | Modbus RTU (not ASCII/TCP) | — |
+| `-a 1` | Slave address | `1` (F4S default) |
+| `-b 19200` | Baud rate | **19200** (confirmed on F4S front panel) |
+| `-P none` | Parity | **None** — critical: `mbpoll` defaults to Even (8E1), which will timeout on this 8N1 device |
+| `-s 1` | Stop bits | `1` |
+| `-d 8` | Data bits | `8` (8N1 overall) |
+| `-t 4` | Register type | 16-bit holding register |
+| `-r 100` | Start register | `100` = Input 1 Value (actual chamber temp) |
+| `-c 1` | Count | `1` |
+| `-1` | Poll once | — |
+
+**Why the first attempt times out:** `mbpoll` defaults to Even parity (8E1) when `-P` is not given. This F4S is configured **8N1 (no parity)**. Talking 8E1 to an 8N1 device is a framing mismatch — the F4S never recognizes a valid frame, so every request times out. This is not a wiring fault; it's purely a missing `-P none`.
+
+**Troubleshooting if it still times out:**
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| Timeout with default 8E1 shown in banner | Parity mismatch | Add `-P none` |
+| Timeout even with `-P none` / `8N1` confirmed | Wrong baud rate | Verify on F4S front panel: **Setup → Communications → Baud Rate** (should be 19200) |
+| Timeout persists at correct baud/parity | Permissions | `ls -l /dev/ttyUSB0` — should be `crw-rw-rw-` after `chmod 666`, or your user in `dialout` |
+| Timeout persists, permissions OK | Wrong slave address | F4S defaults vary (1, 247, 255) — read it off the front panel |
+| Garbage/CRC error | Wiring TX/RX swapped, or adapter on wrong `/dev/ttyUSB*` | Re-check `dmesg | tail` for the current device node |
+| Works for register 100 but register 300 write (FC06) refused | F4S in profile/ramp mode, not static setpoint | Confirm F4S is in **static/manual setpoint mode** — a running profile owns SP1 |
+
+**Expected result:**
+
+```
+[100]: 1400
+```
+
+(or whatever raw value corresponds to the current front-panel temperature ×10). Once this matches the F4S display within rounding, the OS + hardware layer is proven.
+
+A helper script wrapping the known-good command is at `linux-integration/scripts/bench-test-modbus.sh`.
+
+### Step 5: Map the verified port into the CODESYS runtime
+
+Once `mbpoll` reads cleanly and repeatably (run it two or three times — see Rebuild → Retest → Requalify → Repeat in `docs/DEPLOYMENT_AND_TEST.md`):
+
+```bash
+sudo nano /etc/CODESYSControl_User.cfg
+```
+
+Add (or confirm) at the bottom:
+
+```ini
+[SysCom]
+Linux.Devicefile.1=/dev/ttyUSB0
+portnum.1=1
+```
+
+Restart the runtime so it picks up the mapping:
+
+```bash
+sudo systemctl restart codesyscontrol
+```
+
+In the CODESYS IDE (on your laptop, connected to this same Pi), configure the Modbus Serial Master device on **COM1** (matching `portnum.1=1`), with the baud/parity/slave settings confirmed in Step 4.
+
+A ready-to-copy version of this config snippet is at `linux-integration/codesyscontrol-user-snippet.cfg`.
+
+### Step 6: GitHub workflow from the Pi (VS Code Remote-SSH)
+
+Because VS Code's Remote-SSH session is running the Source Control panel *on the Pi*, working with this repo from `10.1.6.17` is the same Git workflow as any other clone:
+
+```bash
+cd ~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
+git status
+git fetch origin OJ4884-patch-1
+git pull origin OJ4884-patch-1
+git add <files>
+git commit -m "…"
+git push -u origin OJ4884-patch-1
+```
+
+This is how the `.html`, `.md`, `.dut`, `.gvl`, `.xml`, and `.st` files in this repo arrived — authored/edited through this same Remote-SSH + GitHub path.
+
+### End-to-end order of operations (summary)
+
+1. **Connect** — VS Code Remote-SSH → `10.1.6.17`.
+2. **Identify** — `dmesg | tail -n 20` → confirm `/dev/ttyUSB0`.
+3. **Permission** — `chmod 666` (or `dialout` group membership).
+4. **Bench-test** — `mbpoll` with explicit `-P none -s 1 -d 8` at **19200** baud.
+5. **Map** — `/etc/CODESYSControl_User.cfg` → `Linux.Devicefile.1=/dev/ttyUSB0` → restart `codesyscontrol`.
+6. **Deploy** — open sandbox project in CODESYS on your laptop, configure Modbus Serial Master on COM1, download to Pi.
+7. **Requalify** — run the T1–T9 test plan in `docs/DEPLOYMENT_AND_TEST.md` §5.
+8. **Version** — commit/push any doc or code changes from Remote-SSH VS Code back to `OJ4884-patch-1`.
+
+---
+
 ### Candidate Modbus register map (F4S, static/manual setpoint mode — not profile mode)
 
 | Register | Function | Access | Status |
@@ -1183,8 +1350,8 @@ You have aligned the physical F4S controller to match the CODESYS device configu
 - Equipment datasheets (CP1/DLS008 panel, ELM3148, EK1100, EL1409, EL2869, EL3314, Watlow F4S, power supplies, MCB)
 - `docs/photos/` — site inspection photos (controller front/angled/rear views, comms terminal label, serial comms port exterior + interior, thermocouple junction box, thermocouple legend)
 - `docs/DEPLOYMENT_AND_TEST.md` — CODESYS import guide, Modbus channel config, WebVisu layout, T1–T9 test plan
-- `linux-integration/` — step-by-step guide for the Raspberry Pi ↔ CODESYS ↔ GitHub workflow over remote SSH (device identification, port permissions, `mbpoll` bench test, CODESYS runtime mapping, Git push/pull from the Pi)
+- `linux-integration/scripts/` and `linux-integration/codesyscontrol-user-snippet.cfg` — helper scripts and config snippets for the Linux/Raspberry Pi workflow documented in this README's "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub" section
 - `mockups/watlow-f4s-setpoint-hmi.html` — self-contained HTML/CSS/JS HMI mockup with embedded Oliver Mechatronics branding
 - `src/` — Structured Text POUs, DUTs, GVLs, and PLCopen XML import for `FB_CabinetSetpointControl`
 - CODESYS `.project` file — DLS008 sandbox project, EtherCAT hardware configured
-- This README — living project status summary
+- This README — living project status summary, including full Linux/Raspberry Pi/CODESYS/GitHub integration guide
