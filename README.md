@@ -666,16 +666,67 @@ The hardware (wiring, baud, address) was ALWAYS correct.
 
 **Critical Insight (Rebuild → Retest Discipline):**
 
-> The F4S was NEVER the problem. The wiring was NEVER the problem. The baud rate was NEVER the problem.
->
-> The problem was entirely in the bench-test tool configuration — using the wrong flag for RTU mode.
->
-> This is why systematic testing (Rebuild → Retest → Requalify → Repeat) is essential:
-> - **Rebuild:** Physical configuration is correct ✓
-> - **Retest:** Tool command had wrong flag syntax
-> - **Fix:** Correct the flag (-P instead of -p)
-> - **Retest:** Execute corrected command
-> - **Success:** Hardware proven to work ✓
+> The parity flag fix (`-P none`) was necessary but **not sufficient**. It corrected one real bug (wrong flag), but the timeout persisted after fixing it — which was the signal that a second, independent problem existed underneath.
+
+---
+
+### **ACTUAL ROOT CAUSE FOUND: TX/RX Wiring Swap at the F4S Terminal Block**
+
+**The real problem (discovered by physically re-checking the terminal block):**
+
+```
+ADR-001 documented wiring (intended):
+  white wire → F4S terminal 14 (Tx)
+  red wire   → F4S terminal 15 (Rx)
+  black wire → F4S terminal 16 (GND)
+
+What was ACTUALLY wired (the bug):
+  red wire   → F4S terminal 14   ❌ (should be white)
+  white wire → F4S terminal 15   ❌ (should be red)
+  black wire → F4S terminal 16   ✓
+```
+
+**Why this explains every earlier symptom in one shot:**
+
+- Windows/QModMaster timeouts (4 combinations, all failed identically) — the "TX/RX swap" tried on the DB9 end never touched the actual swap that existed at the F4S terminal end
+- Every mbpoll parity test (8E1, 8O1, 8N1) — all doomed regardless of flags, because the signal was never reaching the correct pins in the first place
+- **The parity investigation was a real bug, but not THE bug.** Two independent problems existed simultaneously: wrong mbpoll flag (`-p` vs `-P`) AND wrong physical wiring.
+
+**Second finding — PDU addressing (0-based) confirmed via the `-0` flag:**
+
+```
+mbpoll -r 100  (without -0)  → queries PDU address 99  (1-based assumption)
+mbpoll -r 100  (with -0)     → queries PDU address 100 (0-based, correct)
+```
+
+This is the "±1 register offset trap" flagged earlier in this project's notes — now empirically confirmed on real hardware. **The same principle applies inside CODESYS**: the channel "Offset" field is also 0-based, so it must be set to `100` directly (not 99, not 101) when configuring the read channel.
+
+---
+
+### **✅ BENCH-TEST SUCCESS — Hardware Link Proven**
+
+**Corrected command (both fixes applied):**
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
+                             ↑ -P none: correct parity flag
+                                                          ↑ -0: 0-based PDU addressing
+```
+
+**Result:**
+```
+[100]: 232
+```
+**232 = 23.2°C — matches the F4S front-panel display exactly.**
+
+**This proves, definitively:**
+- ✅ Wiring is now correct (TX/RX un-swapped at the terminal block)
+- ✅ Baud rate 19200 matches on both sides
+- ✅ Parity None (8N1) matches on both sides
+- ✅ Slave address 1 confirmed
+- ✅ Register addressing (0-based/PDU) confirmed
+- ✅ **Raspberry Pi ↔ F4S serial link is fully proven, independent of CODESYS**
+
+**Open item — worth a follow-up check, not blocking:** the same read reportedly also succeeded at `-b 9600` (F4S front panel is set to 19200). A baud mismatch should normally fail outright rather than partially work, so this is unusual and worth re-verifying later (confirm the F4S menu still shows 19200 and wasn't left mid-edit). Not a blocker — 19200 remains the standing, confirmed baud rate across F4S and CODESYS.
 
 **If F4S were configured differently, use these flags:**
 
