@@ -110,6 +110,7 @@ Run
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| No data on **any** channel, but `mbpoll` proved the link independently (Steps 2–4 all passed) | **Port already held open by another process** — `/dev/ttyUSB0` can only have one owner at a time; a lingering `mbpoll` session (or anything else) blocks CODESYS from opening it | `sudo lsof /dev/ttyUSB0` (or `sudo fuser -v /dev/ttyUSB0`) on the Pi — kill/close whatever is listed, then `sudo systemctl restart codesyscontrol`. Full detail in `linux-integration/README.md` §4.4. **Check this first** — it's the most common cause of "mbpoll works, CODESYS doesn't" |
 | Red triangle on `Modbus_Client_COM_Port` immediately after login | Port mismatch — `/etc/CODESYSControl_User.cfg` device file doesn't match the physical adapter | Re-check `ls /dev/ttyUSB*` on the Pi; re-confirm `Linux.Devicefile.1=/dev/ttyUSB0` matches |
 | Red triangle persists, `mbpoll` bench-test passes standalone | Parity/baud/stop-bit mismatch in the CODESYS `Modbus_COM` properties | Re-verify all serial parameters against §5.2 above — CODESYS does not inherit `mbpoll`'s settings, they're configured independently |
 | Read channel shows a value, but off by one register (e.g. reads register 99's value under a "100" label) | Channel offset convention mismatch (1-based default vs required 0-based) | See §5.3 — set Offset to the register number directly |
