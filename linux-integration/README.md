@@ -171,6 +171,71 @@ If this read also succeeds (it will, since it's the identical link already prove
 see it in CODESYS is a CODESYS-side configuration problem, not a hardware/wiring problem — see
 §4.4 below and `codesys-integration/README.md` §5.4.
 
+### 4.1b Write a new setpoint from the Linux terminal — and what you cannot write
+
+**Register 100 (actual chamber temperature) cannot be written, and must not be.** It's a
+read-only measurement taken from the F4S's own physical sensor. There is no Modbus function
+code that meaningfully "sets" a live sensor reading — even if the F4S accepted such a write,
+all it would do is make the display lie about the real chamber state without changing the
+actual physical temperature by even a fraction of a degree. That would silently defeat the
+entire supervisory-control safety model this repo is built around (see the root README's "Key
+design principle" section): CODESYS/Linux never controls temperature directly, it only ever
+reads the true state and requests a new target.
+
+**What you actually change is the setpoint (register 300)** — the F4S then drives its own
+closed-loop PID to ramp the real, physical chamber temperature (register 100) toward that
+target over time, exactly like turning a thermostat dial. This is the identical write → confirm
+pattern already implemented in CODESYS by `src/POUs/FB_CabinetSetpointControl.st` — the Linux
+scripts below just do the same thing from the terminal.
+
+**Write the setpoint:**
+
+```bash
+./scripts/write-setpoint.sh 26.5
+```
+
+This performs, in order:
+1. Reads the current setpoint first (register 300).
+2. **Skips the write entirely if the value hasn't changed** — edge-triggered, same reasoning as
+   the CODESYS logic: register 300 lives in the F4S's EEPROM, and repeated writes of the same
+   value cause unnecessary wear.
+3. Validates the requested value is within `0.0–200.0°C` — the same bounds as
+   `GVL_HMI.rMinSetpoint`/`rMaxSetpoint` in the CODESYS application (`src/GVLs/GVL_HMI.gvl`), so
+   the Linux-side write can't do anything the CODESYS logic would itself refuse.
+4. Converts to the raw register value (one implied decimal — `26.5°C` → `265`) and writes it
+   via FC06 (single register write).
+5. **Reads register 300 back and confirms it matches** before reporting success — an unconfirmed
+   write is treated as a failure, not a success.
+
+Full usage: `./scripts/write-setpoint.sh <new_setpoint_degC> [device] [baud] [slave]`.
+
+**Watch the cabinet ramp toward the new setpoint** (read-only, never writes):
+
+```bash
+./scripts/watch-temperature-ramp.sh
+```
+
+Polls both register 100 (actual) and register 300 (target) every 5 seconds, 12 times by
+default (`./scripts/watch-temperature-ramp.sh [interval_s] [iterations]` to change either), and
+prints both side by side so you can see the F4S's own control loop closing the gap:
+
+```
+[1/12] Actual: 23.2C  ->  Target: 26.5C
+[2/12] Actual: 23.4C  ->  Target: 26.5C
+...
+[12/12] Actual: 26.5C  ->  Target: 26.5C
+```
+
+If the write reports "CONFIRMED" but register 100 never moves, the F4S itself is not
+progressing the ramp — check the front panel for an active alarm, or that the unit is actually
+in **run** mode, before assuming the Modbus layer is at fault (the write succeeding and being
+read back is proof the comms link itself is fine).
+
+If `write-setpoint.sh` reports a read-back mismatch instead of "CONFIRMED," the F4S most likely
+has an active **profile/ramp program running**, which owns SP1 and refuses external writes —
+confirm the F4S is in **static/manual setpoint mode** on the front panel (see the troubleshooting
+row for this in §4.3 below) before retrying.
+
 ### 4.2 Two independent fixes were needed — both matter
 
 The working command above only succeeds because **two separate problems** were found and fixed;

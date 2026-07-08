@@ -1096,7 +1096,7 @@ independent root causes, and the troubleshooting table are in `linux-integration
 - Equipment datasheets (CP1/DLS008 panel, ELM3148, EK1100, EL1409, EL2869, EL3314, Watlow F4S, power supplies, MCB)
 - `docs/photos/` — site inspection photos (controller front/angled/rear views, comms terminal label, serial comms port exterior + interior, thermocouple junction box, thermocouple legend)
 - `docs/DEPLOYMENT_AND_TEST.md` — CODESYS import guide, Modbus channel config, WebVisu layout, T1–T9 test plan
-- `linux-integration/` — Raspberry Pi/Linux OS layer guide + scripts (device identification, serial permissions, `mbpoll` bench test)
+- `linux-integration/` — Raspberry Pi/Linux OS layer guide + scripts (device identification, serial permissions, `mbpoll` bench test for register 100 read and register 300 setpoint read/write, temperature-ramp watch)
 - `codesys-integration/` — CODESYS runtime + device tree configuration guide (`/etc/CODESYSControl_User.cfg`, Modbus Serial Master setup, 0-based channel addressing, build/deploy)
 - `remote-ssh-vscode/` — VS Code Remote-SSH connection guide + Git/GitHub workflow from the Pi
 - `mockups/watlow-f4s-setpoint-hmi.html` — self-contained HTML/CSS/JS HMI mockup with embedded Oliver Mechatronics branding
