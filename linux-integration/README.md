@@ -137,6 +137,40 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
 A helper script wrapping this command is at
 [`scripts/bench-test-modbus.sh`](scripts/bench-test-modbus.sh).
 
+### 4.1a Read the static setpoint (register 300, SP1)
+
+Register 100 above is the **read-only process value** (actual chamber temperature). The
+**static setpoint** — labelled `SP1` on the F4S front panel, currently showing `24.0°C` in the
+photo referenced for this section — lives in a **different** register: **300 (Set Point 1)**.
+Same command, same flags, only the `-r` value changes:
+
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
+```
+
+Or with the helper script (register is the third positional argument):
+
+```bash
+./scripts/bench-test-modbus.sh /dev/ttyUSB0 19200 300
+```
+
+**Expected result**, matching the front-panel `SP1  24.0°C` reading:
+
+```
+[300]: 240
+```
+
+`240` is the raw register value — the F4S carries **one implied decimal place**, so `240 / 10 =
+24.0°C`. This is the same convention as register 100 (`232` → `23.2°C`); no separate scaling
+setting is needed on the Linux/`mbpoll` side, only in whatever displays the value afterward
+(CODESYS scales it the same way once mapped).
+
+If this read also succeeds (it will, since it's the identical link already proven for register
+100 — same slave, same wiring, same parity/baud, just a different holding register), that
+**conclusively proves the Linux ↔ F4S link can see the setpoint**, and any remaining failure to
+see it in CODESYS is a CODESYS-side configuration problem, not a hardware/wiring problem — see
+§4.4 below and `codesys-integration/README.md` §5.4.
+
 ### 4.2 Two independent fixes were needed — both matter
 
 The working command above only succeeds because **two separate problems** were found and fixed;
@@ -166,6 +200,45 @@ independently.
 | Read succeeds but the value looks off by one register | 0-based vs 1-based addressing | Confirm `-0` is present; without it `mbpoll` queries the wrong PDU address |
 | Garbage/CRC error instead of a clean timeout | Adapter reassigned to a different `/dev/ttyUSB*` node after a replug | Re-run `dmesg \| tail` (Step 2) to confirm the current device file |
 | Register 100 (read) works but register 300 write (FC06) is refused | F4S in profile/ramp mode, not static setpoint | Confirm F4S is in **static/manual setpoint mode** — a running profile owns SP1 |
+
+---
+
+## 4.4 `mbpoll` reads fine standalone, but CODESYS's Modbus master/slave shows nothing
+
+This is a **different failure mode** from anything above — it means the raw serial link is
+already proven (Steps 2–4 all passed), so don't re-check wiring/parity/baud again. The most
+common cause at this exact point is much simpler and purely a Linux OS-level issue:
+
+**A serial device file can only be held open by one process at a time.** `/dev/ttyUSB0` is not
+shared — if `mbpoll` (or any other process) still has the port open, the CODESYS runtime's
+attempt to open the same device for its own Modbus master will fail or silently get no data,
+even though the exact same `mbpoll` command works perfectly when run on its own.
+
+**Check what currently holds the port:**
+
+```bash
+sudo lsof /dev/ttyUSB0
+# or, if lsof isn't installed:
+sudo fuser -v /dev/ttyUSB0
+```
+
+If this lists a `mbpoll` process (or anything else), that process is blocking CODESYS from
+acquiring the port. Kill it or let it finish, then restart the CODESYS runtime:
+
+```bash
+sudo systemctl restart codesyscontrol
+```
+
+**Practical rule going forward:** never run a manual `mbpoll` bench-test *while* CODESYS is
+also trying to run its own Modbus master against the same device — they will fight over the
+same port. Bench-test with `mbpoll` first to prove the link (Step 4), then **stop**, confirm
+the port is free (`lsof`/`fuser` show nothing), and only then log into/run the CODESYS
+application.
+
+Other things to rule out at this stage, roughly in order of likelihood, are covered in
+`codesys-integration/README.md` §5.4 (port-file mismatch in `/etc/CODESYSControl_User.cfg`,
+serial parameters set independently inside the CODESYS `Modbus_COM` device, and the
+Master/Slave device-tree hierarchy itself).
 
 ---
 
