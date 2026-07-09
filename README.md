@@ -1053,9 +1053,20 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 
 ## Open items before Phase 3 (implementation) — 🔵 TL checkpoint
 
-**Baud-rate synchronization — RESOLVED ✓**
+**Baud-rate synchronization — ⚠️ re-verification required (regression suspected)**
 
-The physical F4S controller was aligned to match the CODESYS device configuration:
+Previously recorded as resolved at 19200, but a later manual `mbpoll -b 9600 ... -r 300` also
+returned a clean, correct-looking read (`[300]: 240`, matching the front panel) — a genuine
+baud mismatch on RS-232 should produce a timeout or framing error, not a clean match, so getting
+one at *two different baud rates* is not something to write off as a fluke. Two explanations are
+plausible: (1) the F4S's actual current baud rate has reverted to 9600 (e.g. the earlier
+front-panel change to 19200 wasn't saved/persisted through a power cycle), or (2) the 9600 read
+was a rare false-positive CRC match on a garbled frame. **Before any further writes**, re-verify
+the *actual* current setting directly on the F4S front panel — **Setup → Communications → Baud
+Rate** — and treat that as ground truth over this table until it's re-confirmed. Full discussion
+in `linux-integration/README.md` §4.1a.
+
+Original resolution record (superseded by the above until re-verified):
 - F4S front-panel: **Setup → Communications → Baud Rate = 19200** (changed from 9600, verified on unit)
 - CODESYS `Modbus_COM` device: **19200** (already configured)
 

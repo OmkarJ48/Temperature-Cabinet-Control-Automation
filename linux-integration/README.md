@@ -101,6 +101,18 @@ Helper scripts:
 
 ## Step 4: Bench-test the link with `mbpoll` (before touching CODESYS)
 
+> **Where you run this from matters.** All script paths below (`scripts/write-setpoint.sh` etc.)
+> are relative to **this folder** (`linux-integration/`), not the repo root. If your prompt shows
+> you sitting in the repo root (e.g.
+> `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`), either `cd linux-integration`
+> first, or prefix every command with `linux-integration/` (e.g.
+> `linux-integration/scripts/write-setpoint.sh 26.5`). Running `./scripts/write-setpoint.sh` from
+> the repo root fails with `No such file or directory` for exactly this reason — the script lives
+> at `linux-integration/scripts/write-setpoint.sh`, not `scripts/write-setpoint.sh` from the root.
+>
+> Also worth a `git pull origin OJ4884-patch-1` first if a script "doesn't exist" — new scripts
+> added to this repo won't appear in your working copy until you pull.
+
 Install once:
 
 ```bash
@@ -135,7 +147,8 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
 `232` = 23.2°C, matching the F4S front-panel display exactly.
 
 A helper script wrapping this command is at
-[`scripts/bench-test-modbus.sh`](scripts/bench-test-modbus.sh).
+[`scripts/bench-test-modbus.sh`](scripts/bench-test-modbus.sh) — from the repo root:
+`linux-integration/scripts/bench-test-modbus.sh`.
 
 ### 4.1a Read the static setpoint (register 300, SP1)
 
@@ -148,10 +161,17 @@ Same command, same flags, only the `-r` value changes:
 mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
 ```
 
-Or with the helper script (register is the third positional argument):
+Or with the helper script (register is the third positional argument) — run from **this folder**
+(`linux-integration/`):
 
 ```bash
 ./scripts/bench-test-modbus.sh /dev/ttyUSB0 19200 300
+```
+
+...or from the **repo root** instead:
+
+```bash
+linux-integration/scripts/bench-test-modbus.sh /dev/ttyUSB0 19200 300
 ```
 
 **Expected result**, matching the front-panel `SP1  24.0°C` reading:
@@ -171,6 +191,23 @@ If this read also succeeds (it will, since it's the identical link already prove
 see it in CODESYS is a CODESYS-side configuration problem, not a hardware/wiring problem — see
 §4.4 below and `codesys-integration/README.md` §5.4.
 
+> ⚠️ **Baud-rate discrepancy to resolve before writing anything.** This README documents
+> **19200** as the confirmed F4S baud rate (§ below, and the root README's Phase 2→3 settings
+> table). If a manual `mbpoll -b 9600 ...` also returns a clean, correct-looking value (e.g.
+> `[300]: 240` matching the front panel) instead of a timeout or CRC/garbage error, **do not
+> shrug this off** — a genuine baud mismatch on RS-232 almost always produces a framing error,
+> not a clean read, so getting a valid answer at *two different baud rates* means one of two
+> things: either the F4S's actual current baud rate is not what this README assumes, or the
+> "clean" read at the wrong rate was a false positive (which is rare but not impossible, since
+> Modbus CRC-16 has a small nonzero collision chance on garbled frames). **Before running any
+> write** (`write-setpoint.sh`), re-verify the *actual* current baud rate directly on the F4S
+> front panel — **Setup → Communications → Baud Rate** — and pass that exact value as the
+> `[baud]` argument to every script. Reads that return a wrong-but-plausible value are a
+> nuisance; **writes sent at the wrong baud onto a link that occasionally produces false-valid
+> reads are a real risk** — you could be talking about a corrupted frame landing on a register
+> you didn't intend. Confirm the front panel setting, don't assume either baud rate is correct
+> just because a read happened to work.
+
 ### 4.1b Write a new setpoint from the Linux terminal — and what you cannot write
 
 **Register 100 (actual chamber temperature) cannot be written, and must not be.** It's a
@@ -188,10 +225,17 @@ target over time, exactly like turning a thermostat dial. This is the identical 
 pattern already implemented in CODESYS by `src/POUs/FB_CabinetSetpointControl.st` — the Linux
 scripts below just do the same thing from the terminal.
 
-**Write the setpoint:**
+**Write the setpoint** — from **this folder** (`linux-integration/`):
 
 ```bash
 ./scripts/write-setpoint.sh 26.5
+```
+
+...or from the **repo root** (e.g. `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`,
+which is where you land by default over SSH — this is almost certainly the form you want):
+
+```bash
+linux-integration/scripts/write-setpoint.sh 26.5
 ```
 
 This performs, in order:
@@ -207,16 +251,18 @@ This performs, in order:
 5. **Reads register 300 back and confirms it matches** before reporting success — an unconfirmed
    write is treated as a failure, not a success.
 
-Full usage: `./scripts/write-setpoint.sh <new_setpoint_degC> [device] [baud] [slave]`.
+Full usage: `write-setpoint.sh <new_setpoint_degC> [device] [baud] [slave]` (path depends on
+your current directory, per above).
 
-**Watch the cabinet ramp toward the new setpoint** (read-only, never writes):
+**Watch the cabinet ramp toward the new setpoint** (read-only, never writes) — again, path
+depends on where you are; from the repo root:
 
 ```bash
-./scripts/watch-temperature-ramp.sh
+linux-integration/scripts/watch-temperature-ramp.sh
 ```
 
 Polls both register 100 (actual) and register 300 (target) every 5 seconds, 12 times by
-default (`./scripts/watch-temperature-ramp.sh [interval_s] [iterations]` to change either), and
+default (`watch-temperature-ramp.sh [interval_s] [iterations]` to change either), and
 prints both side by side so you can see the F4S's own control loop closing the gap:
 
 ```
