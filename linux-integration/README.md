@@ -8,7 +8,7 @@
 This folder covers everything **below** CODESYS on the Linux side — identifying the serial
 adapter, granting it permissions, and proving the raw Modbus link with `mbpoll` before CODESYS
 is ever involved. It assumes you're already connected to the Pi (see `remote-ssh-vscode/`) and
-hands off to `codesys-integration/` once the bench test below succeeds.
+hands off to `codesys-modbus-integration/` once the bench test below succeeds.
 
 **Do not skip ahead to CODESYS if the bench test here hasn't passed.** A CODESYS Modbus error on
 top of an unproven serial link is two unknowns at once — prove the link in isolation first.
@@ -44,7 +44,7 @@ ls /dev/ttyUSB*
 
 If it lists `/dev/ttyUSB1` instead of `/dev/ttyUSB0`, use that new number for every command below
 (`chmod`, `mbpoll`, and — if this recurs — the CODESYS runtime mapping in
-`codesys-integration/`). Re-running `dmesg | tail -n 20` after any reconnect is the reliable way
+`codesys-modbus-integration/`). Re-running `dmesg | tail -n 20` after any reconnect is the reliable way
 to confirm which node the adapter actually landed on, rather than assuming.
 
 ---
@@ -101,14 +101,12 @@ Helper scripts:
 
 ## Step 4: Bench-test the link with `mbpoll` (before touching CODESYS)
 
-> **Where you run this from matters.** All script paths below (`scripts/write-setpoint.sh` etc.)
-> are relative to **this folder** (`linux-integration/`), not the repo root. If your prompt shows
-> you sitting in the repo root (e.g.
-> `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`), either `cd linux-integration`
-> first, or prefix every command with `linux-integration/` (e.g.
-> `linux-integration/scripts/write-setpoint.sh 26.5`). Running `./scripts/write-setpoint.sh` from
-> the repo root fails with `No such file or directory` for exactly this reason — the script lives
-> at `linux-integration/scripts/write-setpoint.sh`, not `scripts/write-setpoint.sh` from the root.
+> **Where you run this from matters.** `scripts/bench-test-modbus.sh` below is relative to
+> **this folder** (`linux-integration/`), not the repo root. If your prompt shows you sitting in
+> the repo root (e.g. `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`), either
+> `cd linux-integration` first, or prefix the script with `linux-integration/`. The raw `mbpoll`
+> commands used throughout this section (reads and writes alike) have no such path dependency —
+> they work identically from anywhere, which is why they're the canonical form used below.
 >
 > Also worth a `git pull origin OJ4884-patch-1` first if a script "doesn't exist" — new scripts
 > added to this repo won't appear in your working copy until you pull.
@@ -189,98 +187,94 @@ If this read also succeeds (it will, since it's the identical link already prove
 100 — same slave, same wiring, same parity/baud, just a different holding register), that
 **conclusively proves the Linux ↔ F4S link can see the setpoint**, and any remaining failure to
 see it in CODESYS is a CODESYS-side configuration problem, not a hardware/wiring problem — see
-§4.4 below and `codesys-integration/README.md` §5.4.
+§4.4 below and `codesys-modbus-integration/README.md` §5.4.
 
-> ⚠️ **Baud-rate discrepancy to resolve before writing anything.** This README documents
-> **19200** as the confirmed F4S baud rate (§ below, and the root README's Phase 2→3 settings
-> table). If a manual `mbpoll -b 9600 ...` also returns a clean, correct-looking value (e.g.
-> `[300]: 240` matching the front panel) instead of a timeout or CRC/garbage error, **do not
-> shrug this off** — a genuine baud mismatch on RS-232 almost always produces a framing error,
-> not a clean read, so getting a valid answer at *two different baud rates* means one of two
-> things: either the F4S's actual current baud rate is not what this README assumes, or the
-> "clean" read at the wrong rate was a false positive (which is rare but not impossible, since
-> Modbus CRC-16 has a small nonzero collision chance on garbled frames). **Before running any
-> write** (`write-setpoint.sh`), re-verify the *actual* current baud rate directly on the F4S
-> front panel — **Setup → Communications → Baud Rate** — and pass that exact value as the
-> `[baud]` argument to every script. Reads that return a wrong-but-plausible value are a
-> nuisance; **writes sent at the wrong baud onto a link that occasionally produces false-valid
-> reads are a real risk** — you could be talking about a corrupted frame landing on a register
-> you didn't intend. Confirm the front panel setting, don't assume either baud rate is correct
-> just because a read happened to work.
+> **Baud rate — RESOLVED, 19200 reconfirmed.** An earlier manual `mbpoll -b 9600 ...` test once
+> returned a clean-looking read, which raised doubt about whether the F4S was genuinely at
+> 19200. Since then, **multiple successful writes and read-backs at `-b 19200`** (below) have
+> reconfirmed 19200 as correct — the earlier 9600 "success" is understood to have been a rare
+> CRC false-positive on a garbled frame, not a real baud match. Use **19200** going forward;
+> if a write ever times out, check the checklist in §4.1b's third scenario before suspecting baud.
 
 ### 4.1b Write a new setpoint from the Linux terminal — and what you cannot write
 
 **Register 100 (actual chamber temperature) cannot be written, and must not be.** It's a
-read-only measurement taken from the F4S's own physical sensor. There is no Modbus function
-code that meaningfully "sets" a live sensor reading — even if the F4S accepted such a write,
-all it would do is make the display lie about the real chamber state without changing the
-actual physical temperature by even a fraction of a degree. That would silently defeat the
-entire supervisory-control safety model this repo is built around (see the root README's "Key
-design principle" section): CODESYS/Linux never controls temperature directly, it only ever
-reads the true state and requests a new target.
+read-only measurement taken from the F4S's own physical sensor (Watlow's own Modbus map lists
+register 100, "Input 1 Value," as read-only — there is no FC06/FC16 write path defined for it).
+Even if a write were accepted, all it would do is make the display lie about the real chamber
+state without changing the actual physical temperature by a fraction of a degree — the chamber
+is only ever heated/cooled by the F4S's own output stage reacting to its **setpoint**, never by
+a register write. Attempting it would silently defeat the entire supervisory-control safety
+model this repo is built around (root README, "Key design principle"): Linux/CODESYS never
+controls temperature directly, it only ever reads the true state and requests a new target.
 
-**What you actually change is the setpoint (register 300)** — the F4S then drives its own
+**What you actually change is the setpoint (register 300, SP1)** — the F4S then drives its own
 closed-loop PID to ramp the real, physical chamber temperature (register 100) toward that
-target over time, exactly like turning a thermostat dial. This is the identical write → confirm
-pattern already implemented in CODESYS by `src/POUs/FB_CabinetSetpointControl.st` — the Linux
-scripts below just do the same thing from the terminal.
-
-**Write the setpoint** — from **this folder** (`linux-integration/`):
-
-```bash
-./scripts/write-setpoint.sh 26.5
-```
-
-...or from the **repo root** (e.g. `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`,
-which is where you land by default over SSH — this is almost certainly the form you want):
+target over time, exactly like turning a thermostat dial. This is the same write → confirm
+principle implemented in CODESYS by `src/POUs/FB_CabinetSetpointControl.st`; the command below
+is the proven, minimal way to do the same thing directly from the terminal — no wrapper script,
+just `mbpoll` itself:
 
 ```bash
-linux-integration/scripts/write-setpoint.sh 26.5
+mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 <raw_value>
 ```
 
-This performs, in order:
-1. Reads the current setpoint first (register 300).
-2. **Skips the write entirely if the value hasn't changed** — edge-triggered, same reasoning as
-   the CODESYS logic: register 300 lives in the F4S's EEPROM, and repeated writes of the same
-   value cause unnecessary wear.
-3. Validates the requested value is within `0.0–200.0°C` — the same bounds as
-   `GVL_HMI.rMinSetpoint`/`rMaxSetpoint` in the CODESYS application (`src/GVLs/GVL_HMI.gvl`), so
-   the Linux-side write can't do anything the CODESYS logic would itself refuse.
-4. Converts to the raw register value (one implied decimal — `26.5°C` → `265`) and writes it
-   via FC06 (single register write).
-5. **Reads register 300 back and confirms it matches** before reporting success — an unconfirmed
-   write is treated as a failure, not a success.
+`<raw_value>` is the desired setpoint **times 10** (one implied decimal — `50.0°C` → `500`,
+`75.0°C` → `750`). Providing a trailing value switches `mbpoll` from read to write mode
+automatically (FC06, single register); `-t 4` and `-c 1` are omitted deliberately — they're
+`mbpoll`'s defaults for a single holding-register write, confirmed unnecessary on this hardware.
 
-Full usage: `write-setpoint.sh <new_setpoint_degC> [device] [baud] [slave]` (path depends on
-your current directory, per above).
-
-**Watch the cabinet ramp toward the new setpoint** (read-only, never writes) — again, path
-depends on where you are; from the repo root:
+**Confirm the write landed** with the plain read command from §4.1a:
 
 ```bash
-linux-integration/scripts/watch-temperature-ramp.sh
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
 ```
 
-Polls both register 100 (actual) and register 300 (target) every 5 seconds, 12 times by
-default (`watch-temperature-ramp.sh [interval_s] [iterations]` to change either), and
-prints both side by side so you can see the F4S's own control loop closing the gap:
+#### Three outcomes confirmed on this hardware — know all three before relying on this link
+
+**1. Success — write accepted, confirmed by both the terminal and the front panel.**
 
 ```
-[1/12] Actual: 23.2C  ->  Target: 26.5C
-[2/12] Actual: 23.4C  ->  Target: 26.5C
+$ mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 500
 ...
-[12/12] Actual: 26.5C  ->  Target: 26.5C
+Written 1 references.
+$ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
+...
+[300]: 500
 ```
+`500` = `50.0°C`. The F4S front panel's `SP1` line changes to match. This is the normal case:
+`mbpoll` reports the write, the read-back confirms it, and the physical unit agrees.
 
-If the write reports "CONFIRMED" but register 100 never moves, the F4S itself is not
-progressing the ramp — check the front panel for an active alarm, or that the unit is actually
-in **run** mode, before assuming the Modbus layer is at fault (the write succeeding and being
-read back is proof the comms link itself is fine).
+**2. Silent no-op — F4S is on a Function/menu page, not the main SP1 page.**
 
-If `write-setpoint.sh` reports a read-back mismatch instead of "CONFIRMED," the F4S most likely
-has an active **profile/ramp program running**, which owns SP1 and refuses external writes —
-confirm the F4S is in **static/manual setpoint mode** on the front panel (see the troubleshooting
-row for this in §4.3 below) before retrying.
+The write still returns `Written 1 references.` (the frame was received and acknowledged at the
+transport level), but **the setpoint does not actually change** — because the front panel is
+sitting in a function/config menu rather than the `Main Page` showing `SP1`, the write does not
+take visible effect the same way. **The command line gives no indication anything is wrong** —
+it reports success identically to scenario 1. **The only way to catch this is a visual check of
+the physical F4S display**, confirming it's on the `Main Page` with `SP1` showing the new value.
+Do not trust a `Written 1 references.` message alone as proof the cabinet changed — always
+cross-check the front panel, especially before/after any unattended or scripted write.
+
+**3. Hard failure — RS-232 adapter disconnected from the F4S.**
+
+```
+$ mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 750
+...
+Write output (holding) register failed: Connection timed out.
+```
+This is the one case that's unambiguous from the terminal alone — a clear, immediate fault
+indication with no need for visual confirmation. If you see this, check the DB9/adapter
+connection at the cabinet before re-checking anything else (permissions, baud, parity are all
+proven at this point; a sudden timeout on a previously-working link is almost always a physical
+disconnect, not a settings regression).
+
+**Practical rule from all three:** a `Written 1 references.` / `Connection timed out` message
+tells you whether the **frame** was exchanged, not whether the **cabinet's physical state**
+changed. Scenario 3 is safe to trust from the terminal; scenarios 1 and 2 are not
+distinguishable from the terminal output alone — always confirm on the front panel until the
+CODESYS application's own read-back confirmation (§`codesys-modbus-integration/README.md`) is
+wired up to do this automatically.
 
 ### 4.2 Two independent fixes were needed — both matter
 
@@ -347,7 +341,7 @@ the port is free (`lsof`/`fuser` show nothing), and only then log into/run the C
 application.
 
 Other things to rule out at this stage, roughly in order of likelihood, are covered in
-`codesys-integration/README.md` §5.4 (port-file mismatch in `/etc/CODESYSControl_User.cfg`,
+`codesys-modbus-integration/README.md` §5.4 (port-file mismatch in `/etc/CODESYSControl_User.cfg`,
 serial parameters set independently inside the CODESYS `Modbus_COM` device, and the
 Master/Slave device-tree hierarchy itself).
 
@@ -356,6 +350,6 @@ Master/Slave device-tree hierarchy itself).
 ## Order of operations reminder
 
 Once `mbpoll` reads cleanly and repeatably (run it two or three times, not just once — Rebuild →
-Retest → Requalify → Repeat), proceed to `codesys-integration/README.md` to map this proven port
+Retest → Requalify → Repeat), proceed to `codesys-modbus-integration/README.md` to map this proven port
 into the CODESYS runtime. See the root `README.md`'s "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub"
 section for the full six-step sequence and how all three folders fit together.
