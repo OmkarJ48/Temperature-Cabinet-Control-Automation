@@ -3,7 +3,7 @@
 Develop a safe and reliable method of allowing an operator to change the setpoint of the selected temperature cabinet from a CODESYS HMI. The cabinet keeps its own closed-loop control at all times — CODESYS provides **supervisory setpoint control only**, never a replacement control loop.
 
 **Owner:** Omkar Joshi (OJ) — Oliver Valvetek / Oliver Mechatronics / Oliver R&D  
-**Status:** Phase 2 → Phase 3 (Rebuild, Retest, Requalify & Repeat) — CODESYS sandbox created, DLS008 hardware integrated, RS-232 serial protocol confirmed with verified wiring; Raspberry Pi ↔ F4S serial link **bench-tested and proven** (`mbpoll`, register 100 read matches front panel); next: map into CODESYS (Requalify phase — see `codesys-integration/README.md`)
+**Status:** Phase 2 → Phase 3 (Rebuild, Retest, Requalify & Repeat) — CODESYS sandbox created, DLS008 hardware integrated, RS-232 serial protocol confirmed with verified wiring; Raspberry Pi ↔ F4S serial link **bench-tested and proven for both read and write** (`mbpoll`: register 100 read matches front panel; register 300 setpoint written, read back, and confirmed on the physical unit); next: map into CODESYS (Requalify phase — see `codesys-modbus-integration/README.md`)
 
 ---
 
@@ -255,7 +255,7 @@ Application
 - **Stop Bits:** 1
 - **Transmission Mode:** RTU (raw binary, not ASCII)
 - **Bus Cycle Task:** Parent bus cycle (synchronized with MainTask)
-- **Channel addressing:** 0-based (PDU) — confirmed via on-hardware testing. Set the channel **Offset** field to the register number directly (`100`, `300`), not `99`/`299` — see `codesys-integration/README.md` for the full explanation
+- **Channel addressing:** 0-based (PDU) — confirmed via on-hardware testing. Set the channel **Offset** field to the register number directly (`100`, `300`), not `99`/`299` — see `codesys-modbus-integration/README.md` for the full explanation
 
 ---
 
@@ -319,7 +319,7 @@ Note: even Beckhoff's own EK9000 (Modbus TCP/UDP-capable coupler) wouldn't fully
 > parity mismatch → TX/RX wiring swap → confirmed working link) and is kept for traceability.
 > **For the current, confirmed, step-by-step procedure to follow, use:**
 > - [`linux-integration/README.md`](linux-integration/README.md) — Raspberry Pi/Linux OS layer (device ID, permissions, `mbpoll` bench test)
-> - [`codesys-integration/README.md`](codesys-integration/README.md) — CODESYS runtime + device tree configuration
+> - [`codesys-modbus-integration/README.md`](codesys-modbus-integration/README.md) — CODESYS runtime + device tree configuration
 > - [`remote-ssh-vscode/README.md`](remote-ssh-vscode/README.md) — VS Code Remote-SSH + GitHub workflow
 >
 > or the consolidated "[Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub](#linux--raspberry-pi--codesys--github--remote-ssh-integration)" section further down this same README. Two confirmed facts from this debugging history that the canonical procedure already incorporates: (1) the F4S needed **both** a parity-flag fix (`-P none`) **and** a physical **TX/RX wiring swap** at the terminal block — fixing one without the other still timed out; (2) Modbus register addressing on this link is **0-based (PDU)** — `mbpoll` needs `-0`, and CODESYS channel offsets are set to the register number directly (`100`, `300`), not `99`/`299`.
@@ -951,7 +951,7 @@ proves the wiring (post TX/RX-swap correction), baud (19200), parity (None/8N1),
 (1), and register addressing (0-based/PDU) are all correct — the Raspberry Pi ↔ F4S serial link
 is fully proven, independent of CODESYS.
 
-**Mapping into CODESYS from here:** see `codesys-integration/README.md` — including the same
+**Mapping into CODESYS from here:** see `codesys-modbus-integration/README.md` — including the same
 0-based addressing rule applied to the CODESYS channel **Offset** field (set to `100`/`300`
 directly, not `99`/`299`).
 
@@ -970,7 +970,7 @@ easy to find:
 |---|---|---|
 | [`remote-ssh-vscode/`](remote-ssh-vscode/README.md) | VS Code Remote-SSH connection + Git/GitHub workflow from the Pi | 1, 6 |
 | [`linux-integration/`](linux-integration/README.md) | Raspberry Pi OS layer — device identification, serial port permissions, `mbpoll` bench test | 2, 3, 4 |
-| [`codesys-integration/`](codesys-integration/README.md) | CODESYS runtime config, Modbus device tree, channel addressing, build/deploy | 5 |
+| [`codesys-modbus-integration/`](codesys-modbus-integration/README.md) | CODESYS runtime config, Modbus device tree, channel addressing, build/deploy | 5 |
 
 **Do not skip ahead** — each step assumes the previous one is proven. Bench-test the raw serial
 link with `mbpoll` (Linux layer) *before* touching CODESYS; don't debug CODESYS Modbus errors
@@ -996,7 +996,7 @@ until `mbpoll` reads cleanly on its own.
    mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
    ```
    Two fixes are required together — `-P none` (this F4S is 8N1, not `mbpoll`'s default 8E1) **and** `-0` (0-based/PDU register addressing, confirmed on hardware) — plus the physical TX/RX wiring at the F4S terminal block must be correct (not swapped). Full troubleshooting table in `linux-integration/README.md`.
-5. **Map & deploy** — `/etc/CODESYSControl_User.cfg` → `Linux.Devicefile.1=/dev/ttyUSB0` → restart `codesyscontrol` → configure the Modbus Serial Master device in the CODESYS IDE on **COM1**, with channel **Offset** set 0-based (`100`, `300` directly). Build → Clean All → Build → Login → Run. → `codesys-integration/README.md`
+5. **Map & deploy** — `/etc/CODESYSControl_User.cfg` → `Linux.Devicefile.1=/dev/ttyUSB0` → restart `codesyscontrol` → configure the Modbus Serial Master device in the CODESYS IDE on **COM1**, with channel **Offset** set 0-based (`100`, `300` directly). Build → Clean All → Build → Login → Run. → `codesys-modbus-integration/README.md`
 6. **Version** — commit/push any doc or code changes from the same Remote-SSH VS Code window back to `OJ4884-patch-1`. → `remote-ssh-vscode/README.md`
 7. **Requalify** — run the T1–T9 test plan in `docs/DEPLOYMENT_AND_TEST.md` §5 once steps 1–6 are proven end-to-end.
 
@@ -1044,31 +1044,26 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 | Investigate remote setpoint capability | **Done** — Watlow F4S (SN 038983) confirmed; RS-232 protocol verified (3-wire: white/red/black = TX/RX/GND per nameplate terminals 14/15/16); register 300 = SP1 setpoint |
 | Identify additional hardware/wiring/settings | **Done** — USB-to-RS232 adapter in hand; wiring colors verified with RS-232 standard sources (Raveon AN236, Watlow F4S spec); no enclosure modifications needed |
 | Basic HMI input | Not started — HMI mockup exists (`mockups/watlow-f4s-setpoint-hmi.html`); awaits CODESYS WebVisu build-out |
-| Send setpoint to cabinet | **Retest phase complete ✓** — Raspberry Pi bench-test (`mbpoll`) proven: `[100]: 232` matches F4S front panel, with parity fix, TX/RX wiring fix, and 0-based addressing all applied. Requalify (CODESYS mapping) is next — see `codesys-integration/README.md` |
+| Send setpoint to cabinet | **Retest phase complete ✓ — read AND write both proven** — `mbpoll` register 100 read matches front panel; register 300 (SP1) written directly (`mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 <raw>`), read back, and confirmed changed on the physical unit. Three real-world outcomes documented (accepted, silently no-op'd on a Function-menu page, hard-failed on adapter disconnect) — see `linux-integration/README.md` §4.1b. Requalify (CODESYS mapping) is next — see `codesys-modbus-integration/README.md` |
 | Confirm acceptance | Blocked on: CODESYS Requalify (mapping the proven Pi↔F4S link into the runtime and device tree) |
 | Validation + fault indication | Blocked on: Requalify + HMI development + T1–T9 test plan execution (`docs/DEPLOYMENT_AND_TEST.md` §5) |
-| Documentation | **Done** — README documents the full Rebuild → Retest → Requalify → Repeat cycle through a proven Raspberry Pi bench test; `linux-integration/`, `codesys-integration/`, and `remote-ssh-vscode/` folders document each phase in detail |
+| Documentation | **Done** — README documents the full Rebuild → Retest → Requalify → Repeat cycle through a proven Raspberry Pi bench test; `linux-integration/`, `codesys-modbus-integration/`, and `remote-ssh-vscode/` folders document each phase in detail |
 
 ---
 
 ## Open items before Phase 3 (implementation) — 🔵 TL checkpoint
 
-**Baud-rate synchronization — ⚠️ re-verification required (regression suspected)**
+**Baud-rate synchronization — RESOLVED ✓ (19200 reconfirmed)**
 
-Previously recorded as resolved at 19200, but a later manual `mbpoll -b 9600 ... -r 300` also
-returned a clean, correct-looking read (`[300]: 240`, matching the front panel) — a genuine
-baud mismatch on RS-232 should produce a timeout or framing error, not a clean match, so getting
-one at *two different baud rates* is not something to write off as a fluke. Two explanations are
-plausible: (1) the F4S's actual current baud rate has reverted to 9600 (e.g. the earlier
-front-panel change to 19200 wasn't saved/persisted through a power cycle), or (2) the 9600 read
-was a rare false-positive CRC match on a garbled frame. **Before any further writes**, re-verify
-the *actual* current setting directly on the F4S front panel — **Setup → Communications → Baud
-Rate** — and treat that as ground truth over this table until it's re-confirmed. Full discussion
-in `linux-integration/README.md` §4.1a.
+An earlier manual `mbpoll -b 9600 ...` test once returned a clean-looking read, briefly raising
+doubt about whether the F4S was genuinely at 19200. Since then, **multiple successful writes and
+read-backs at `-b 19200`** (register 300, several values, all confirmed both on the terminal and
+the physical front panel) have reconfirmed 19200 as correct — the earlier 9600 result is
+understood to have been a rare CRC false-positive on a garbled frame, not a real baud match. Full
+discussion in `linux-integration/README.md` §4.1a/§4.1b.
 
-Original resolution record (superseded by the above until re-verified):
-- F4S front-panel: **Setup → Communications → Baud Rate = 19200** (changed from 9600, verified on unit)
-- CODESYS `Modbus_COM` device: **19200** (already configured)
+- F4S front-panel: **Setup → Communications → Baud Rate = 19200** (changed from 9600, verified on unit, reconfirmed by repeated successful writes)
+- CODESYS `Modbus_COM` device: **19200**, now also locked at the runtime level via `baudrate.1=19200` in `/etc/CODESYSControl_User.cfg` — see `codesys-modbus-integration/README.md` Step 3
 
 **Raspberry Pi bench-test (`mbpoll`) — RESOLVED ✓**
 
@@ -1082,15 +1077,32 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
 Result: `[100]: 232` (23.2°C), matching the F4S front-panel display. Full details, the two
 independent root causes, and the troubleshooting table are in `linux-integration/README.md` §4.
 
+**Register 300 (setpoint) write — RESOLVED ✓**
+
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 500
+```
+
+Write accepted (`Written 1 references.`), read back as `[300]: 500` (50.0°C), and confirmed
+changed on the physical F4S front panel. Three real-world outcomes were characterized during
+this testing — clean success, a silent no-op when the F4S front panel is on a Function/menu page
+rather than the Main Page, and a hard `Connection timed out` failure when the RS-232 adapter is
+disconnected — full detail and the console transcripts for all three in
+`linux-integration/README.md` §4.1b.
+
 **Remaining priority tasks:**
 
 1. **CODESYS mapping (Requalify phase):** Map the proven `/dev/ttyUSB0` port into the CODESYS
-   runtime and device tree, including the confirmed 0-based channel addressing (offset = `100`/
-   `300` directly, not `99`/`299`). Full steps in `codesys-integration/README.md`.
+   runtime and device tree — udev permissions, `SysCom` mapping with the baud rate locked,
+   driver timing, and the register-300 write channel (`Application`-triggered, not `Cyclic`).
+   Full steps in `codesys-modbus-integration/README.md`.
 
 2. **Once CODESYS is mapped:** Re-run the CODESYS read/write tests to confirm the link works
    end-to-end inside the application (Repeat phase — T1–T9 test plan in
-   `docs/DEPLOYMENT_AND_TEST.md` §5).
+   `docs/DEPLOYMENT_AND_TEST.md` §5). Note that the CODESYS-side read-back confirmation
+   (`FB_CabinetSetpointControl.st`'s `CONFIRM` state) can only detect two of the three outcomes
+   above automatically — the Function-menu-page no-op is a physical-inspection item, not
+   something the Modbus transaction itself reveals.
 
 3. Power-budget check: the 5 V/5 A (30 W) rail is shared across two Raspberry Pi 5 units. Actual draw under full load for both units running simultaneously is worth measuring, even though typical idle draw is well under the 5 A spec.
 
@@ -1107,8 +1119,8 @@ independent root causes, and the troubleshooting table are in `linux-integration
 - Equipment datasheets (CP1/DLS008 panel, ELM3148, EK1100, EL1409, EL2869, EL3314, Watlow F4S, power supplies, MCB)
 - `docs/photos/` — site inspection photos (controller front/angled/rear views, comms terminal label, serial comms port exterior + interior, thermocouple junction box, thermocouple legend)
 - `docs/DEPLOYMENT_AND_TEST.md` — CODESYS import guide, Modbus channel config, WebVisu layout, T1–T9 test plan
-- `linux-integration/` — Raspberry Pi/Linux OS layer guide + scripts (device identification, serial permissions, `mbpoll` bench test for register 100 read and register 300 setpoint read/write, temperature-ramp watch)
-- `codesys-integration/` — CODESYS runtime + device tree configuration guide (`/etc/CODESYSControl_User.cfg`, Modbus Serial Master setup, 0-based channel addressing, build/deploy)
+- `linux-integration/` — Raspberry Pi/Linux OS layer guide + scripts (device identification, serial permissions, `mbpoll` bench test for register 100 read and register 300 setpoint read/write)
+- `codesys-modbus-integration/` — CODESYS runtime + device tree configuration guide (`/etc/CODESYSControl_User.cfg`, Modbus Serial Master setup, 0-based channel addressing, build/deploy)
 - `remote-ssh-vscode/` — VS Code Remote-SSH connection guide + Git/GitHub workflow from the Pi
 - `mockups/watlow-f4s-setpoint-hmi.html` — self-contained HTML/CSS/JS HMI mockup with embedded Oliver Mechatronics branding
 - `src/` — Structured Text POUs, DUTs, GVLs, and PLCopen XML import for `FB_CabinetSetpointControl`
