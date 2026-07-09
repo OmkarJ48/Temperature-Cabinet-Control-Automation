@@ -1,355 +1,398 @@
-# Raspberry Pi / Linux OS Layer — Serial Adapter, Permissions, `mbpoll` Bench Test
+# Raspberry Pi / Linux: Serial Communication with Watlow F4S Temperature Controller
+## Complete Step-by-Step Modbus RTU Bench Test (Read + Write)
 
-**Author:** OJ (Omkar Joshi) — Oliver Mechatronics
-**Applies to:** Raspberry Pi hosting the CODESYS sandbox project for the **Left Hand Small Temperature Cabinet** (DLS008 panel), reached over SSH at **10.1.6.17**
-**Target:** Watlow F4S (SN 038983), Modbus RTU over the USB-to-RS232 adapter on `/dev/ttyUSB0`
-**Covers:** Steps 2, 3, and 4 of the integration sequence in the root `README.md`
-
-This folder covers everything **below** CODESYS on the Linux side — identifying the serial
-adapter, granting it permissions, and proving the raw Modbus link with `mbpoll` before CODESYS
-is ever involved. It assumes you're already connected to the Pi (see `remote-ssh-vscode/`) and
-hands off to `codesys-modbus-integration/` once the bench test below succeeds.
-
-**Do not skip ahead to CODESYS if the bench test here hasn't passed.** A CODESYS Modbus error on
-top of an unproven serial link is two unknowns at once — prove the link in isolation first.
+**For:** Anyone setting up the Left Hand Small Temperature Cabinet (JTS Ltd unit) with Modbus RTU control from a Raspberry Pi  
+**Skill level assumed:** No prior Modbus experience required — all concepts explained from scratch  
+**Hardware tested:** Watlow F4S (SN 038983), Prolific PL2303 USB-to-RS232 adapter, Raspberry Pi (Debian Trixie)
 
 ---
 
-## Step 2: Identify the serial adapter
+## Part 0: What is Modbus RTU? (Concepts First)
 
-Plug the USB-to-RS232 adapter into a free USB port on the active Pi, then:
+**Modbus RTU** is a simple **industrial communication protocol** — think of it like a standard "language" for talking to devices over a serial cable. Instead of inventing your own command format, you use Modbus's predefined commands so any device (F4S, other controllers, software) speaks the same way.
+
+### Key concepts (explained plainly):
+
+**Register:**
+A "register" is a **numbered storage slot** inside the F4S controller, like a spreadsheet cell. Each register holds one number (0–65535). We care about:
+- **Register 100** = the actual chamber temperature, read-only (you can't change it — it's what the sensor measures)
+- **Register 300** = the setpoint (target temperature you want) — readable AND writable
+
+**Function Code (FC):**
+A "function code" is the **action** you want to perform:
+- **FC03** = "read holding registers" — ask the F4S "what's in register 100?" or "what's in register 300?"
+- **FC06** = "write single register" — tell the F4S "set register 300 to this new value"
+
+**Baud Rate, Parity, Data Bits, Stop Bits:**
+These are **serial port configuration settings** that control how fast and how reliably data moves through the cable:
+- **Baud rate (19200)** = speed; 19200 symbols per second
+- **Parity (None, 8N1)** = error-checking method; "None" means no parity, "8" means 8 data bits, "N" = no parity, "1" = 1 stop bit
+- Both sender and receiver MUST be set to the same values, or they won't understand each other
+
+**Slave Address:**
+The F4S has an address (default: **1**) — like a house number. If you have multiple Modbus devices on the same cable, you address each one separately. With just one F4S, it's always **address 1**.
+
+**0-Based vs 1-Based Addressing:**
+Some tools count register numbers starting at 0; others start at 1. The Modbus **PDU (Protocol Data Unit)** — the actual frame sent over the wire — uses 0-based addressing. `mbpoll` normally uses 1-based (human-friendly), so the `-0` flag tells it "use 0-based PDU addressing instead" to match the F4S's internal numbering. This was a critical gotcha in earlier testing.
+
+---
+
+## Part 1: Hardware Setup (Before Any Commands)
+
+### Step 1A: Plug in the USB-to-RS232 adapter
+
+Plug the **Prolific PL2303-based USB adapter** into a free USB port on the Raspberry Pi. **Do not yet plug in the serial (DB9) connector** — verify the adapter first.
+
+### Step 1B: Verify the adapter is recognized
 
 ```bash
 dmesg | tail -n 20
 ```
 
-Look for the attach line — on this hardware it's a Prolific PL2303-based adapter:
-
+Look for a line like:
 ```
-usb 1-2: pl2303 converter detected
 usb 1-2: pl2303 converter now attached to ttyUSB0
 ```
 
-The device file is **`/dev/ttyUSB0`**. This is what goes into both the `mbpoll` command and the
-CODESYS Modbus device tree later — there is no separate "Linux COM port" name to translate.
+This means the adapter appeared as **`/dev/ttyUSB0`** (a device file — think of it like a virtual port the OS exposes for you to use).
 
-**If the port gets disconnected and reconnected** (adapter unplugged/replugged, or the Pi
-rebooted), the kernel can assign a **different** number — `/dev/ttyUSB1` instead of `/dev/ttyUSB0`
-— if anything else claims `ttyUSB0` first. Never assume the old device file is still correct
-after a reconnect. Check what's actually present:
+**Note:** If you ever unplug and re-plug this adapter, or reboot the Pi, the kernel might assign it a different number (e.g., `/dev/ttyUSB1` instead of `/ttyUSB0`). Always run `dmesg | tail` after any replug to confirm which device file it's on.
 
-```bash
-ls /dev/ttyUSB*
-```
+### Step 1C: Check and grant permissions
 
-If it lists `/dev/ttyUSB1` instead of `/dev/ttyUSB0`, use that new number for every command below
-(`chmod`, `mbpoll`, and — if this recurs — the CODESYS runtime mapping in
-`codesys-modbus-integration/`). Re-running `dmesg | tail -n 20` after any reconnect is the reliable way
-to confirm which node the adapter actually landed on, rather than assuming.
-
----
-
-## Step 3: Grant port permissions
-
-Serial devices on Debian/Raspberry Pi OS are owned by `root:dialout` with group-only access by
-default. Check what you're dealing with first:
+The OS restricts who can use serial ports for security reasons. Check the current permissions:
 
 ```bash
 ls -la /dev/ttyUSB0
 ```
 
-Reading the permission bits (`crw-------` or `crw-rw----`):
-
-| Bits | Meaning |
-|---|---|
-| `crw-------` | Owner (`root`) only — no group or other access at all |
-| `crw-rw----` | Owner (`root`) and group (`dialout`) can read/write — this is the normal default |
-| `crw-rw-rw-` | Everyone can read/write — this is what `chmod 666` produces |
-
-If you see `crw-------` or `crw-rw----` and your user isn't in the `dialout` group, `mbpoll` (and
-CODESYS) will fail to open the port with a permissions error, not a Modbus error — don't waste
-time on baud/parity troubleshooting until this is confirmed.
-
-**Option A — temporary fix (resets on every reboot or replug):**
-
-```bash
-sudo chmod 666 /dev/ttyUSB0
+You'll see output like:
+```
+crw-rw---- 1 root dialout 188, 0 Jul  8 10:50 /dev/ttyUSB0
 ```
 
-Fast for one bench-test session, but if the adapter is unplugged and replugged, or the Pi
-reboots, this reverts and needs to be re-run.
-
-**Option B — permanent fix (survives reboots and replugs):**
+This means only `root` and members of the `dialout` group can use it. If your user isn't in `dialout`, add yourself:
 
 ```bash
 sudo usermod -a -G dialout $USER
-# then log out and back in (or reboot) for the group membership to take effect
 ```
 
-This is the standard Linux practice rather than a one-off workaround — once your user is in
-`dialout`, every `/dev/ttyUSB*` device grants your user read/write automatically, permanently.
+Then **log out and back in** (or reboot) for the group change to take effect. Verify:
 
-**CODESYS's own runtime process needs the same access.** If the runtime doesn't run as `root`,
-add its service user to `dialout` too — otherwise the Modbus device in CODESYS will silently show
-"no response" even though `mbpoll` works fine from your own shell.
+```bash
+groups
+# You should see "dialout" in the output
+```
 
-Helper scripts:
-- [`scripts/check-serial-permissions.sh`](scripts/check-serial-permissions.sh) — read-only check, no changes made
-- [`scripts/grant-serial-permissions.sh`](scripts/grant-serial-permissions.sh) — check + apply the temporary `chmod 666` fix
+### Step 1D: Physically wire the serial cable
+
+The F4S has a **terminal block** (a row of screw-down connectors) on its back panel. Wire the DB9 connector from the USB adapter as follows:
+
+| DB9 Pin | Color (ADR-001 standard) | F4S Terminal | Purpose |
+|---|---|---|---|
+| 3 (TXD) | White | 14 (Tx) | Transmit data FROM Pi TO F4S |
+| 2 (RXD) | Red | 15 (Rx) | Receive data FROM F4S TO Pi |
+| 5 (GND) | Black | 16 (GND) | Ground / Reference |
+
+**Critical:** TX (white) goes to terminal **14**, RX (red) goes to terminal **15**. Swapping these stops everything — this was a real bug found during testing.
+
+Tighten the terminal-block screws firmly. Loose wires = intermittent timeouts.
 
 ---
 
-## Step 4: Bench-test the link with `mbpoll` (before touching CODESYS)
+## Part 2: Install and Verify mbpoll (The Modbus Testing Tool)
 
-> **Where you run this from matters.** `scripts/bench-test-modbus.sh` below is relative to
-> **this folder** (`linux-integration/`), not the repo root. If your prompt shows you sitting in
-> the repo root (e.g. `~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`), either
-> `cd linux-integration` first, or prefix the script with `linux-integration/`. The raw `mbpoll`
-> commands used throughout this section (reads and writes alike) have no such path dependency —
-> they work identically from anywhere, which is why they're the canonical form used below.
->
-> Also worth a `git pull origin OJ4884-patch-1` first if a script "doesn't exist" — new scripts
-> added to this repo won't appear in your working copy until you pull.
+**`mbpoll`** is a command-line tool that lets you send Modbus commands from the terminal. Think of it as a "Modbus telephone" — you pick it up, dial the F4S, and ask it questions.
 
-Install once:
+### Step 2A: Install mbpoll
 
 ```bash
 sudo apt-get update
 sudo apt-get install mbpoll
 ```
 
-### 4.1 Confirmed working command for this cabinet
+Verify installation:
+
+```bash
+which mbpoll
+# Should print: /usr/bin/mbpoll
+```
+
+### Step 2B: Understand the command structure
+
+All mbpoll commands follow this pattern:
+
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none [action flags] /dev/ttyUSB0 [write value, if any]
+```
+
+**Flags explained (no prior knowledge assumed):**
+
+| Flag | Full Name | What It Does | Our Value | Why |
+|---|---|---|---|---|
+| `-m rtu` | Mode RTU | Selects "RTU" format (the protocol style) | `rtu` | F4S uses RTU, not ASCII or TCP |
+| `-a 1` | Address | Which device on the cable to talk to | `1` | F4S default address is 1 |
+| `-b 19200` | Baud rate | Speed of communication | `19200` | Confirmed on F4S front panel: Setup → Communications → Baud Rate |
+| `-P none` | Parity | Error-checking method | `none` | F4S uses 8N1 (no parity); **critical fix** from earlier testing |
+| `-t 4` | Type | Register type to read/write | `4` | "4" = holding registers (the type we need) |
+| `/dev/ttyUSB0` | Device | Which serial port to use | `/dev/ttyUSB0` | The adapter's device file |
+
+For **reads** (FC03), add these:
+| Flag | Meaning | Our Value | Why |
+|---|---|---|---|
+| `-r 100` | Register address | `100` or `300` | Register 100 = temperature, 300 = setpoint |
+| `-c 1` | Count (how many registers) | `1` | Read just 1 register |
+| `-1` | Poll once | — | "Poll once and exit" (don't loop) |
+| `-0` | 0-based addressing | — | Use PDU (0-based) addressing, not 1-based |
+
+For **writes** (FC06), do NOT include `-c` or `-1`. Instead, append the value:
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -0 /dev/ttyUSB0 265
+#                                                               ↑ the value to write
+```
+
+---
+
+## Part 3: First Test — Read the Actual Temperature (Register 100)
+
+This is the simplest test: ask the F4S "what temperature do you measure right now?" It should reply with the same value shown on its front-panel display.
+
+### Step 3A: Run the read command
 
 ```bash
 mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
 ```
 
-| Flag | Meaning | Value used here |
-|---|---|---|
-| `-m rtu` | Modbus RTU (not ASCII/TCP) | — |
-| `-a 1` | Slave address | `1` (F4S default) |
-| `-b 19200` | Baud rate | **19200** — confirmed on the F4S front panel |
-| `-P none` | Parity | **None** — critical: `mbpoll` defaults to Even (8E1), which times out against this 8N1 device |
-| `-t 4` | Register type | 16-bit holding register (FC03 read / FC06 write family) |
-| `-r 100` | Start register | `100` = Input 1 Value (actual chamber temp) |
-| `-c 1` | Register count | `1` |
-| `-1` | Poll once, then exit | — |
-| `-0` | 0-based (PDU) addressing | **Required** — confirmed on this hardware; without it, `mbpoll` queries the wrong register (one off) |
+### Step 3B: Interpret the output
 
-**Confirmed result:**
+On success, you'll see:
 
 ```
+Protocol configuration: ModBus RTU
+Slave configuration...: address = [1]
+                        start reference = 100, count = 1
+Communication.........: /dev/ttyUSB0, 19200-8N1
+                        t/o 1.00 s, poll rate 1000 ms
+Data type.............: 16-bit register, output (holding) register table
+-- Polling slave 1...
 [100]: 232
 ```
 
-`232` = 23.2°C, matching the F4S front-panel display exactly.
+**Key line:** `[100]: 232`
 
-A helper script wrapping this command is at
-[`scripts/bench-test-modbus.sh`](scripts/bench-test-modbus.sh) — from the repo root:
-`linux-integration/scripts/bench-test-modbus.sh`.
+This means register 100 contains the value **232**, which represents **23.2°C** (the F4S uses one implied decimal place — divide by 10 to get the real temperature).
 
-### 4.1a Read the static setpoint (register 300, SP1)
+**Compare to the F4S front panel** — it should display roughly 23.2°C. If they match, the read link works. ✅
 
-Register 100 above is the **read-only process value** (actual chamber temperature). The
-**static setpoint** — labelled `SP1` on the F4S front panel, currently showing `24.0°C` in the
-photo referenced for this section — lives in a **different** register: **300 (Set Point 1)**.
-Same command, same flags, only the `-r` value changes:
+### Step 3C: If it times out instead
+
+If you see:
+
+```
+Read output (holding) register failed: Connection timed out
+```
+
+Check these in order:
+
+1. **Parity mismatch** — if the output shows `19200-8E1` (Even parity) instead of `19200-8N1`, you're using the wrong flag. Use `-P none`.
+2. **Permissions** — run `ls -la /dev/ttyUSB0` and confirm you're in the `dialout` group (from Part 1C).
+3. **Physical wiring** — double-check that white is on terminal 14, red on 15, black on 16. Loose wires also cause timeouts.
+4. **F4S power/mode** — confirm the F4S is powered on and in **run mode**, not a menu.
+
+---
+
+## Part 4: Second Test — Read the Static Setpoint (Register 300)
+
+The setpoint is the **target temperature** you want the cabinet to reach. Register 300 holds this value and can be both read AND written.
+
+### Step 4A: Read the current setpoint
 
 ```bash
 mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
 ```
 
-Or with the helper script (register is the third positional argument) — run from **this folder**
-(`linux-integration/`):
+### Step 4B: Interpret the output
 
-```bash
-./scripts/bench-test-modbus.sh /dev/ttyUSB0 19200 300
-```
-
-...or from the **repo root** instead:
-
-```bash
-linux-integration/scripts/bench-test-modbus.sh /dev/ttyUSB0 19200 300
-```
-
-**Expected result**, matching the front-panel `SP1  24.0°C` reading:
+On success:
 
 ```
 [300]: 240
 ```
 
-`240` is the raw register value — the F4S carries **one implied decimal place**, so `240 / 10 =
-24.0°C`. This is the same convention as register 100 (`232` → `23.2°C`); no separate scaling
-setting is needed on the Linux/`mbpoll` side, only in whatever displays the value afterward
-(CODESYS scales it the same way once mapped).
+This means the setpoint is **240 in raw form = 24.0°C** (again, divide by 10).
 
-If this read also succeeds (it will, since it's the identical link already proven for register
-100 — same slave, same wiring, same parity/baud, just a different holding register), that
-**conclusively proves the Linux ↔ F4S link can see the setpoint**, and any remaining failure to
-see it in CODESYS is a CODESYS-side configuration problem, not a hardware/wiring problem — see
-§4.4 below and `codesys-modbus-integration/README.md` §5.4.
+**Compare to F4S front panel** — look for "SP1" or "Setpoint" label. Should show 24.0°C or similar.
 
-> **Baud rate — RESOLVED, 19200 reconfirmed.** An earlier manual `mbpoll -b 9600 ...` test once
-> returned a clean-looking read, which raised doubt about whether the F4S was genuinely at
-> 19200. Since then, **multiple successful writes and read-backs at `-b 19200`** (below) have
-> reconfirmed 19200 as correct — the earlier 9600 "success" is understood to have been a rare
-> CRC false-positive on a garbled frame, not a real baud match. Use **19200** going forward;
-> if a write ever times out, check the checklist in §4.1b's third scenario before suspecting baud.
+---
 
-### 4.1b Write a new setpoint from the Linux terminal — and what you cannot write
+## Part 5: The Critical Write Test (Register 300) — WITH F4S MENU STATE WARNING
 
-**Register 100 (actual chamber temperature) cannot be written, and must not be.** It's a
-read-only measurement taken from the F4S's own physical sensor (Watlow's own Modbus map lists
-register 100, "Input 1 Value," as read-only — there is no FC06/FC16 write path defined for it).
-Even if a write were accepted, all it would do is make the display lie about the real chamber
-state without changing the actual physical temperature by a fraction of a degree — the chamber
-is only ever heated/cooled by the F4S's own output stage reacting to its **setpoint**, never by
-a register write. Attempting it would silently defeat the entire supervisory-control safety
-model this repo is built around (root README, "Key design principle"): Linux/CODESYS never
-controls temperature directly, it only ever reads the true state and requests a new target.
+**This is where most issues happen.** Writing a new setpoint involves **more than just sending a command** — the F4S's own menu state matters.
 
-**What you actually change is the setpoint (register 300, SP1)** — the F4S then drives its own
-closed-loop PID to ramp the real, physical chamber temperature (register 100) toward that
-target over time, exactly like turning a thermostat dial. This is the same write → confirm
-principle implemented in CODESYS by `src/POUs/FB_CabinetSetpointControl.st`; the command below
-is the proven, minimal way to do the same thing directly from the terminal — no wrapper script,
-just `mbpoll` itself:
+### ⚠️ CRITICAL PREREQUISITE: F4S Menu State
+
+**The F4S ONLY accepts setpoint writes while it is on the MAIN RUN PAGE.**
+
+If the F4S is:
+- ✅ **On the main display showing temperature and "SP1" label** → writes succeed
+- ❌ **Inside the setpoint-adjustment screen (e.g., entering a new value)** → writes are acknowledged but silently rejected (no error, but value doesn't change)
+- ❌ **In Setup menu (Communications, Baud Rate, etc.)** → writes are definitely rejected
+
+**Before you run the write command, visually confirm the F4S front panel is showing the main run screen, NOT editing anything.**
+
+If you're unsure, press **ESCAPE** or **EXIT** multiple times until you see the temperature display and setpoint value clearly.
+
+### Step 5A: Decide what new setpoint to write
+
+For this test, let's write **26.5°C**. In raw register form: `26.5 × 10 = 265`.
+
+### Step 5B: Run the write command
 
 ```bash
-mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 <raw_value>
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -0 /dev/ttyUSB0 265
 ```
 
-`<raw_value>` is the desired setpoint **times 10** (one implied decimal — `50.0°C` → `500`,
-`75.0°C` → `750`). Providing a trailing value switches `mbpoll` from read to write mode
-automatically (FC06, single register); `-t 4` and `-c 1` are omitted deliberately — they're
-`mbpoll`'s defaults for a single holding-register write, confirmed unnecessary on this hardware.
+**Notice:** No `-c 1`, no `-1`. We just append the value `265` at the end.
 
-**Confirm the write landed** with the plain read command from §4.1a:
+### Step 5C: Check the output
+
+**On success**, you'll see:
+
+```
+Written 1 references.
+```
+
+This tells you mbpoll **sent** the write and got an **acknowledgement** back. But acknowledgement ≠ acceptance — the F4S heard the command, but may have rejected it internally.
+
+### Step 5D: Confirm the write actually worked (Read-back)
+
+**This step is critical.** Immediately read register 300 again:
 
 ```bash
 mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
 ```
 
-#### Three outcomes confirmed on this hardware — know all three before relying on this link
+Check the output:
 
-**1. Success — write accepted, confirmed by both the terminal and the front panel.**
+| Scenario | Output | Meaning | What to do |
+|---|---|---|---|
+| **Write succeeded** | `[300]: 265` | Register 300 now holds 265 (26.5°C). F4S front panel should also show 26.5°C within a few seconds. | ✅ Success. Watch the F4S ramp toward 26.5°C. |
+| **Write rejected silently** | `[300]: 240` (unchanged) | F4S acknowledged the frame but rejected the value. Most common cause: F4S was in menu/edit mode. | ❌ Exit any F4S menus to main page, retry the write. |
+| **Communication lost** | `Connection timed out` | Cable unplugged, adapter disconnected, or F4S powered off mid-write. | ❌ Check physical connections, restart F4S, retry. |
 
+### Step 5E: Verify visually on the F4S
+
+Look at the F4S front panel:
+- **SP1 should now show 26.5°C** (or whatever value you wrote)
+- **The actual temperature display should slowly ramp toward 26.5°C** (the F4S's own control loop is working)
+
+---
+
+## Part 6: Complete Diagnostic Script (write-setpoint.sh)
+
+Rather than typing the commands by hand each time, use the provided script:
+
+```bash
+./scripts/write-setpoint.sh 26.5
 ```
-$ mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 500
-...
+
+This script automates:
+1. **Read current setpoint** (register 300)
+2. **Skip the write if unchanged** (avoids unnecessary EEPROM wear)
+3. **Validate the requested value is 0–200°C** (same bounds as CODESYS logic)
+4. **Convert to raw register value** (multiply by 10)
+5. **Send the write (FC06)** via mbpoll
+6. **Read back and confirm** the value actually changed
+7. **Report SUCCESS or FAILURE** clearly
+
+**Example run:**
+
+```bash
+$ ./scripts/write-setpoint.sh 28.0
+Reading current setpoint (register 300)...
+Current setpoint: 26.5C (raw 265)
+Writing new setpoint: 28.0C (raw 280) to register 300...
 Written 1 references.
-$ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
-...
-[300]: 500
+CONFIRMED: setpoint now reads 28.0C (raw 280)
 ```
-`500` = `50.0°C`. The F4S front panel's `SP1` line changes to match. This is the normal case:
-`mbpoll` reports the write, the read-back confirms it, and the physical unit agrees.
 
-**2. Silent no-op — F4S is on a Function/menu page, not the main SP1 page.**
+If it fails:
 
-The write still returns `Written 1 references.` (the frame was received and acknowledged at the
-transport level), but **the setpoint does not actually change** — because the front panel is
-sitting in a function/config menu rather than the `Main Page` showing `SP1`, the write does not
-take visible effect the same way. **The command line gives no indication anything is wrong** —
-it reports success identically to scenario 1. **The only way to catch this is a visual check of
-the physical F4S display**, confirming it's on the `Main Page` with `SP1` showing the new value.
-Do not trust a `Written 1 references.` message alone as proof the cabinet changed — always
-cross-check the front panel, especially before/after any unattended or scripted write.
-
-**3. Hard failure — RS-232 adapter disconnected from the F4S.**
-
+```bash
+$ ./scripts/write-setpoint.sh 28.0
+Reading current setpoint (register 300)...
+Current setpoint: 26.5C (raw 265)
+Writing new setpoint: 28.0C (raw 280) to register 300...
+Written 1 references.
+WARNING: read-back (265) does not match written value (280).
+F4S may be in profile/ramp mode (SP1 owned by an active profile) -- confirm the
+front panel is in static/manual setpoint mode and retry.
 ```
-$ mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 750
-...
-Write output (holding) register failed: Connection timed out.
-```
-This is the one case that's unambiguous from the terminal alone — a clear, immediate fault
-indication with no need for visual confirmation. If you see this, check the DB9/adapter
-connection at the cabinet before re-checking anything else (permissions, baud, parity are all
-proven at this point; a sudden timeout on a previously-working link is almost always a physical
-disconnect, not a settings regression).
-
-**Practical rule from all three:** a `Written 1 references.` / `Connection timed out` message
-tells you whether the **frame** was exchanged, not whether the **cabinet's physical state**
-changed. Scenario 3 is safe to trust from the terminal; scenarios 1 and 2 are not
-distinguishable from the terminal output alone — always confirm on the front panel until the
-CODESYS application's own read-back confirmation (§`codesys-modbus-integration/README.md`) is
-wired up to do this automatically.
-
-### 4.2 Two independent fixes were needed — both matter
-
-The working command above only succeeds because **two separate problems** were found and fixed;
-either one alone still produced a timeout:
-
-1. **Parity mismatch** — `mbpoll` defaults to Even parity (8E1) if `-P` isn't given. This F4S is
-   configured 8N1 (no parity). Talking 8E1 to an 8N1 device is a framing mismatch — the F4S never
-   recognizes a valid frame, so every request times out.
-2. **Physical TX/RX wiring swap at the F4S terminal block** — the white/red wires were landed on
-   the wrong terminals (swapped relative to the documented white=14/TX, red=15/RX assignment).
-   Fixing the parity flag alone still timed out until this was corrected on site.
-
-Neither the flag fix nor the wiring fix was sufficient by itself. If you hit a timeout on a
-similar link in the future, don't stop investigating after fixing the first plausible cause —
-check both software (parity/baud/addressing flags) and physical (wiring, connector seating)
-independently.
-
-### 4.3 Troubleshooting table
-
-| Symptom | Likely cause | Check |
-|---|---|---|
-| Timeout, banner shows `19200-8E1` | Parity mismatch | Add `-P none` |
-| Timeout even with `-P none` confirmed (`8N1` in banner) | Wrong baud rate | Verify on F4S front panel: **Setup → Communications → Baud Rate** (should read 19200) |
-| Timeout persists at correct baud/parity | Permissions | Re-run the Step 3 checks (`ls -la /dev/ttyUSB0`, `chmod`/`dialout`) |
-| Timeout persists, permissions confirmed OK | Wrong slave address | F4S defaults vary — 1, 247, or 255; read it off the front panel, don't assume `-a 1` |
-| Timeout persists, everything above checked | Physical wiring swap at the F4S terminal block | Re-trace/re-check the DB9-to-terminal wiring against the nameplate (terminals 14/15/16); see root README ADR-001 for the documented color code |
-| Read succeeds but the value looks off by one register | 0-based vs 1-based addressing | Confirm `-0` is present; without it `mbpoll` queries the wrong PDU address |
-| Garbage/CRC error instead of a clean timeout | Adapter reassigned to a different `/dev/ttyUSB*` node after a replug | Re-run `dmesg \| tail` (Step 2) to confirm the current device file |
-| Register 100 (read) works but register 300 write (FC06) is refused | F4S in profile/ramp mode, not static setpoint | Confirm F4S is in **static/manual setpoint mode** — a running profile owns SP1 |
 
 ---
 
-## 4.4 `mbpoll` reads fine standalone, but CODESYS's Modbus master/slave shows nothing
+## Part 7: Troubleshooting Table (When Things Don't Work)
 
-This is a **different failure mode** from anything above — it means the raw serial link is
-already proven (Steps 2–4 all passed), so don't re-check wiring/parity/baud again. The most
-common cause at this exact point is much simpler and purely a Linux OS-level issue:
-
-**A serial device file can only be held open by one process at a time.** `/dev/ttyUSB0` is not
-shared — if `mbpoll` (or any other process) still has the port open, the CODESYS runtime's
-attempt to open the same device for its own Modbus master will fail or silently get no data,
-even though the exact same `mbpoll` command works perfectly when run on its own.
-
-**Check what currently holds the port:**
-
-```bash
-sudo lsof /dev/ttyUSB0
-# or, if lsof isn't installed:
-sudo fuser -v /dev/ttyUSB0
-```
-
-If this lists a `mbpoll` process (or anything else), that process is blocking CODESYS from
-acquiring the port. Kill it or let it finish, then restart the CODESYS runtime:
-
-```bash
-sudo systemctl restart codesyscontrol
-```
-
-**Practical rule going forward:** never run a manual `mbpoll` bench-test *while* CODESYS is
-also trying to run its own Modbus master against the same device — they will fight over the
-same port. Bench-test with `mbpoll` first to prove the link (Step 4), then **stop**, confirm
-the port is free (`lsof`/`fuser` show nothing), and only then log into/run the CODESYS
-application.
-
-Other things to rule out at this stage, roughly in order of likelihood, are covered in
-`codesys-modbus-integration/README.md` §5.4 (port-file mismatch in `/etc/CODESYSControl_User.cfg`,
-serial parameters set independently inside the CODESYS `Modbus_COM` device, and the
-Master/Slave device-tree hierarchy itself).
+| Symptom | Most Likely Cause | Diagnosis | Fix |
+|---|---|---|---|
+| **Read (Reg 100 or 300): Timeout** | Parity mismatch OR permissions OR wiring | Check: `mbpoll` shows `8E1` instead of `8N1`? Are you in `dialout` group? Wires tight? | Add `-P none` to fix parity. Re-run Part 1C for permissions. Re-check wiring. |
+| **Read succeeds, but value is off by one** | 0-based vs 1-based addressing | Without `-0` flag, mbpoll queries register 99/299 instead of 100/300 | Always use `-0` flag. |
+| **Read shows stale/unchanging value** | F4S setpoint hasn't moved (normal for cold start) OR cable issue | Wait 10 seconds, read again. Check cable. | Temperature ramps over time — this is expected. |
+| **Write: "Written 1 references" but read-back unchanged** | **F4S is in menu/edit mode** (most common) OR F4S in profile/ramp | Before writing, press ESCAPE on F4S to exit menus. Check front panel shows main page. | Exit menu. Return to main run page. Retry write. |
+| **Write: Timeout** | Cable unplugged OR comms lost during write | Run read first to confirm comms. Replug cable if loose. | Verify physical connection. Run `dmesg \| tail` to see if adapter disconnected. |
+| **Read-back shows different value than written** | F4S rejected the value (out of range, profile active, etc.) | Check range (0–200°C allowed). Check F4S isn't in profile/ramp. | Validate value is in range. Confirm F4S mode. |
 
 ---
 
-## Order of operations reminder
+## Part 8: Moving to CODESYS
 
-Once `mbpoll` reads cleanly and repeatably (run it two or three times, not just once — Rebuild →
-Retest → Requalify → Repeat), proceed to `codesys-modbus-integration/README.md` to map this proven port
-into the CODESYS runtime. See the root `README.md`'s "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub"
-section for the full six-step sequence and how all three folders fit together.
+Once you've successfully:
+- ✅ Read register 100 (temperature) multiple times
+- ✅ Read register 300 (setpoint) multiple times  
+- ✅ Written register 300 (setpoint) and confirmed with read-back
+- ✅ Watched the F4S ramp toward the new setpoint on the display
+
+**The Linux/hardware layer is proven.** The Modbus RTU link is fully functional.
+
+The next step is integrating this proven link into **CODESYS** so the HMI can trigger reads and writes instead of manual terminal commands. See the main project README for the CODESYS integration steps (Requalify and Repeat phases).
+
+---
+
+## Quick Reference: Command Summary
+
+**Read actual temperature:**
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyUSB0
+```
+
+**Read setpoint:**
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
+```
+
+**Write setpoint (example: 26.5°C = raw 265):**
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -0 /dev/ttyUSB0 265
+```
+
+**Then immediately read back to confirm:**
+```bash
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
+```
+
+**Or use the script:**
+```bash
+./scripts/write-setpoint.sh 26.5
+```
+
+---
+
+## Notes for Future Reference
+
+1. **F4S menu-state blocking writes** — this was the hidden gotcha. Writes succeed at the comms layer but fail at the application layer if the F4S is in menu mode. Always confirm the main page is showing.
+
+2. **EEPROM wear** — register 300 lives in the F4S's EEPROM, which has limited write cycles (typically 100,000). The script skips writes if the value is unchanged, and CODESYS's `FB_CabinetSetpointControl` uses edge-triggered writes for the same reason.
+
+3. **One implied decimal** — both registers (100 and 300) divide by 10 to get the real temperature in °C. This is standard Watlow convention.
+
+4. **Permissions and daemon access** — your user needs `dialout` group membership. The CODESYS runtime (if not running as root) also needs the same. This was the cause of earlier "mysteriously failing" Modbus comms on Linux even when `mbpoll` worked fine from the shell.
