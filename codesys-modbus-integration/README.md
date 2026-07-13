@@ -1,247 +1,444 @@
-# Raspberry Pi (Modbus Master) ↔ CODESYS ↔ Watlow F4S (Modbus Slave)
+# CODESYS Modbus RTU Integration: Watlow F4S Cabinet Control
+## Complete Setup Guide (Zero Prior Knowledge Assumed)
 
-**Author:** OJ (Omkar Joshi) — Oliver Mechatronics
-**Applies to:** CODESYS runtime on the Raspberry Pi hosting the DLS008 sandbox project, reached over SSH at **10.1.6.17**
-**Target:** Watlow F4S (SN 038983), Modbus RTU over the USB-to-RS232 adapter on `/dev/ttyUSB0`
-**Covers:** Step 5 of the integration sequence in the root `README.md`
-
-This folder covers CODESYS itself — runtime configuration, the Modbus device tree, driver
-timing, and the write channel. It assumes the serial link has **already been proven
-independently with `mbpoll`** (see `linux-integration/README.md` §4, including both the register
-100 read and the register 300 read/write) — do not start here if that hasn't passed yet.
-Debugging a CODESYS Modbus error before the raw link is proven means debugging two unknowns at
-once.
-
-**Roles in this link:** the Raspberry Pi's CODESYS runtime is the **Modbus master** (it initiates
-every request); the Watlow F4S is the **Modbus slave** (it only ever responds). There is exactly
-one master and one slave on this RS-232 link — CODESYS does not act as a slave to anything here.
-
-For importing the actual ST program (`FB_CabinetSetpointControl`, `PLC_PRG`) into the sandbox
-project, see `docs/DEPLOYMENT_AND_TEST.md` — this folder is about the *transport* layer
-underneath that code, not the application logic itself.
+**For:** Engineers integrating Watlow F4S setpoint control into CODESYS running on Raspberry Pi  
+**Prerequisites:** Linux/mbpoll side is proven working (see ../linux-integration-README-UPDATED.md)  
+**Hardware:** CODESYS Control for Linux ARM64 SL runtime, Prolific PL2303 USB-RS232 adapter, Raspberry Pi (10.1.6.17)
 
 ---
 
-## Register map (recap — full detail in `linux-integration/README.md` §4.1/§4.1a/§4.1b)
+## CRITICAL PREREQUISITE: Network Stabilization
 
-| Register | Name | Access | Why |
-|---|---|---|---|
-| **100** | Input 1 Value (actual chamber temperature) | **Read-only** (FC03) | Live sensor measurement — Watlow's own Modbus map defines no write path for it. Writing it would only make the display lie without changing the physical temperature; never build a write channel against register 100. |
-| **300** | Set Point 1 / "SP1" (static setpoint) | **Read/Write** (FC03 read, FC06 write) | The only register that actually influences chamber temperature — the F4S ramps register 100 toward whatever is written here, via its own closed-loop PID. |
+Before starting CODESYS integration, the Raspberry Pi's ethernet driver must be stabilized. The kernel's packet-batching optimizations (`TSO`/`GSO`/`GRO`) can cause timing stalls that interfere with both EtherCAT and Modbus latency. This step is mandatory.
 
-Both carry **one implied decimal place** (`500` raw = `50.0°C`), confirmed identically on both
-registers via `mbpoll`.
+### Step 0A: Install ethtool (network diagnostics tool)
+
+```bash
+ssh mechatronics@LeftHandSmallTempCab
+sudo apt-get update
+sudo apt-get install ethtool -y
+```
+
+### Step 0B: Identify your main ethernet port
+
+```bash
+ip a
+```
+
+Look for a line starting with a number followed by a port name that has an IP address (10.1.x.x or similar). Example output:
+
+```
+2: internet_port: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
+    inet 10.1.6.17/24 scope global
+```
+
+In this case, your main port is **`internet_port`**. (On a standard Raspberry Pi it might be `eth0`, but on your Beckhoff-based controller with EtherCAT, it's `internet_port`.)
+
+**Note the exact port name from your output and use it in the next step.**
+
+### Step 0C: Disable offloading features
+
+Replace `PORTNAME` with your actual port name (e.g., `internet_port`):
+
+```bash
+sudo ethtool -K PORTNAME tso off gso off gro off
+```
+
+For your system specifically:
+
+```bash
+sudo ethtool -K internet_port tso off gso off gro off
+```
+
+**What this does:**
+- `tso off` = disable TCP Segmentation Offload (kernel will not batch TCP packets)
+- `gso off` = disable Generic Segmentation Offload (no packet batching at all)
+- `gro off` = disable Generic Receive Offload (no batch receiving)
+
+**Result:** Packets are handled raw and immediately, reducing latency variance. Timing becomes predictable.
+
+### Step 0D: Make the change permanent (survives reboot)
+
+```bash
+sudo nano /etc/network/if-up.d/disable-offloading
+```
+
+Paste this content (replace `internet_port` with your actual port name if different):
+
+```bash
+#!/bin/bash
+# Disable packet offloading for industrial protocol latency predictability
+# Required for EtherCAT + Modbus RTU coexistence on the same network port
+ethtool -K internet_port tso off gso off gro off
+```
+
+Save (Ctrl+O, Enter, Ctrl+X), then make it executable:
+
+```bash
+sudo chmod +x /etc/network/if-up.d/disable-offloading
+```
+
+This script runs automatically whenever the network interface comes up (including after reboot).
+
+### Step 0E: Verify the change
+
+```bash
+ethtool -k eth0 | grep -E "tcp-segmentation|generic-segmentation|generic-receive"
+```
+
+You should see:
+
+```
+tcp-segmentation-offload: off
+generic-segmentation-offload: off
+generic-receive-offload: off
+```
+
+All must show `off`. If any show `on`, the step failed — repeat Step 0C and check for typos.
 
 ---
 
-## Step 1: Release the port before touching CODESYS config
+## Part 1: Linux SysCom Configuration (The Serial Port Bridge)
 
-`/dev/ttyUSB0` can only be held open by **one process at a time**. Before editing any CODESYS
-configuration, make sure nothing is still holding the port from bench-testing:
+CODESYS needs to know which Linux device file maps to which COM port number. This configuration lives in `/etc/CODESYSControl_User.cfg`.
 
-```bash
-sudo lsof /dev/ttyUSB0        # or: sudo fuser -v /dev/ttyUSB0
-```
-
-Kill/close anything listed (typically a leftover `mbpoll` session), then stop the runtime
-cleanly so the steps below start from a known state:
-
-```bash
-sudo systemctl stop codesyscontrol
-```
-
-(It's fine if this reports the service was already stopped — the point is ensuring it isn't
-holding the port while you edit its config in Steps 2–3 below.)
-
----
-
-## Step 2: Configure Linux udev permissions (permanent, survives reboot)
-
-`sudo chmod 666` (from `linux-integration/README.md` §3) is a **temporary** fix that resets on
-every replug/reboot. To stop CODESYS hitting Read/Write lock ("red triangle") errors after every
-reboot, add a udev rule so the kernel grants the permission automatically, every time:
-
-```bash
-sudo nano /etc/udev/rules.d/99-usb-serial.rules
-```
-
-Add:
-
-```
-KERNEL=="ttyUSB[0-9]*", MODE="0666"
-```
-
-Reload:
-
-```bash
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-> This grants world read/write on any `ttyUSB*` node, which is a broader (less strict) grant
-> than the `dialout`-group approach in `linux-integration/README.md` §3 Option B. Either is fine
-> for this single-purpose sandbox Pi; the udev rule is simpler to reason about for an
-> **unattended runtime service** (CODESYS) specifically, since it doesn't depend on which user
-> account the `codesyscontrol` service happens to run as.
-
----
-
-## Step 3: Map the port to CODESYS SysCom, with the baud rate locked
+### Step 1A: Edit the configuration file
 
 ```bash
 sudo nano /etc/CODESYSControl_User.cfg
 ```
 
-Add (or confirm) at the bottom:
+Look for the `[SysCom]` section. If it doesn't exist, add it at the bottom of the file. Set it to:
 
 ```ini
 [SysCom]
-Linux.Devicefile.1=/dev/ttyUSB0
-portnum.1=1
-baudrate.1=19200
+Linux.Devicefile.2=/dev/ttyUSB0
+portnum.2=2
 ```
 
-A ready-to-copy version of this snippet is at
-[`codesyscontrol-user-snippet.cfg`](codesyscontrol-user-snippet.cfg).
+**Why COM2 instead of COM1?** Earlier testing found that COM1 was reserved by the system. COM2 is free and unambiguously available.
 
-`baudrate.1=19200` locks the runtime-level baud so it can't silently drift from the confirmed
-setting (see `linux-integration/README.md` §4.1a for why this line matters — a manual `mbpoll`
-test at the wrong baud rate has already produced one false-positive read on this hardware, so
-don't leave this to the IDE-side setting alone).
+**Explanation:**
+- `Linux.Devicefile.2=/dev/ttyUSB0` = "map COM port 2 to the USB-RS232 adapter device file"
+- `portnum.2=2` = "use index 2 as the port number" (CODESYS will refer to it as COM2)
 
-Start the runtime (it was stopped in Step 1):
+Save (Ctrl+O, Enter, Ctrl+X).
+
+### Step 1B: Verify the change
 
 ```bash
-sudo systemctl start codesyscontrol
+cat /etc/CODESYSControl_User.cfg | grep -A 2 "\[SysCom\]"
 ```
 
-If this errors with "unit not found," confirm the actual service name first:
+Should show:
+
+```
+[SysCom]
+Linux.Devicefile.2=/dev/ttyUSB0
+portnum.2=2
+```
+
+### Step 1C: Restart CODESYS runtime to load the new config
 
 ```bash
-systemctl list-units | grep -i codesys
+sudo systemctl restart codesyscontrol
+sudo systemctl status codesyscontrol
 ```
+
+Status should show `active (running)`.
 
 ---
 
-## Step 4: CODESYS Modbus driver configuration (IDE)
+## Part 2: CODESYS Device Tree Setup
 
-From your laptop, connected to this same Pi, in the CODESYS project's device tree:
+Now you'll add the Modbus devices to your CODESYS project. This is done in the **IDE on your laptop**, not the Pi terminal.
+
+### Step 2A: Add the Modbus_COM device (if not already present)
+
+In your CODESYS IDE project tree:
 
 ```
-Application
-├── Modbus_COM (Modbus COM)
-│   └── Modbus_Client_COM_Port   ← Master. Never add a Modbus_server_COM_Port here —
-│       │                          a server (slave) device on this same port causes a
-│       │                          port collision; the F4S is the only slave on this link.
-│       ├── [FC03 Read channel  — register 100]
-│       └── [FC06 Write channel — register 300, see Step 5]
+Device (CODESYS Control for Linux ARM64 SL)
+└─ (right-click) → Add Device → Fieldbuses → Serial → Modbus_COM
 ```
 
-Set the `Modbus_COM` device's serial port properties to match what's proven with `mbpoll`:
+Name it **Modbus_COM**. Open its **General** tab and verify/set:
 
-| Parameter | Confirmed value |
+| Field | Value |
 |---|---|
-| Port | **COM1** (matches `portnum.1=1` in the `.cfg` above) |
-| Baud Rate | **19200** |
-| Parity | **None** |
-| Data Bits | **8** |
-| Stop Bits | **1** |
-| Transmission Mode | **RTU** |
-| Slave Address | **1** |
+| Port | COM2 |
+| Baud Rate | 19200 |
+| Parity | None |
+| Data Bits | 8 |
+| Stop Bits | 1 |
 
-**Driver timing** — set these on `Modbus_Client_COM_Port` to mirror `mbpoll`'s own spacing and
-avoid an internal buffer overrun (CODESYS Modbus error code 255, seen when the driver reuses the
-line before the F4S has finished its turnaround):
+**Why COM2?** It matches the Linux config `portnum.2=2` from Part 1.
 
-| Parameter | Value |
+### Step 2B: Add the Modbus Master device
+
+Right-click **Modbus_COM** → **Add Device** → **Fieldbuses → Modbus → Modbus Master, COM Port**
+
+Name it **Modbus_Master_COM_Port**. Open its **General** tab:
+
+| Field | Value |
 |---|---|
-| Response Timeout | **1000 ms** |
-| Time between frames | **50 ms** |
+| Transmission Mode | RTU |
+| Modbus bus cycle task | MainTask |
+| Response Timeout | 1000 ms |
 
-**Task binding** — assign the Modbus Client's bus cycle to **`MainTask`** specifically, not a
-secondary/background task. A starved background task is a common cause of intermittent,
-hard-to-reproduce comms drops that look like a wiring problem but aren't.
+**Why MainTask?** The Modbus Master runs synchronously with your main PLC program, ensuring reads/writes happen at predictable intervals.
 
-### Channel addressing — 0-based, confirmed on hardware
+### Step 2C: Add the Modbus Slave device
 
-`mbpoll` required the `-0` flag for correct reads (`linux-integration/README.md` §4.1), meaning
-the register numbers used everywhere in this repo (100, 300) are the **raw PDU addresses**.
-**Set the CODESYS channel Offset field directly to the register number** — `100` for the read
-channel, `300` for the write channel — **not** `99`/`299`.
+Right-click **Modbus_Master_COM_Port** → **Add Device** → **Fieldbuses → Modbus → Modbus Slave, COM Port**
+
+Name it **Modbus_Slave_COM_Port**. Open its **General** tab:
+
+| Field | Value |
+|---|---|
+| Slave address | 1 |
+
+This represents the **F4S controller itself** (address 1 on the Modbus network).
+
+### Step 2D: Create the read channel (Register 100)
+
+On the **Modbus_Slave_COM_Port**, navigate to the **Channels** tab and add a new channel:
+
+| Field | Value |
+|---|---|
+| Name | ReadChamberTemp |
+| Access Type | Read Holding Registers (FC03) |
+| Offset | 100 |
+| Length | 1 |
+| Trigger | Cyclic |
+| Error handling | Keep last value |
+
+**Explanation:**
+- **Offset 100** = read from register 100 (the actual chamber temperature)
+- **Length 1** = read 1 register (not 100 registers — this was a bug in earlier testing)
+- **Cyclic** = read every bus cycle (every ~10 ms by default)
+- **Keep last value** = if a read fails, show the previous value instead of blanking to 0
+
+### Step 2E: Create the write channel (Register 300)
+
+Add another channel on the Slave:
+
+| Field | Value |
+|---|---|
+| Name | WriteSetpoint |
+| Access Type | Write Holding Registers (FC06) |
+| Offset | 300 |
+| Length | 1 |
+| Trigger | Rising edge |
+| Error handling | none |
+
+**Explanation:**
+- **Offset 300** = write to register 300 (the setpoint)
+- **Rising edge** = trigger a write only when your PLC program sets a "write trigger" variable from 0→1 (prevents constant rewrites)
+- **Error handling: none** = just report errors; don't auto-retry
 
 ---
 
-## Step 5: Modbus write channel (FC06) — the setpoint, and only the setpoint
+## Part 3: Global Variable List (GVL_Modbus)
 
-Build the write channel to replicate exactly what was proven manually with
-`mbpoll -m rtu -a 1 -b 19200 -P none -0 -r 300 /dev/ttyUSB0 <raw_value>`
-(`linux-integration/README.md` §4.1b):
+Your PLC program needs variables to hold the raw register values and trigger writes.
 
-1. Under `Modbus_Client_COM_Port`, add a **write channel**, **Function Code 06**, **Offset
-   `300`** (decimal; `16#012C` in hex, same register — 0-based/PDU per above).
-2. Set the channel **Trigger to `Application`, not `Cyclic`.** A cyclic write would hammer
-   register 300 (which lives in the F4S's EEPROM) on every bus cycle, causing exactly the
-   unnecessary write-wear the edge-triggered design in `FB_CabinetSetpointControl.st` exists to
-   avoid. Application-triggered means the write only fires when the ST program actually asks for
-   one — the FB's own rising-edge logic controls *when*, this channel just provides *how*.
-3. Map the channel to a local variable, e.g. `Application.PLC_PRG.Target_Watlow_Temp` (or wire it
-   directly to the FB instance's write-coupling variable — see `iWriteSP_raw` /
-   `xWriteTrigger` in `src/POUs/FB_CabinetSetpointControl.st`).
-4. The HMI "Set" button pushes the operator's requested value into this variable and fires the
-   trigger — reproducing the exact terminal write proven in `linux-integration/README.md` §4.1b,
-   now driven from the WebVisu instead of a manual command.
+### Step 3A: Create E_SetpointState data type
 
-**Never build an equivalent channel against register 100.** There is no scenario where writing
-the process-value register is correct — see the register-map table above and
-`linux-integration/README.md` §4.1b for the full reasoning.
+In your project tree → **DataTypes** (right-click → Add Data Type):
 
-### Confirming a write — three outcomes, and which ones CODESYS can catch automatically
+```st
+TYPE E_SetpointState :
+(
+    IDLE        := 0,
+    READY       := 10,
+    WRITING     := 20,
+    CONFIRM     := 30,
+    FAULTED     := 99
+);
+END_TYPE
+```
 
-The manual `mbpoll` testing in `linux-integration/README.md` §4.1b surfaced three distinct
-outcomes that this write channel inherits:
+### Step 3B: Create E_FaultCode data type
 
-| Outcome | Terminal/CODESYS signal | Detectable in software? |
-|---|---|---|
-| Write accepted, F4S changes | FC06 ack + register 300 read-back matches | **Yes** — this is exactly what `FB_CabinetSetpointControl.st`'s `CONFIRM` state checks (read register 300 back, compare to the requested value) |
-| F4S on a Function/menu page, write acked but has no visible effect | FC06 ack — **identical to the success case** | **Not from the Modbus transaction alone.** The FB's read-back confirmation checks that the *register* holds the new value, not that the *front panel* is on the right page — if the F4S's own firmware still updates the register even while a menu is open, the FB will report `CONFIRMED` while the display doesn't visibly change until the operator returns to the Main Page. Treat an operator report of "confirmed but no visible change" as a front-panel-state issue, not a comms fault |
-| Adapter disconnected | Timeout / no response, driver reports a comms error | **Yes** — this is what the FB's comms watchdog and `WRITE_FAILED`/timeout fault codes are for |
+```st
+TYPE E_FaultCode :
+(
+    NO_FAULT      := 0,
+    COMMS_TIMEOUT := 1,
+    WRITE_FAILED  := 2,
+    NOT_ACCEPTED  := 3,
+    RANGE_LOW     := 4,
+    RANGE_HIGH    := 5,
+    OVER_TEMP     := 6
+);
+END_TYPE
+```
 
-Build 2 of 3 outcomes should be caught automatically once this channel and the FB are both wired
-up; the middle case is a physical-inspection item to note in the operator procedure, not
-something the driver can detect over Modbus.
+### Step 3C: Create GVL_Modbus
+
+In your project tree → **GlobalVariableLists** (right-click → Add Global Variable List):
+
+```st
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    // FC03 cyclic read, offset 100, length 1 → actual temp raw (x10)
+    wInput1Value    : WORD;
+    // FC03 read-back, offset 300, length 1 → SP1 raw read (x10)
+    wSetpoint1Read  : WORD;
+    // FC06 write single register, offset 300 → SP1 raw write (x10)
+    wSetpoint1Write : WORD;
+    // Rising-edge trigger for FC06 channel
+    xWriteTrigger   : BOOL;
+    // Diagnostic status
+    xModbusError    : BOOL;
+    xModbusDone     : BOOL;
+END_VAR
+```
 
 ---
 
-## Build, deploy, and clear the red triangles
+## Part 4: I/O Mapping (Connect Channels to Variables)
+
+This is where the Modbus channels physically connect to your GVL variables.
+
+### Step 4A: Map the read channel
+
+On the **Modbus_Slave_COM_Port** device, navigate to **I/O Mapping** tab.
+
+Find the **ReadChamberTemp** channel's input variable (likely `%IW82` or similar). Expand the array tree (click the small arrow/triangle) to reveal individual indexed elements:
+
+- `Holding registers[0]` ← map THIS to `Application.GVL_Modbus.wInput1Value`
+- `Holding registers[1]` ← leave unmapped (unused padding)
+
+On the `[0]` row, set the **PLC Variable** column to:
 
 ```
-Build → Clean All
-Build → Build
-(Login to the Pi's runtime)
-Run
+Application.GVL_Modbus.wInput1Value
 ```
 
-**Troubleshooting red triangles / driver errors after deploy:**
+### Step 4B: Map the write channel
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| No data on **any** channel, but `mbpoll` proved the link independently | **Port already held open by another process** | Re-run Step 1 (`lsof`/`fuser`, then restart the runtime). Most common cause of "mbpoll works, CODESYS doesn't." |
-| Red triangle on `Modbus_Client_COM_Port` immediately after login | Port mismatch — `.cfg` device file doesn't match the physical adapter | Re-check `ls /dev/ttyUSB*` on the Pi; re-confirm `Linux.Devicefile.1=/dev/ttyUSB0` |
-| Red triangle persists, `mbpoll` bench-test passes standalone | Parity/baud/stop-bit mismatch in CODESYS `Modbus_COM` properties | Re-verify all serial parameters against Step 4 — CODESYS does not inherit `mbpoll`'s settings |
-| Internal buffer error / Modbus error code 255 | Driver reusing the line before the F4S's turnaround completes | Confirm Response Timeout `1000 ms` / Time between frames `50 ms` per Step 4 |
-| Read channel off by one register | Channel offset convention mismatch (1-based vs required 0-based) | Set Offset to the register number directly, per Step 4 |
-| Write channel refused or has no effect, and register 300 read-back also doesn't move | F4S in profile/ramp mode, not static setpoint mode | Confirm F4S is in **static/manual setpoint mode** — a running profile owns SP1 |
-| Write channel accepted, FB reports `CONFIRMED`, but front panel doesn't visibly change | F4S was on a Function/menu page, not the Main Page — see Step 5 table above | Visual check only; return the front panel to the Main Page |
-| Everything green, but HMI shows the wrong tile updating | GVL/HMI tag mapping error, not a comms problem | Check `src/GVLs/GVL_HMI.gvl` and `src/POUs/PLC_PRG.st` wiring, not this folder |
+Find the **WriteSetpoint** channel's output variable. Map its trigger to:
+
+```
+Application.GVL_Modbus.xWriteTrigger
+```
+
+Map its data output to:
+
+```
+Application.GVL_Modbus.wSetpoint1Write
+```
 
 ---
 
-## Order of operations reminder
+## Part 5: Compile, Download, Verify
 
-This folder assumes:
-1. The USB-to-RS232 adapter is plugged in and identified (`linux-integration/README.md`, Step 2).
-2. Serial port permissions are granted (`linux-integration/README.md`, Step 3).
-3. `mbpoll` has proven the raw Modbus link **independently of CODESYS** — both the register 100
-   read and the register 300 read/write (`linux-integration/README.md`, Step 4).
+### Step 5A: Compile
 
-Only then do this folder's Steps 1–5 apply. See the root `README.md`'s "Linux ↔ Raspberry Pi ↔
-CODESYS ↔ GitHub" section for the full six-step sequence.
+```
+Build → Rebuild All
+```
+
+Should show **0 errors**. If you see type-mismatch errors, check that you expanded the array and mapped only `[0]`, not the whole array.
+
+### Step 5B: Download to Pi
+
+Online menu → right-click the main device → **Download**
+
+Accept the "application differs" prompt.
+
+### Step 5C: Go online and verify green lights
+
+In CODESYS, check the device tree:
+
+```
+Modbus_COM                      → GREEN light (not repeat icon)
+  └─ Modbus_Master_COM_Port     → GREEN light (not red triangle)
+      └─ Modbus_Slave_COM_Port  → GREEN light (not red triangle)
+```
+
+All must be GREEN. If any show red, see **Troubleshooting** section below.
+
+### Step 5D: Watch the data
+
+Open a **Watch window** (View → Add Watch) and add:
+
+```
+Application.GVL_Modbus.wInput1Value
+```
+
+It should update every ~1 second and show **232** (or whatever the current chamber temperature is, scaled by 10). If it shows 232, Requalify is COMPLETE. ✅
+
+---
+
+## Part 6: Testing Writes (Optional, but Recommended)
+
+Once reads are working, test a write:
+
+### Step 6A: In PLC_PRG (or your test program), add logic
+
+```st
+// Test write: when this trigger goes high, write 265 (26.5°C) to register 300
+IF <some condition> THEN
+    GVL_Modbus.wSetpoint1Write := 265;  // Set value
+    GVL_Modbus.xWriteTrigger := TRUE;    // Trigger the write (rising edge)
+ELSE
+    GVL_Modbus.xWriteTrigger := FALSE;
+END_IF
+```
+
+### Step 6B: Watch the setpoint variable
+
+Add `wSetpoint1Read` to the watch window. When you trigger the write:
+1. `wSetpoint1Write` gets the new value (265)
+2. `xWriteTrigger` goes TRUE
+3. FC06 write is sent
+4. `wSetpoint1Read` updates to the new value (if successful) or stays at old value (if F4S rejected)
+
+### Step 6C: Visually verify on F4S
+
+The F4S front panel should show the new setpoint within 2–3 seconds.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| **All devices show red triangles, no errors** | Application never restarted after download | Press F5 (Start) in CODESYS to start the app |
+| **Modbus_COM shows repeat icon (⟳)** | Port conflict or config mismatch | Verify `/etc/CODESYSControl_User.cfg` shows `portnum.2=2`, not `portnum.1`. Restart runtime: `sudo systemctl restart codesyscontrol` |
+| **Devices green but wInput1Value stays 0** | Read channel not mapped correctly | Check I/O Mapping: did you expand the array and map `[0]`, not the whole array? |
+| **Write sends but value doesn't change on F4S** | F4S in menu mode OR write channel not triggering | Confirm F4S is on main run page (not in menu). Check that `xWriteTrigger` is actually going TRUE in your PLC program. |
+| **Network lag, occasional stalls** | Offloading still enabled | Run `ethtool -k eth0 \| grep offload` and verify all show `off`. |
+
+---
+
+## Next Steps
+
+Once `wInput1Value = 232` shows live in the watch window, the hardware integration is PROVEN. The next phases are:
+
+1. **Repeat phase:** Test the HMI setpoint button and 9-case validation plan (see main README)
+2. **Phase 4:** Final HMI refinement and integration testing
+3. **GitHub push:** Commit all changes and documentation
+
+---
+
+## Quick Reference: Register Map
+
+| Register | Name | Access | Raw ÷10 | Purpose |
+|---|---|---|---|---|
+| 100 | Input 1 Value | Read-only | Yes | Actual chamber temperature (°C) |
+| 300 | Set Point 1 | Read+Write | Yes | Static setpoint (°C) |
+
+**One implied decimal place:** register value 232 = 23.2°C.
+
+---
+
+## Notes for Future Engineers
+
+1. **COM2 vs COM1:** Early testing found COM1 was reserved. COM2 is the working port.
+2. **Network offloading:** EtherCAT + Modbus on the same network requires offloading disabled. This is non-negotiable for latency-sensitive protocols.
+3. **F4S menu blocking:** The F4S silently rejects setpoint writes while in any menu (Setup, parameter adjustment, etc.). Always confirm main page before testing writes.
+4. **Edge-triggered writes:** Using `xWriteTrigger` with rising-edge detection prevents the F4S from being hammered with duplicate writes, reducing EEPROM wear.
