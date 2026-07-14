@@ -269,7 +269,7 @@ Application
    - The same tile allows the operator to input or adjust the desired chamber setpoint
    - On rising edge of the input (e.g., operator presses "Set" or slides a control), writes the new value to F4S register 300
    - Triggers the remote F4S to begin ramping toward the new setpoint
-   - **Write is edge-triggered only (not cyclic)** to prevent EEPROM wear from repeated writes at the same value
+   - **Write is edge-triggered only (not cyclic)** — write once per operator action; a running F4S profile ignores writes to register 300 anyway, so there's no reason to hammer it (see Nuance B in the Project Development Package: the F4S/D spec sheet documents battery-backed RAM retention, not EEPROM — that caution belongs to a different Watlow product, the SD31)
 
 **Why this design matters:**
 - The Left Hand Small Temperature Cabinet's closed-loop control **remains entirely with the F4S**. CODESYS does not replace or bypass the F4S's own PID controller.
@@ -1064,7 +1064,7 @@ RS-232 is a point-to-point serial protocol. One device's transmitter (TX) must c
    - Once bench-test passes consistently, configure a CODESYS Modbus Serial Master on `/dev/ttyUSB0`
    - Match settings: baud rate, parity, slave address
    - Create read channel: FC03, register 100, 1 register, cyclic poll (e.g. every 1 second) → HMI temperature display
-   - Create write channel: FC06, register 300, trigger = rising edge only (never cyclic) → prevent EEPROM wear from repeated writes
+   - Create write channel: FC06, register 300, trigger = rising edge only (never cyclic) → write once per operator action; register 300 is only followed while the F4S is in static mode, not EEPROM-backed (see Nuance B, Project Development Package)
    - Compile and download project to the active Pi
    - Verify CODESYS runtime starts without errors: check the "Devices" view for `/dev/ttyUSB0` status
 
@@ -1107,7 +1107,7 @@ The CODESYS HMI does **not** control the Left Hand Small Temperature Cabinet's t
 - F4S receives the new setpoint and begins ramping toward it using its own internal PID controller
 - Ramping progress is visible in real time as the "Chamber Temperature" read-back tile updates
 
-**Why edge-triggered, not cyclic:** Modbus register 300 is stored in the F4S's EEPROM. Writing the same value repeatedly causes unnecessary wear. Edge-triggered writes only fire when the setpoint *changes*, preventing this degradation.
+**Why edge-triggered, not cyclic:** the F4S/D spec sheet documents data retention via battery-backed RAM (7-year), not EEPROM — the "cyclic writes damage memory" caution actually belongs to a different Watlow product (the SD31), not the F4S. The real reason to edge-trigger is simpler: write once per operator action, and register 300 only takes effect while the F4S is in **static mode** — a running ramp/soak profile ignores it. Edge-triggered writes only fire when the setpoint *changes*, which is the correct behaviour regardless.
 
 **Why this is the right architecture:** The F4S is a purpose-built ramping controller with decades of proven thermal control logic. CODESYS leverages that expertise rather than attempting to replace it. The supervisor-and-agent pattern ensures CODESYS remains the operator interface while the F4S retains authority over actual temperature control.
 

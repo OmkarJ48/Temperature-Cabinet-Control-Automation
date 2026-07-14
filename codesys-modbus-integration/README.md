@@ -441,4 +441,4 @@ Once `wInput1Value = 232` shows live in the watch window, the hardware integrati
 1. **COM2 vs COM1:** Early testing found COM1 was reserved. COM2 is the working port.
 2. **Network offloading:** EtherCAT + Modbus on the same network requires offloading disabled. This is non-negotiable for latency-sensitive protocols.
 3. **F4S menu blocking:** The F4S silently rejects setpoint writes while in any menu (Setup, parameter adjustment, etc.). Always confirm main page before testing writes.
-4. **Edge-triggered writes:** Using `xWriteTrigger` with rising-edge detection prevents the F4S from being hammered with duplicate writes, reducing EEPROM wear.
+4. **Edge-triggered writes:** Using `xWriteTrigger` with rising-edge detection writes once per operator action instead of hammering the F4S with duplicate writes. Note: this is not about EEPROM wear (the F4S/D spec sheet documents battery-backed RAM, not EEPROM — that caution belongs to a different Watlow product, the SD31); the real reason is that register 300 is only followed while the F4S is in static mode, so repeated cyclic writes serve no purpose anyway.

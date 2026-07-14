@@ -2,49 +2,50 @@
     GVL:      GVL_Modbus
     Project:  Temperature Cabinet Setpoint Control from CODESYS HMI
     Author:   OJ (Omkar Joshi) - Oliver Mechatronics
-    Purpose:  Variables that the CODESYS Modbus Serial Master channels map
-              onto. The device-tree Modbus configuration does the actual
-              RTU transactions on /dev/ttyUSB0; this GVL is the clean
-              boundary between the driver and the application logic.
+    Purpose:  Channel-mapped raw variables that the CODESYS Modbus Serial
+              Master channels wire onto (I/O Mapping tab). The device-tree
+              Modbus configuration does the actual RTU transactions on
+              /dev/ttyUSB0; this GVL is the clean boundary between the
+              driver and the application logic.
+              Matches the Project Development Package spec and the build
+              guide already in codesys-modbus-integration/README.md
+              (Part 3C, Part 4).
 
     ------------------------------------------------------------------
-    F4S link parameters (confirmed on site - see README ADR-001 and the
-    F4 front-panel photos):
+    F4S link parameters (confirmed on site and via bench-test - see
+    README ADR-001 and the Retest/Requalify phase log):
         Port      : /dev/ttyUSB0  (USB-to-RS232 adapter, no EtherCAT path)
         Baud      : 19200         (F4 "Choose Baud Rate" menu -> 19200)
         Data/Par  : 8 data, No parity, 1 stop (8N1)
         Slave addr: 1             (F4 "Enter Address" menu -> 1)
         Framing   : Modbus RTU
     ------------------------------------------------------------------
-    Channel configuration to create in the device tree (Modbus_Master ->
-    Modbus_Slave, address 1):
+    Channel configuration in the device tree (Modbus_COM -> Modbus_Master,
+    COM Port -> Modbus_Slave, COM Port, address 1):
 
-      CH1  Read  actual temp   FC03  reg 100  qty 1  cyclic  ~1000 ms
-                 -> map "Value" to  iActualTemp_raw
-                 -> map channel error/health to xReadOk (or use master diag)
-      CH2  Read  setpoint echo FC03  reg 300  qty 1  cyclic  ~1000 ms
-                 -> map "Value" to  iSetpointEcho_raw
-      CH3  Write setpoint      FC06  reg 300  qty 1  RISING-EDGE trigger
-                 -> map "Value"   to iWriteSP_raw
-                 -> map "Trigger" to xWriteTrigger
-                 -> map "Done"    to xWriteDone     (if exposed by driver)
-                 -> map "Error"   to xWriteError    (if exposed by driver)
+      ReadChamberTemp   FC03  offset 100 (fallback 99)   qty 1  Cyclic
+                 -> map Holding registers[0] to wInput1Value
+      (read-back of the setpoint register is polled the same way at
+       offset 300 (fallback 299) -> wSetpoint1Read)
+      WriteSetpoint     FC06  offset 300                 qty 1  RISING_EDGE
+                 -> map trigger to xWriteTrigger
+                 -> map data    to wSetpoint1Write
 
     Values carry one implied decimal place: raw 1300 == 130.0 degC.
-    Register 300 is edge-triggered only (never cyclic) to avoid F4S
-    EEPROM wear - see README "Why edge-triggered, not cyclic".
+    Register 300 is edge-triggered only (never cyclic) so a write only
+    fires when the operator actually changes the setpoint.
 *)
+{attribute 'qualified_only'}
 VAR_GLOBAL
-    (* ---- Inputs from the F4S (driver -> application) ---- *)
-    iActualTemp_raw     : INT;      (* Reg 100, Input 1 Value, raw x10   *)
-    iSetpointEcho_raw   : INT;      (* Reg 300, SP1 read-back, raw x10   *)
-
-    (* ---- Outputs to the F4S (application -> driver) ---- *)
-    iWriteSP_raw        : INT;      (* Reg 300 value to write, raw x10   *)
-    xWriteTrigger       : BOOL;     (* Rising edge fires the FC06 write  *)
-
-    (* ---- Driver diagnostics (map from the Modbus master/channels) ---- *)
-    xCommsOk            : BOOL;     (* TRUE when the master link is healthy   *)
-    xWriteDone          : BOOL;     (* Last FC06 write completed OK            *)
-    xWriteError         : BOOL;     (* Last FC06 write reported an error       *)
+    (* FC03 cyclic read, offset 100 (fallback 99), length 1 -> actual temp raw (x10) *)
+    wInput1Value    : WORD;
+    (* FC03 read-back, offset 300 (fallback 299), length 1 -> SP1 raw read (x10) *)
+    wSetpoint1Read  : WORD;
+    (* FC06 write single register, offset 300 -> SP1 raw write (x10) *)
+    wSetpoint1Write : WORD;
+    (* Rising-edge trigger var for the FC06 channel (I/O Mapping tab) *)
+    xWriteTrigger   : BOOL;
+    (* Master/slave diagnostic bits from the device IEC objects *)
+    xModbusError    : BOOL;   (* Modbus_Slave_COM.xError *)
+    xModbusDone     : BOOL;   (* last transaction done *)
 END_VAR
