@@ -6,36 +6,35 @@
               interface in one GVL makes the Visualization wiring obvious
               and keeps the control logic (FB_CabinetSetpointControl) free
               of screen concerns.
+              Matches the Project Development Package spec (WebVisu design
+              spec, section B) already reflected in this repo's READMEs.
 
     WebVisu layout (design guidance handed to the Visualization editor):
       - Oliver Mechatronics logo, top of screen.
       - Gear button labelled "Set the cabinet temperature setpoint".
-        The gear opens a pop-up dialog that binds:
-            rReqSetpoint   -> numeric entry (degC)
-            xSetButton     -> "SET" momentary button
-            xResetFault    -> "RESET" momentary button
-      - Chamber Temperature tile   -> rActualTemp (read-back, live)
+        The gear opens a pop-up dialog (dlgSetpoint) that binds:
+            rReqSetpoint   -> numeric entry (degC), Min 30.0 / Max 130.0
+            xSetBtn        -> "SET" momentary button
+            xResetBtn      -> "RESET" momentary button
+      - Chamber Temperature tile   -> rChamberTemp (read-back, live)
       - Confirmed setpoint tile     -> rConfirmedSetpoint
-      - Status banner               -> sStatusText, colour driven by xFault
+      - Status banner               -> sStatusText, colour driven by
+                                        xFaultActive / xSetpointConfirmed
 *)
+{attribute 'qualified_only'}
 VAR_GLOBAL
-    (* ---- Operator inputs (WebVisu -> logic) ---- *)
-    rReqSetpoint        : REAL := 20.0;   (* Desired setpoint, degC          *)
-    xSetButton          : BOOL;           (* Momentary: apply the setpoint   *)
-    xResetFault         : BOOL;           (* Momentary: clear a latched fault *)
-
-    (* ---- Configurable safe limits (commission-time, editable in HMI) ---- *)
-    rMinSetpoint        : REAL := 0.0;    (* Lower validation bound, degC    *)
-    rMaxSetpoint        : REAL := 200.0;  (* Upper validation bound, degC    *)
-
     (* ---- Displayed feedback (logic -> WebVisu) ---- *)
-    rActualTemp         : REAL;           (* Live chamber temperature, degC  *)
-    rConfirmedSetpoint  : REAL;           (* Last setpoint the F4S accepted  *)
-    xSetpointConfirmed  : BOOL;           (* TRUE once read-back matches      *)
-    xFault              : BOOL;           (* Any latched fault present        *)
-    eActiveFault        : E_FaultCode;    (* Which fault (for icon/lookup)    *)
-    sStatusText         : STRING(80);     (* Human-readable banner text       *)
+    rChamberTemp        : REAL;           (* actual temp, deg C (read/10)    *)
+    rConfirmedSetpoint  : REAL;           (* last confirmed SP, deg C        *)
 
-    (* ---- Hard-wired cabinet signal (spare EL1409 DI, see README) ---- *)
-    xOverTempLamp       : BOOL;           (* TRUE = OVER TEMPERATURE lamp lit *)
+    (* ---- Operator inputs (WebVisu -> logic) ---- *)
+    rReqSetpoint        : REAL := 75.0;   (* operator entry (dialog), degC   *)
+    xSetBtn              : BOOL;           (* dialog SET button               *)
+    xResetBtn            : BOOL;           (* dialog/banner RESET button      *)
+
+    (* ---- Status feedback (logic -> WebVisu) ---- *)
+    xSetpointConfirmed   : BOOL;           (* green banner driver             *)
+    xFaultActive         : BOOL;           (* red banner driver               *)
+    eFaultCode            : E_FaultCode;
+    sStatusText           : STRING(80);
 END_VAR

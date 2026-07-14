@@ -298,8 +298,8 @@ Rather than typing the commands by hand each time, use the provided script:
 
 This script automates:
 1. **Read current setpoint** (register 300)
-2. **Skip the write if unchanged** (avoids unnecessary EEPROM wear)
-3. **Validate the requested value is 0–200°C** (same bounds as CODESYS logic)
+2. **Skip the write if unchanged** (avoids unnecessary writes; register 300 is only followed while the F4S is in static mode, not cyclic-write-sensitive EEPROM — see EEPROM myth note below)
+3. **Validate the requested value is 30–130°C** (same bounds as CODESYS logic)
 4. **Convert to raw register value** (multiply by 10)
 5. **Send the write (FC06)** via mbpoll
 6. **Read back and confirm** the value actually changed
@@ -391,7 +391,7 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 -1 -0 /dev/ttyUSB0
 
 1. **F4S menu-state blocking writes** — this was the hidden gotcha. Writes succeed at the comms layer but fail at the application layer if the F4S is in menu mode. Always confirm the main page is showing.
 
-2. **EEPROM wear** — register 300 lives in the F4S's EEPROM, which has limited write cycles (typically 100,000). The script skips writes if the value is unchanged, and CODESYS's `FB_CabinetSetpointControl` uses edge-triggered writes for the same reason.
+2. **EEPROM myth, corrected** — register 300 is *not* documented as EEPROM-backed. The F4S/D spec sheet describes data retention via battery-backed RAM (7-year), which doesn't have EEPROM's limited write-cycle life; the "cyclic writes damage memory" caution belongs to a different Watlow product (the SD31). The script still skips writes if the value is unchanged, and CODESYS's `FB_CabinetSetpointControl` still uses edge-triggered writes — but the real reason is "write once per operator action, and register 300 is only followed while the F4S is in static mode," not EEPROM wear.
 
 3. **One implied decimal** — both registers (100 and 300) divide by 10 to get the real temperature in °C. This is standard Watlow convention.
 

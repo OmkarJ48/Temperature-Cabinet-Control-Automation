@@ -8,17 +8,22 @@
               Definition-of-Done requirement:
                 "see a clear warning or fault if the write fails,
                  communication is lost, or the setpoint is not accepted."
+              Matches the Project Development Package spec and the build
+              guide already in codesys-modbus-integration/README.md
+              (Part 3B) and the T1-T9 test plan in the main README
+              (RANGE_LOW / RANGE_HIGH, COMMS_TIMEOUT, etc.).
 
     IEC 61131-3 Structured Text (CODESYS 3.5). Paste into a new DUT
     of type Enumeration named E_FaultCode.
 *)
 TYPE E_FaultCode :
 (
-    NONE            := 0,   (* Everything healthy                                  *)
-    COMMS_LOSS      := 1,   (* Modbus master link to F4S is down / timing out     *)
-    WRITE_FAILED    := 2,   (* FC06 write reported an error or timed out           *)
-    NOT_ACCEPTED    := 3,   (* Read-back of SP1 did not match commanded value      *)
-    OUT_OF_RANGE    := 4,   (* Requested setpoint outside configured safe limits   *)
-    OVER_TEMP       := 5    (* Cabinet hard-wired OVER TEMPERATURE lamp is active  *)
+    NO_FAULT        := 0,   (* Everything healthy                                  *)
+    COMMS_TIMEOUT   := 1,   (* No valid FC03 response within watchdog              *)
+    WRITE_FAILED    := 2,   (* FC06 channel reported error                         *)
+    NOT_ACCEPTED    := 3,   (* Read-back != target beyond tolerance                *)
+    RANGE_LOW       := 4,   (* Request below rMinSetpoint                          *)
+    RANGE_HIGH      := 5,   (* Request above rMaxSetpoint                          *)
+    OVER_TEMP       := 6    (* Spare EL1409 DI over-temp interlock                 *)
 ) INT;
 END_TYPE
