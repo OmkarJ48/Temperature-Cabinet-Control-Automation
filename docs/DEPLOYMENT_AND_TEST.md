@@ -86,15 +86,20 @@ Create three channels and map them to `GVL_Modbus`:
 
 | # | Access | FC | Register | Qty | Trigger | Map to |
 |---|---|---|---|---|---|---|
-| CH1 | Read | FC03 | 100 | 1 | cyclic ~1000 ms | `iActualTemp_raw` |
-| CH2 | Read | FC03 | 300 | 1 | cyclic ~1000 ms | `iSetpointEcho_raw` |
-| CH3 | Write | FC06 | 300 | 1 | **rising edge** | `iWriteSP_raw`, trigger `xWriteTrigger` |
+| CH1 | Read | FC03 | 100 | 1 | cyclic ~1000 ms | `wInput1Value` |
+| CH2 | Read | FC03 | 300 | 1 | cyclic ~1000 ms | `wSetpoint1Read` |
+| CH3 | Write | FC06 | 300 | 1 | **rising edge** | `wSetpoint1Write`, trigger `xWriteTrigger` |
 
-Map the master/channel health bit to `GVL_Modbus.xCommsOk` (and `xWriteDone` /
-`xWriteError` if your driver build exposes them — the FB works without them).
+Map the master/slave diagnostic bits to `GVL_Modbus.xModbusError` (slave
+`xError`) and `GVL_Modbus.xModbusDone` (last transaction done).
 
-> CH3 must be **rising-edge**, never cyclic — reg 300 is EEPROM-backed on the
-> F4S. The FB already gives you a one-shot trigger; do not also poll it.
+> CH3 must be **rising-edge**, never cyclic — not because reg 300 is
+> EEPROM-backed (it isn't: the F4S/D spec sheet documents data retention via
+> **battery-backed RAM**, not EEPROM — that caution belongs to a different
+> Watlow product, the SD31). The real reason is simpler: write once per
+> operator action, and the F4 only follows register 300 while it's in
+> **static mode** (a running ramp/soak profile ignores writes to 300). The FB
+> already gives you a one-shot trigger; do not also poll it.
 
 ---
 
@@ -102,12 +107,12 @@ Map the master/channel health bit to `GVL_Modbus.xCommsOk` (and `xWriteDone` /
 
 - **Oliver Mechatronics logo** at the top of the screen.
 - **Gear button** labelled *"Set the cabinet temperature setpoint"* → opens a
-  pop-up dialog bound to `rReqSetpoint` (numeric entry), `xSetButton` (SET),
-  `xResetFault` (RESET).
-- **Chamber Temperature** tile ← `rActualTemp` (live).
+  pop-up dialog (`dlgSetpoint`) bound to `rReqSetpoint` (numeric entry, Min
+  30.0 / Max 130.0), `xSetBtn` (SET), `xResetBtn` (RESET).
+- **Chamber Temperature** tile ← `rChamberTemp` (live).
 - **Confirmed setpoint** tile ← `rConfirmedSetpoint`.
-- **Status banner** ← `sStatusText`; drive the background colour from `xFault`
-  (red on fault) and `xSetpointConfirmed` (green on accept).
+- **Status banner** ← `sStatusText`; drive the background colour from
+  `xFaultActive` (red on fault) and `xSetpointConfirmed` (green on accept).
 
 ---
 
@@ -118,14 +123,14 @@ then in CODESYS. Log every result with a timestamp.
 
 | # | Test | Method | Pass criteria |
 |---|---|---|---|
-| T1 | Read-back accuracy | Compare `rActualTemp` to F4 front panel | Match within 0.1 °C |
-| T2 | Setpoint write | Set 30 °C on HMI, press SET | F4 SP1 shows 30.0 °C within 1–2 s |
+| T1 | Read-back accuracy | Compare `rChamberTemp` to F4 front panel | Match within 0.1 °C |
+| T2 | Setpoint write | Set 30 °C on HMI, press SET | F4 SP1 shows 30.0 °C within 1–2 s (state: `IDLE`→`READY`→`WRITING`→`CONFIRM`→`IDLE`) |
 | T3 | Acceptance confirm | Watch after T2 | `xSetpointConfirmed` = TRUE, banner "accepted" |
-| T4 | Range validation | Set value above `rMaxSetpoint`, press SET | No write; fault `OUT_OF_RANGE`, banner red |
-| T5 | Comms-loss fault | Unplug USB adapter | Within `tCommsTimeout` (3 s): fault `COMMS_LOSS` |
+| T4 | Range validation | Set value below `rMinSetpoint` (30.0) or above `rMaxSetpoint` (130.0), press SET | No write; fault `RANGE_LOW` / `RANGE_HIGH`, banner red |
+| T5 | Comms-loss fault | Unplug USB adapter | Within `tCommsTimeout` (3 s): fault `COMMS_TIMEOUT` |
 | T6 | Write-fail / not-accepted | Wrong slave addr, or F4 in profile mode | Fault `WRITE_FAILED` or `NOT_ACCEPTED` |
 | T7 | Over-temp | Trip the hard-wired lamp (spare EL1409 DI) | Fault `OVER_TEMP`, holds until cleared |
-| T8 | Fault reset | Clear cause, press RESET | Returns to `Ready`, no self-clear over live fault |
+| T8 | Fault reset | Clear cause, press RESET | Returns to `IDLE`, no self-clear over live fault |
 | T9 | Range sweep | Write 30 / 100 / 130 °C | Each confirmed; front panel tracks |
 
 Mark a test PASS only after **two consecutive** clean runs; otherwise cycle back
