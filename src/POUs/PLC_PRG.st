@@ -30,8 +30,8 @@ fbSetpoint(
     xSetCommand        := GVL_HMI.xSetBtn,
     xReset             := GVL_HMI.xResetBtn,
     xOverTempDI        := GVL_Modbus.xModbusError,  (* REPLACE with mapped EL1409 DI channel *)
-    rMinSetpoint       := 30.0,
-    rMaxSetpoint       := 130.0
+    rMinSetpoint       := -40.0,
+    rMaxSetpoint       := 200.0
 );
 
 (* ---- Consume dialog button one-shots ---- *)

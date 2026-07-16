@@ -44,8 +44,8 @@ VAR_INPUT
     xOverTempDI         : BOOL;                    (* spare EL1409 DI, TRUE = over-temp  *)
 
     (* ---- configurable, default to confirmed values ---- *)
-    rMinSetpoint        : REAL := 30.0;            (* Lower safe bound, degC              *)
-    rMaxSetpoint        : REAL := 130.0;           (* Upper safe bound, degC              *)
+    rMinSetpoint        : REAL := -40.0;           (* Lower safe bound, degC              *)
+    rMaxSetpoint        : REAL := 200.0;           (* Upper safe bound, degC              *)
     rScale              : REAL := 10.0;            (* eng <-> raw multiplier              *)
     rTolerance          : REAL := 0.1;             (* deg C read-back tolerance           *)
     tCommsTimeout       : TIME := T#3S;            (* watchdog                            *)
