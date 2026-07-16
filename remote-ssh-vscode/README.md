@@ -6,7 +6,7 @@
 
 This folder covers the tooling layer only — how you get a terminal and an editor *onto* the Pi,
 and how code changes made there get back to GitHub. It has nothing to do with the serial
-hardware (see `linux-integration/`) or CODESYS itself (see `codesys-integration/`) — those are
+hardware (see `linux-integration/`) or CODESYS itself (see `codesys-modbus-integration/`) — those are
 kept separate on purpose so each concern can be read, fixed, and referenced independently.
 
 ---
@@ -78,6 +78,6 @@ this same Pi.
 
 This folder only covers the *edges* of the workflow (connect in, push changes out). The middle —
 identifying the serial adapter, granting permissions, bench-testing with `mbpoll`, and mapping
-into CODESYS — is documented in `linux-integration/README.md` and `codesys-integration/README.md`.
+into CODESYS — is documented in `linux-integration/README.md` and `codesys-modbus-integration/README.md`.
 See the root `README.md`'s "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub" section for the full
 six-step sequence and how these three folders fit together.

@@ -10,223 +10,142 @@
     Cabinet (Watlow F4S, Modbus RTU / RS-232). CODESYS never runs the
     thermal loop - the F4S keeps its own closed-loop PID. This block:
 
-      1. Takes a new desired setpoint from the HMI.
+      1. Takes a new desired setpoint from the HMI (GVL_HMI.rReqSetpoint).
       2. Validates it against safe limits.
       3. Writes it once (edge-triggered FC06) to register 300 (SP1).
       4. Confirms acceptance by reading register 300 back and comparing.
       5. Raises a clear, prioritised fault if the write fails, the link
          is lost, the value is refused, or the cabinet is over temperature.
 
-    Maps 1:1 to the seven Definition-of-Done criteria in the README.
+    Matches the Project Development Package spec (Details A) and the
+    build guide already in codesys-modbus-integration/README.md
+    (Part 3, Part 4) and the T1-T9 test plan in the main README.
 
     SCALING
     F4S registers carry one implied decimal (raw 1300 == 130.0 degC).
-    ScaleFactor defaults to 10.0; change it if the unit is reconfigured
+    rScale defaults to 10.0; change it if the unit is reconfigured
     for a different resolution.
 
-    USAGE (see PLC_PRG for the wired-up call)
+    NOTE (known follow-up item): this FB reads/writes GVL_Modbus and
+    GVL_HMI directly in its body rather than exclusively through
+    VAR_INPUT/VAR_OUTPUT. That is how the Project Development Package
+    and the README build guide specify it, and it is what the T1-T9
+    bench tests exercise - but it does mean this FB cannot be unit
+    tested or reused against a second GVL_Modbus instance without
+    editing the body. See PLC_PRG for the wired-up call, and note the
+    xOverTempDI placeholder wiring there.
     ------------------------------------------------------------------
 *)
 FUNCTION_BLOCK FB_CabinetSetpointControl
 VAR_INPUT
-    xEnable         : BOOL;         (* Master enable; FALSE holds INIT      *)
+    rRequestedSetpoint  : REAL;                    (* deg C from HMI                    *)
+    xSetCommand         : BOOL;                    (* HMI SET - rising edge applies      *)
+    xReset              : BOOL;                    (* fault reset - rising edge clears   *)
+    xOverTempDI         : BOOL;                    (* spare EL1409 DI, TRUE = over-temp  *)
 
-    (* Operator interface *)
-    rReqSetpoint    : REAL;         (* Requested setpoint from HMI, degC    *)
-    xSetButton      : BOOL;         (* Momentary "SET" - rising edge applies *)
-    xResetFault     : BOOL;         (* Momentary "RESET" - clears a fault    *)
-
-    (* Validation limits *)
-    rMinSetpoint    : REAL;         (* Lower safe bound, degC               *)
-    rMaxSetpoint    : REAL;         (* Upper safe bound, degC               *)
-
-    (* Live values from the Modbus driver (GVL_Modbus) *)
-    iActualTemp_raw : INT;          (* Reg 100 read-back, raw x10           *)
-    iSetpointEcho_raw : INT;        (* Reg 300 read-back, raw x10           *)
-    xCommsOk        : BOOL;         (* Modbus master link healthy           *)
-    xWriteDone      : BOOL;         (* Last FC06 write completed OK          *)
-    xWriteError     : BOOL;         (* Last FC06 write errored              *)
-
-    (* Cabinet hard-wired safety lamp (spare EL1409 DI) *)
-    xOverTempLamp   : BOOL;         (* TRUE = OVER TEMPERATURE lamp lit     *)
-
-    (* Tuning (sensible defaults supplied by PLC_PRG) *)
-    rScaleFactor    : REAL := 10.0; (* Engineering<->raw scale               *)
-    iAcceptTol_raw  : INT  := 1;    (* Read-back match tolerance, raw counts *)
-    tCommsTimeout   : TIME := T#3S; (* Link down this long -> COMMS_LOSS     *)
-    tWriteTimeout   : TIME := T#3S; (* Settle time before checking read-back *)
-    tConfirmTimeout : TIME := T#5S; (* No matching echo in this time -> FAIL *)
+    (* ---- configurable, default to confirmed values ---- *)
+    rMinSetpoint        : REAL := 30.0;            (* Lower safe bound, degC              *)
+    rMaxSetpoint        : REAL := 130.0;           (* Upper safe bound, degC              *)
+    rScale              : REAL := 10.0;            (* eng <-> raw multiplier              *)
+    rTolerance          : REAL := 0.1;             (* deg C read-back tolerance           *)
+    tCommsTimeout       : TIME := T#3S;            (* watchdog                            *)
 END_VAR
 VAR_OUTPUT
-    rActualTemp        : REAL;      (* Live chamber temperature, degC        *)
-    rConfirmedSetpoint : REAL;      (* Last accepted setpoint, degC          *)
-    xSetpointConfirmed : BOOL;      (* Latched TRUE on accepted write        *)
-
-    (* Modbus write coupling (map to GVL_Modbus) *)
-    iWriteSP_raw       : INT;       (* Value to place in reg 300, raw x10    *)
-    xWriteTrigger      : BOOL;      (* Rising edge fires the FC06 write      *)
-
-    (* Fault surface for the HMI *)
-    xFault             : BOOL;
-    eFault             : E_FaultCode;
-    sStatusText        : STRING(80);
-    eState             : E_SetpointState;
+    eState              : E_SetpointState;
+    eFault              : E_FaultCode;
+    xConfirmed          : BOOL;
+    xFault              : BOOL;
+    rActualTemp         : REAL;                    (* Live chamber temperature, degC      *)
+    rConfirmedSetpoint  : REAL;                    (* Last accepted setpoint, degC        *)
 END_VAR
 VAR
-    rTrigSet     : R_TRIG;          (* Edge detect on SET button            *)
-    rTrigReset   : R_TRIG;          (* Edge detect on RESET button          *)
-    tonComms     : TON;             (* Comms-loss debounce                  *)
-    tonWrite     : TON;             (* Write acknowledge timeout            *)
-    tonConfirm   : TON;             (* Read-back confirm timeout            *)
-
-    iTargetRaw   : INT;             (* Setpoint being written, raw x10      *)
+    rtrigSet            : R_TRIG;                  (* Edge detect on SET command          *)
+    rtrigReset          : R_TRIG;                  (* Edge detect on RESET command        *)
+    tonWatchdog         : TON;                     (* Comms-loss debounce                 *)
+    tonConfirmWait      : TON;                     (* Read-back confirm timeout           *)
+    wTargetRaw          : WORD;                    (* Setpoint being written, raw x10     *)
+    rReadBack           : REAL;                    (* Setpoint echo, engineering units    *)
 END_VAR
 
-(* ============================================================= *)
-(*  1. Always-on engineering conversions for the HMI tiles       *)
-(* ============================================================= *)
-rActualTemp := INT_TO_REAL(iActualTemp_raw) / rScaleFactor;
+(* ---- Edge detect ---- *)
+rtrigSet(CLK := xSetCommand);
+rtrigReset(CLK := xReset);
 
-(* Edge detectors run every scan *)
-rTrigSet(CLK := xSetButton);
-rTrigReset(CLK := xResetFault);
+(* ---- Always-live scaling of the cyclic read ---- *)
+rActualTemp          := WORD_TO_REAL(GVL_Modbus.wInput1Value) / rScale;
+rReadBack             := WORD_TO_REAL(GVL_Modbus.wSetpoint1Read) / rScale;
+GVL_HMI.rChamberTemp := rActualTemp;
 
-(* ============================================================= *)
-(*  2. Global safety / comms supervision (runs in every state)   *)
-(*     These pre-empt the sequencer so a fault is never masked    *)
-(*     by whatever step we happen to be in.                       *)
-(* ============================================================= *)
+(* ---- Comms watchdog: LEVEL signal, NOT an edge pulse (avoids R_TRIG->TON trap) ---- *)
+tonWatchdog(IN := NOT GVL_Modbus.xModbusDone, PT := tCommsTimeout);
 
-(* Comms watchdog: xCommsOk must stay TRUE; tonComms fires on loss *)
-tonComms(IN := (NOT xCommsOk) AND xEnable, PT := tCommsTimeout);
-
-(* Over-temperature lamp is a hard fault regardless of state *)
-IF xEnable AND xOverTempLamp THEN
+(* ---- Over-temp interlock (highest priority latch) ---- *)
+IF xOverTempDI THEN
     eFault := E_FaultCode.OVER_TEMP;
-    eState := E_SetpointState.FAULT;
-ELSIF tonComms.Q THEN
-    eFault := E_FaultCode.COMMS_LOSS;
-    eState := E_SetpointState.FAULT;
+    eState := E_SetpointState.FAULTED;
 END_IF
 
-(* ============================================================= *)
-(*  3. Sequencer                                                 *)
-(* ============================================================= *)
+(* ---- Comms loss latch (any state) ---- *)
+IF tonWatchdog.Q OR GVL_Modbus.xModbusError THEN
+    eFault := E_FaultCode.COMMS_TIMEOUT;
+    eState := E_SetpointState.FAULTED;
+END_IF
+
 CASE eState OF
 
-    E_SetpointState.INIT:
-        (* Clear everything on power-up or while disabled *)
-        xWriteTrigger      := FALSE;
-        xSetpointConfirmed := FALSE;
-        xFault             := FALSE;
-        eFault             := E_FaultCode.NONE;
-        tonWrite(IN := FALSE);
-        tonConfirm(IN := FALSE);
-        IF xEnable THEN
-            eState := E_SetpointState.IDLE;
-        END_IF
-
     E_SetpointState.IDLE:
-        xWriteTrigger := FALSE;
-        (* Operator pressed SET -> begin a supervised write *)
-        IF rTrigSet.Q THEN
-            eState := E_SetpointState.VALIDATE;
+        xConfirmed := TRUE;
+        GVL_Modbus.xWriteTrigger := FALSE;
+        IF rtrigSet.Q THEN
+            eState := E_SetpointState.READY;
         END_IF
 
-    E_SetpointState.VALIDATE:
-        (* Reject anything outside the commissioned safe window before
-           it ever reaches the cabinet. *)
-        IF (rReqSetpoint < rMinSetpoint) OR (rReqSetpoint > rMaxSetpoint) THEN
-            eFault := E_FaultCode.OUT_OF_RANGE;
-            eState := E_SetpointState.FAULT;
+    E_SetpointState.READY:
+        xConfirmed := FALSE;
+        IF rRequestedSetpoint < rMinSetpoint THEN
+            eFault := E_FaultCode.RANGE_LOW;
+            eState := E_SetpointState.FAULTED;
+        ELSIF rRequestedSetpoint > rMaxSetpoint THEN
+            eFault := E_FaultCode.RANGE_HIGH;
+            eState := E_SetpointState.FAULTED;
         ELSE
-            iTargetRaw   := REAL_TO_INT(rReqSetpoint * rScaleFactor);
-            iWriteSP_raw := iTargetRaw;
-            xSetpointConfirmed := FALSE;   (* new request -> unconfirm     *)
-            eState := E_SetpointState.WRITE_REQ;
+            wTargetRaw := REAL_TO_WORD(rRequestedSetpoint * rScale);
+            GVL_Modbus.wSetpoint1Write := wTargetRaw;
+            eState := E_SetpointState.WRITING;
         END_IF
 
-    E_SetpointState.WRITE_REQ:
-        (* Pulse the FC06 trigger once; the Modbus channel latches the
-           rising edge. Move straight to WRITE_WAIT. *)
-        xWriteTrigger := TRUE;
-        tonWrite(IN := FALSE);             (* reset timer edge            *)
-        eState := E_SetpointState.WRITE_WAIT;
-
-    E_SetpointState.WRITE_WAIT:
-        (* Let the FC06 frame go out, then hand over to CONFIRM which
-           proves acceptance from the register 300 echo. We do NOT rely on
-           a driver "Done" level flag (not all Modbus channel configs expose
-           one, and a latched Done from a previous write would be stale) -
-           the echo is the driver-agnostic proof. xWriteError, when the
-           driver does expose it, gives us a precise fast-fail. *)
-        xWriteTrigger := FALSE;            (* one-shot: drop the trigger  *)
-        tonWrite(IN := TRUE, PT := tWriteTimeout);
-        IF xWriteError THEN
-            eFault := E_FaultCode.WRITE_FAILED;
-            eState := E_SetpointState.FAULT;
-        ELSIF xWriteDone OR tonWrite.Q THEN
-            (* Acked, or settle time elapsed - go prove it via read-back *)
-            tonConfirm(IN := FALSE);
-            eState := E_SetpointState.CONFIRM;
-        END_IF
+    E_SetpointState.WRITING:
+        GVL_Modbus.xWriteTrigger := TRUE;    (* one-shot rising edge fires FC06 *)
+        eState := E_SetpointState.CONFIRM;
 
     E_SetpointState.CONFIRM:
-        (* Proof of acceptance: the cabinet must echo SP1 (reg 300) back
-           equal to what we commanded, within tolerance. This is the
-           "confirm the cabinet accepted the setpoint" requirement. *)
-        tonConfirm(IN := TRUE, PT := tConfirmTimeout);
-        IF ABS(iSetpointEcho_raw - iTargetRaw) <= iAcceptTol_raw THEN
-            rConfirmedSetpoint := INT_TO_REAL(iTargetRaw) / rScaleFactor;
-            xSetpointConfirmed := TRUE;
-            eState := E_SetpointState.CONFIRMED;
-        ELSIF tonConfirm.Q THEN
+        GVL_Modbus.xWriteTrigger := FALSE;   (* drop trigger to re-arm the edge *)
+        tonConfirmWait(IN := TRUE, PT := tCommsTimeout);
+        IF ABS(rReadBack - rRequestedSetpoint) <= rTolerance THEN
+            rConfirmedSetpoint := rReadBack;
+            GVL_HMI.rConfirmedSetpoint := rReadBack;
+            tonConfirmWait(IN := FALSE);
+            eState := E_SetpointState.IDLE;
+        ELSIF tonConfirmWait.Q THEN
             eFault := E_FaultCode.NOT_ACCEPTED;
-            eState := E_SetpointState.FAULT;
+            eState := E_SetpointState.FAULTED;
         END_IF
 
-    E_SetpointState.CONFIRMED:
-        (* Accepted and latched. Return to IDLE for the next change. *)
-        eState := E_SetpointState.IDLE;
-
-    E_SetpointState.FAULT:
-        xFault        := TRUE;
-        xWriteTrigger := FALSE;
-        (* Operator RESET clears the fault, but only once the underlying
-           condition has gone (no self-clearing over a live fault). *)
-        IF rTrigReset.Q
-           AND NOT xOverTempLamp
-           AND NOT tonComms.Q THEN
-            xFault := FALSE;
-            eFault := E_FaultCode.NONE;
+    E_SetpointState.FAULTED:
+        xConfirmed := FALSE;
+        GVL_Modbus.xWriteTrigger := FALSE;
+        (* Latched - clears only on reset edge AND only if condition is gone *)
+        IF rtrigReset.Q
+           AND NOT xOverTempDI
+           AND NOT tonWatchdog.Q
+           AND NOT GVL_Modbus.xModbusError THEN
+            eFault := E_FaultCode.NO_FAULT;
             eState := E_SetpointState.IDLE;
         END_IF
 
 END_CASE
 
-(* Disable at any time forces a clean re-init next enable *)
-IF NOT xEnable THEN
-    eState := E_SetpointState.INIT;
-END_IF
-
-(* ============================================================= *)
-(*  4. HMI status banner (single source of operator-facing text) *)
-(* ============================================================= *)
-CASE eFault OF
-    E_FaultCode.COMMS_LOSS:   sStatusText := 'FAULT: Communication lost to cabinet (F4S)';
-    E_FaultCode.WRITE_FAILED: sStatusText := 'FAULT: Setpoint write to cabinet failed';
-    E_FaultCode.NOT_ACCEPTED: sStatusText := 'FAULT: Cabinet did not accept the setpoint';
-    E_FaultCode.OUT_OF_RANGE: sStatusText := 'REJECTED: Setpoint outside safe limits';
-    E_FaultCode.OVER_TEMP:    sStatusText := 'ALARM: Cabinet OVER TEMPERATURE';
-ELSE
-    IF eState = E_SetpointState.IDLE AND xSetpointConfirmed THEN
-        sStatusText := 'OK: Setpoint accepted by cabinet';
-    ELSIF eState = E_SetpointState.WRITE_REQ
-       OR eState = E_SetpointState.WRITE_WAIT THEN
-        sStatusText := 'Writing setpoint to cabinet...';
-    ELSIF eState = E_SetpointState.CONFIRM THEN
-        sStatusText := 'Confirming setpoint with cabinet...';
-    ELSE
-        sStatusText := 'Ready';
-    END_IF
-END_CASE
+xFault                      := (eState = E_SetpointState.FAULTED);
+GVL_HMI.xSetpointConfirmed  := xConfirmed AND NOT xFault;
+GVL_HMI.xFaultActive        := xFault;
+GVL_HMI.eFaultCode          := eFault;

@@ -5,19 +5,19 @@
     Purpose:  Sequencer states for FB_CabinetSetpointControl.
               Drives the write -> confirm -> latch flow of a single
               supervisory setpoint change to the Watlow F4S over Modbus.
+              Matches the Project Development Package spec and the build
+              guide already in codesys-modbus-integration/README.md
+              (Part 3A) and the T1-T9 test plan in the main README.
 
     IEC 61131-3 Structured Text (CODESYS 3.5). Paste into a new DUT
     of type Enumeration named E_SetpointState.
 *)
 TYPE E_SetpointState :
 (
-    INIT        := 0,   (* Power-up / first scan, clear latches            *)
-    IDLE        := 10,  (* Healthy, waiting for operator Set command       *)
-    VALIDATE    := 20,  (* Range-check the requested setpoint              *)
-    WRITE_REQ   := 30,  (* Assert FC06 write trigger to register 300       *)
-    WRITE_WAIT  := 40,  (* Wait for the Modbus write to complete           *)
-    CONFIRM     := 50,  (* Read register 300 back, compare to command      *)
-    CONFIRMED   := 60,  (* Setpoint accepted by cabinet - latched OK        *)
-    FAULT       := 90   (* A fault is latched; requires operator reset     *)
+    IDLE        := 0,   (* No request pending; setpoint confirmed/steady      *)
+    READY       := 10,  (* Validated request staged, ready to write           *)
+    WRITING     := 20,  (* FC06 edge-write issued, waiting for channel done   *)
+    CONFIRM     := 30,  (* Comparing FC03 read-back against target            *)
+    FAULTED     := 99   (* Latched fault; requires reset                     *)
 ) INT;
 END_TYPE

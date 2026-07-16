@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <project xmlns="http://www.plcopen.org/xml/tc6_0201">
   <fileHeader companyName="Oliver Mechatronics" productName="CODESYS" productVersion="3.5"
-              creationDateTime="2026-07-03T13:06:45"/>
-  <contentHeader name="CabinetSetpointControl" modificationDateTime="2026-07-03T13:06:45">
+              creationDateTime="2026-07-14T00:00:00"/>
+  <contentHeader name="CabinetSetpointControl" modificationDateTime="2026-07-14T00:00:00">
     <coordinateInfo>
       <fbd><scaling x="1" y="1"/></fbd>
       <ld><scaling x="1" y="1"/></ld>
@@ -11,197 +11,108 @@
   </contentHeader>
   <types>
     <dataTypes>
-      <dataType name="E_SetpointState"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Sequencer states for FB_CabinetSetpointControl - write -> confirm -> latch flow of a single supervisory setpoint change to the Watlow F4S over Modbus.]]></xhtml></documentation><baseType><enum><values><value name="INIT"><value>0</value></value><value name="IDLE"><value>10</value></value><value name="VALIDATE"><value>20</value></value><value name="WRITE_REQ"><value>30</value></value><value name="WRITE_WAIT"><value>40</value></value><value name="CONFIRM"><value>50</value></value><value name="CONFIRMED"><value>60</value></value><value name="FAULT"><value>90</value></value></values><baseType><INT/></baseType></enum></baseType></dataType>
-      <dataType name="E_FaultCode"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Single, prioritised fault/warning code surfaced to the HMI so the operator sees a clear reason when a setpoint change is refused or the link is unhealthy.]]></xhtml></documentation><baseType><enum><values><value name="NONE"><value>0</value></value><value name="COMMS_LOSS"><value>1</value></value><value name="WRITE_FAILED"><value>2</value></value><value name="NOT_ACCEPTED"><value>3</value></value><value name="OUT_OF_RANGE"><value>4</value></value><value name="OVER_TEMP"><value>5</value></value></values><baseType><INT/></baseType></enum></baseType></dataType>
+      <dataType name="E_SetpointState"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Sequencer states for FB_CabinetSetpointControl - write -> confirm -> latch flow of a single supervisory setpoint change to the Watlow F4S over Modbus.]]></xhtml></documentation><baseType><enum><values><value name="IDLE"><value>0</value></value><value name="READY"><value>10</value></value><value name="WRITING"><value>20</value></value><value name="CONFIRM"><value>30</value></value><value name="FAULTED"><value>99</value></value></values><baseType><INT/></baseType></enum></baseType></dataType>
+      <dataType name="E_FaultCode"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Single, prioritised fault/warning code surfaced to the HMI so the operator sees a clear reason when a setpoint change is refused or the link is unhealthy.]]></xhtml></documentation><baseType><enum><values><value name="NO_FAULT"><value>0</value></value><value name="COMMS_TIMEOUT"><value>1</value></value><value name="WRITE_FAILED"><value>2</value></value><value name="NOT_ACCEPTED"><value>3</value></value><value name="RANGE_LOW"><value>4</value></value><value name="RANGE_HIGH"><value>5</value></value><value name="OVER_TEMP"><value>6</value></value></values><baseType><INT/></baseType></enum></baseType></dataType>
     </dataTypes>
     <pous>
-      <pou name="GVL_Modbus" pouType="globalVars"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Modbus Serial Master channel boundary. Port /dev/ttyUSB0, 19200 8N1, slave address 1 (F4S). See docs/DEPLOYMENT_AND_TEST.md for channel setup.]]></xhtml></documentation><interface><globalVars><variable name="iActualTemp_raw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Reg 100, Input 1 Value, raw x10]]></xhtml></documentation></variable><variable name="iSetpointEcho_raw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Reg 300, SP1 read-back, raw x10]]></xhtml></documentation></variable><variable name="iWriteSP_raw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Reg 300 value to write, raw x10]]></xhtml></documentation></variable><variable name="xWriteTrigger"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Rising edge fires the FC06 write]]></xhtml></documentation></variable><variable name="xCommsOk"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[TRUE when the master link is healthy]]></xhtml></documentation></variable><variable name="xWriteDone"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last FC06 write completed OK]]></xhtml></documentation></variable><variable name="xWriteError"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last FC06 write reported an error]]></xhtml></documentation></variable></globalVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[]]></xhtml></ST></body></pou>
-      <pou name="GVL_HMI" pouType="globalVars"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Every tag the WebVisu screen binds to. Gear button opens a pop-up bound to rReqSetpoint / xSetButton / xResetFault. See docs/DEPLOYMENT_AND_TEST.md.]]></xhtml></documentation><interface><globalVars><variable name="rReqSetpoint"><type><REAL/></type><initialValue><simpleValue value="20.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Desired setpoint, degC]]></xhtml></documentation></variable><variable name="xSetButton"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Momentary: apply the setpoint]]></xhtml></documentation></variable><variable name="xResetFault"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Momentary: clear a latched fault]]></xhtml></documentation></variable><variable name="rMinSetpoint"><type><REAL/></type><initialValue><simpleValue value="0.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Lower validation bound, degC]]></xhtml></documentation></variable><variable name="rMaxSetpoint"><type><REAL/></type><initialValue><simpleValue value="200.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Upper validation bound, degC]]></xhtml></documentation></variable><variable name="rActualTemp"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Live chamber temperature, degC]]></xhtml></documentation></variable><variable name="rConfirmedSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last setpoint the F4S accepted]]></xhtml></documentation></variable><variable name="xSetpointConfirmed"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[TRUE once read-back matches]]></xhtml></documentation></variable><variable name="xFault"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Any latched fault present]]></xhtml></documentation></variable><variable name="eActiveFault"><type><derived name="E_FaultCode"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Which fault (for icon/lookup)]]></xhtml></documentation></variable><variable name="sStatusText"><type><STRING><lower>0</lower><upper>80</upper></STRING></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Human-readable banner text]]></xhtml></documentation></variable><variable name="xOverTempLamp"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[TRUE = OVER TEMPERATURE lamp lit]]></xhtml></documentation></variable></globalVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[]]></xhtml></ST></body></pou>
-      <pou name="FB_CabinetSetpointControl" pouType="functionBlock"><interface><localVars><variable name="rTrigSet"><type><derived name="R_TRIG"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Edge detect on SET button]]></xhtml></documentation></variable><variable name="rTrigReset"><type><derived name="R_TRIG"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Edge detect on RESET button]]></xhtml></documentation></variable><variable name="tonComms"><type><derived name="TON"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Comms-loss debounce]]></xhtml></documentation></variable><variable name="tonWrite"><type><derived name="TON"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Write acknowledge timeout]]></xhtml></documentation></variable><variable name="tonConfirm"><type><derived name="TON"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Read-back confirm timeout]]></xhtml></documentation></variable><variable name="iTargetRaw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Setpoint being written, raw x10]]></xhtml></documentation></variable></localVars><inputVars><variable name="xEnable"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Master enable; FALSE holds INIT]]></xhtml></documentation></variable><variable name="rReqSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Requested setpoint from HMI, degC]]></xhtml></documentation></variable><variable name="xSetButton"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Momentary "SET" - rising edge applies]]></xhtml></documentation></variable><variable name="xResetFault"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Momentary "RESET" - clears a fault]]></xhtml></documentation></variable><variable name="rMinSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Lower safe bound, degC]]></xhtml></documentation></variable><variable name="rMaxSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Upper safe bound, degC]]></xhtml></documentation></variable><variable name="iActualTemp_raw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Reg 100 read-back, raw x10]]></xhtml></documentation></variable><variable name="iSetpointEcho_raw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Reg 300 read-back, raw x10]]></xhtml></documentation></variable><variable name="xCommsOk"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Modbus master link healthy]]></xhtml></documentation></variable><variable name="xWriteDone"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last FC06 write completed OK]]></xhtml></documentation></variable><variable name="xWriteError"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last FC06 write errored]]></xhtml></documentation></variable><variable name="xOverTempLamp"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[TRUE = OVER TEMPERATURE lamp lit]]></xhtml></documentation></variable><variable name="rScaleFactor"><type><REAL/></type><initialValue><simpleValue value="10.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Engineering to raw scale]]></xhtml></documentation></variable><variable name="iAcceptTol_raw"><type><INT/></type><initialValue><simpleValue value="1"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Read-back match tolerance, raw counts]]></xhtml></documentation></variable><variable name="tCommsTimeout"><type><TIME/></type><initialValue><simpleValue value="T#3s"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Link down this long -> COMMS_LOSS]]></xhtml></documentation></variable><variable name="tWriteTimeout"><type><TIME/></type><initialValue><simpleValue value="T#3s"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Settle time before checking read-back]]></xhtml></documentation></variable><variable name="tConfirmTimeout"><type><TIME/></type><initialValue><simpleValue value="T#5s"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[No matching echo in this time -> FAIL]]></xhtml></documentation></variable></inputVars><outputVars><variable name="rActualTemp"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Live chamber temperature, degC]]></xhtml></documentation></variable><variable name="rConfirmedSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last accepted setpoint, degC]]></xhtml></documentation></variable><variable name="xSetpointConfirmed"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Latched TRUE on accepted write]]></xhtml></documentation></variable><variable name="iWriteSP_raw"><type><INT/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Value to place in reg 300, raw x10]]></xhtml></documentation></variable><variable name="xWriteTrigger"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Rising edge fires the FC06 write]]></xhtml></documentation></variable><variable name="xFault"><type><BOOL/></type></variable><variable name="eFault"><type><derived name="E_FaultCode"/></type></variable><variable name="sStatusText"><type><STRING><lower>0</lower><upper>80</upper></STRING></type></variable><variable name="eState"><type><derived name="E_SetpointState"/></type></variable></outputVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[(* ============================================================= *)
-(*  1. Always-on engineering conversions for the HMI tiles       *)
-(* ============================================================= *)
-rActualTemp := INT_TO_REAL(iActualTemp_raw) / rScaleFactor;
+      <pou name="GVL_Modbus" pouType="globalVars"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Channel-mapped raw variables that the CODESYS Modbus Serial Master channels wire onto (I/O Mapping tab). Port /dev/ttyUSB0, 19200 8N1, slave address 1 (F4S). See codesys-modbus-integration/README.md Part 3C/4.]]></xhtml></documentation><interface><globalVars><variable name="wInput1Value"><type><WORD/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[FC03 cyclic read, offset 100 (fallback 99), length 1 -> actual temp raw (x10)]]></xhtml></documentation></variable><variable name="wSetpoint1Read"><type><WORD/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[FC03 read-back, offset 300 (fallback 299), length 1 -> SP1 raw read (x10)]]></xhtml></documentation></variable><variable name="wSetpoint1Write"><type><WORD/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[FC06 write single register, offset 300 -> SP1 raw write (x10)]]></xhtml></documentation></variable><variable name="xWriteTrigger"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Rising-edge trigger var for the FC06 channel (I/O Mapping tab)]]></xhtml></documentation></variable><variable name="xModbusError"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Modbus_Slave_COM.xError]]></xhtml></documentation></variable><variable name="xModbusDone"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[last transaction done]]></xhtml></documentation></variable></globalVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[]]></xhtml></ST></body></pou>
+      <pou name="GVL_HMI" pouType="globalVars"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Every tag the WebVisu screen binds to. Gear button opens a pop-up (dlgSetpoint) bound to rReqSetpoint / xSetBtn / xResetBtn. See codesys-modbus-integration/README.md.]]></xhtml></documentation><interface><globalVars><variable name="rChamberTemp"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[actual temp, deg C (read/10)]]></xhtml></documentation></variable><variable name="rConfirmedSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[last confirmed SP, deg C]]></xhtml></documentation></variable><variable name="rReqSetpoint"><type><REAL/></type><initialValue><simpleValue value="75.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[operator entry (dialog), deg C]]></xhtml></documentation></variable><variable name="xSetBtn"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[dialog SET button]]></xhtml></documentation></variable><variable name="xResetBtn"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[dialog/banner RESET button]]></xhtml></documentation></variable><variable name="xSetpointConfirmed"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[green banner driver]]></xhtml></documentation></variable><variable name="xFaultActive"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[red banner driver]]></xhtml></documentation></variable><variable name="eFaultCode"><type><derived name="E_FaultCode"/></type></variable><variable name="sStatusText"><type><STRING><lower>0</lower><upper>80</upper></STRING></type></variable></globalVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[]]></xhtml></ST></body></pou>
+      <pou name="FB_CabinetSetpointControl" pouType="functionBlock"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Supervisory setpoint control for the Left Hand Small Temperature Cabinet (Watlow F4S, Modbus RTU / RS-232). Reads/writes GVL_Modbus and GVL_HMI directly in its body per the Project Development Package spec - see the .st source header for the known follow-up note on this coupling.]]></xhtml></documentation><interface><localVars><variable name="rtrigSet"><type><derived name="R_TRIG"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Edge detect on SET command]]></xhtml></documentation></variable><variable name="rtrigReset"><type><derived name="R_TRIG"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Edge detect on RESET command]]></xhtml></documentation></variable><variable name="tonWatchdog"><type><derived name="TON"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Comms-loss debounce]]></xhtml></documentation></variable><variable name="tonConfirmWait"><type><derived name="TON"/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Read-back confirm timeout]]></xhtml></documentation></variable><variable name="wTargetRaw"><type><WORD/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Setpoint being written, raw x10]]></xhtml></documentation></variable><variable name="rReadBack"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Setpoint echo, engineering units]]></xhtml></documentation></variable></localVars><inputVars><variable name="rRequestedSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[deg C from HMI]]></xhtml></documentation></variable><variable name="xSetCommand"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[HMI SET - rising edge applies]]></xhtml></documentation></variable><variable name="xReset"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[fault reset - rising edge clears]]></xhtml></documentation></variable><variable name="xOverTempDI"><type><BOOL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[spare EL1409 DI, TRUE = over-temp]]></xhtml></documentation></variable><variable name="rMinSetpoint"><type><REAL/></type><initialValue><simpleValue value="30.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Lower safe bound, degC]]></xhtml></documentation></variable><variable name="rMaxSetpoint"><type><REAL/></type><initialValue><simpleValue value="130.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Upper safe bound, degC]]></xhtml></documentation></variable><variable name="rScale"><type><REAL/></type><initialValue><simpleValue value="10.0"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[eng <-> raw multiplier]]></xhtml></documentation></variable><variable name="rTolerance"><type><REAL/></type><initialValue><simpleValue value="0.1"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[deg C read-back tolerance]]></xhtml></documentation></variable><variable name="tCommsTimeout"><type><TIME/></type><initialValue><simpleValue value="T#3s"/></initialValue><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[watchdog]]></xhtml></documentation></variable></inputVars><outputVars><variable name="eState"><type><derived name="E_SetpointState"/></type></variable><variable name="eFault"><type><derived name="E_FaultCode"/></type></variable><variable name="xConfirmed"><type><BOOL/></type></variable><variable name="xFault"><type><BOOL/></type></variable><variable name="rActualTemp"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Live chamber temperature, degC]]></xhtml></documentation></variable><variable name="rConfirmedSetpoint"><type><REAL/></type><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Last accepted setpoint, degC]]></xhtml></documentation></variable></outputVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[(* ---- Edge detect ---- *)
+rtrigSet(CLK := xSetCommand);
+rtrigReset(CLK := xReset);
 
-(* Edge detectors run every scan *)
-rTrigSet(CLK := xSetButton);
-rTrigReset(CLK := xResetFault);
+(* ---- Always-live scaling of the cyclic read ---- *)
+rActualTemp          := WORD_TO_REAL(GVL_Modbus.wInput1Value) / rScale;
+rReadBack             := WORD_TO_REAL(GVL_Modbus.wSetpoint1Read) / rScale;
+GVL_HMI.rChamberTemp := rActualTemp;
 
-(* ============================================================= *)
-(*  2. Global safety / comms supervision (runs in every state)   *)
-(*     These pre-empt the sequencer so a fault is never masked    *)
-(*     by whatever step we happen to be in.                       *)
-(* ============================================================= *)
+(* ---- Comms watchdog: LEVEL signal, NOT an edge pulse (avoids R_TRIG->TON trap) ---- *)
+tonWatchdog(IN := NOT GVL_Modbus.xModbusDone, PT := tCommsTimeout);
 
-(* Comms watchdog: xCommsOk must stay TRUE; tonComms fires on loss *)
-tonComms(IN := (NOT xCommsOk) AND xEnable, PT := tCommsTimeout);
-
-(* Over-temperature lamp is a hard fault regardless of state *)
-IF xEnable AND xOverTempLamp THEN
+(* ---- Over-temp interlock (highest priority latch) ---- *)
+IF xOverTempDI THEN
     eFault := E_FaultCode.OVER_TEMP;
-    eState := E_SetpointState.FAULT;
-ELSIF tonComms.Q THEN
-    eFault := E_FaultCode.COMMS_LOSS;
-    eState := E_SetpointState.FAULT;
+    eState := E_SetpointState.FAULTED;
 END_IF
 
-(* ============================================================= *)
-(*  3. Sequencer                                                 *)
-(* ============================================================= *)
+(* ---- Comms loss latch (any state) ---- *)
+IF tonWatchdog.Q OR GVL_Modbus.xModbusError THEN
+    eFault := E_FaultCode.COMMS_TIMEOUT;
+    eState := E_SetpointState.FAULTED;
+END_IF
+
 CASE eState OF
 
-    E_SetpointState.INIT:
-        (* Clear everything on power-up or while disabled *)
-        xWriteTrigger      := FALSE;
-        xSetpointConfirmed := FALSE;
-        xFault             := FALSE;
-        eFault             := E_FaultCode.NONE;
-        tonWrite(IN := FALSE);
-        tonConfirm(IN := FALSE);
-        IF xEnable THEN
-            eState := E_SetpointState.IDLE;
-        END_IF
-
     E_SetpointState.IDLE:
-        xWriteTrigger := FALSE;
-        (* Operator pressed SET -> begin a supervised write *)
-        IF rTrigSet.Q THEN
-            eState := E_SetpointState.VALIDATE;
+        xConfirmed := TRUE;
+        GVL_Modbus.xWriteTrigger := FALSE;
+        IF rtrigSet.Q THEN
+            eState := E_SetpointState.READY;
         END_IF
 
-    E_SetpointState.VALIDATE:
-        (* Reject anything outside the commissioned safe window before
-           it ever reaches the cabinet. *)
-        IF (rReqSetpoint < rMinSetpoint) OR (rReqSetpoint > rMaxSetpoint) THEN
-            eFault := E_FaultCode.OUT_OF_RANGE;
-            eState := E_SetpointState.FAULT;
+    E_SetpointState.READY:
+        xConfirmed := FALSE;
+        IF rRequestedSetpoint < rMinSetpoint THEN
+            eFault := E_FaultCode.RANGE_LOW;
+            eState := E_SetpointState.FAULTED;
+        ELSIF rRequestedSetpoint > rMaxSetpoint THEN
+            eFault := E_FaultCode.RANGE_HIGH;
+            eState := E_SetpointState.FAULTED;
         ELSE
-            iTargetRaw   := REAL_TO_INT(rReqSetpoint * rScaleFactor);
-            iWriteSP_raw := iTargetRaw;
-            xSetpointConfirmed := FALSE;   (* new request -> unconfirm     *)
-            eState := E_SetpointState.WRITE_REQ;
+            wTargetRaw := REAL_TO_WORD(rRequestedSetpoint * rScale);
+            GVL_Modbus.wSetpoint1Write := wTargetRaw;
+            eState := E_SetpointState.WRITING;
         END_IF
 
-    E_SetpointState.WRITE_REQ:
-        (* Pulse the FC06 trigger once; the Modbus channel latches the
-           rising edge. Move straight to WRITE_WAIT. *)
-        xWriteTrigger := TRUE;
-        tonWrite(IN := FALSE);             (* reset timer edge            *)
-        eState := E_SetpointState.WRITE_WAIT;
-
-    E_SetpointState.WRITE_WAIT:
-        (* Let the FC06 frame go out, then hand over to CONFIRM which
-           proves acceptance from the register 300 echo. We do NOT rely on
-           a driver "Done" level flag (not all Modbus channel configs expose
-           one, and a latched Done from a previous write would be stale) -
-           the echo is the driver-agnostic proof. xWriteError, when the
-           driver does expose it, gives us a precise fast-fail. *)
-        xWriteTrigger := FALSE;            (* one-shot: drop the trigger  *)
-        tonWrite(IN := TRUE, PT := tWriteTimeout);
-        IF xWriteError THEN
-            eFault := E_FaultCode.WRITE_FAILED;
-            eState := E_SetpointState.FAULT;
-        ELSIF xWriteDone OR tonWrite.Q THEN
-            (* Acked, or settle time elapsed - go prove it via read-back *)
-            tonConfirm(IN := FALSE);
-            eState := E_SetpointState.CONFIRM;
-        END_IF
+    E_SetpointState.WRITING:
+        GVL_Modbus.xWriteTrigger := TRUE;    (* one-shot rising edge fires FC06 *)
+        eState := E_SetpointState.CONFIRM;
 
     E_SetpointState.CONFIRM:
-        (* Proof of acceptance: the cabinet must echo SP1 (reg 300) back
-           equal to what we commanded, within tolerance. This is the
-           "confirm the cabinet accepted the setpoint" requirement. *)
-        tonConfirm(IN := TRUE, PT := tConfirmTimeout);
-        IF ABS(iSetpointEcho_raw - iTargetRaw) <= iAcceptTol_raw THEN
-            rConfirmedSetpoint := INT_TO_REAL(iTargetRaw) / rScaleFactor;
-            xSetpointConfirmed := TRUE;
-            eState := E_SetpointState.CONFIRMED;
-        ELSIF tonConfirm.Q THEN
+        GVL_Modbus.xWriteTrigger := FALSE;   (* drop trigger to re-arm the edge *)
+        tonConfirmWait(IN := TRUE, PT := tCommsTimeout);
+        IF ABS(rReadBack - rRequestedSetpoint) <= rTolerance THEN
+            rConfirmedSetpoint := rReadBack;
+            GVL_HMI.rConfirmedSetpoint := rReadBack;
+            tonConfirmWait(IN := FALSE);
+            eState := E_SetpointState.IDLE;
+        ELSIF tonConfirmWait.Q THEN
             eFault := E_FaultCode.NOT_ACCEPTED;
-            eState := E_SetpointState.FAULT;
+            eState := E_SetpointState.FAULTED;
         END_IF
 
-    E_SetpointState.CONFIRMED:
-        (* Accepted and latched. Return to IDLE for the next change. *)
-        eState := E_SetpointState.IDLE;
-
-    E_SetpointState.FAULT:
-        xFault        := TRUE;
-        xWriteTrigger := FALSE;
-        (* Operator RESET clears the fault, but only once the underlying
-           condition has gone (no self-clearing over a live fault). *)
-        IF rTrigReset.Q
-           AND NOT xOverTempLamp
-           AND NOT tonComms.Q THEN
-            xFault := FALSE;
-            eFault := E_FaultCode.NONE;
+    E_SetpointState.FAULTED:
+        xConfirmed := FALSE;
+        GVL_Modbus.xWriteTrigger := FALSE;
+        (* Latched - clears only on reset edge AND only if condition is gone *)
+        IF rtrigReset.Q
+           AND NOT xOverTempDI
+           AND NOT tonWatchdog.Q
+           AND NOT GVL_Modbus.xModbusError THEN
+            eFault := E_FaultCode.NO_FAULT;
             eState := E_SetpointState.IDLE;
         END_IF
 
 END_CASE
 
-(* Disable at any time forces a clean re-init next enable *)
-IF NOT xEnable THEN
-    eState := E_SetpointState.INIT;
-END_IF
-
-(* ============================================================= *)
-(*  4. HMI status banner (single source of operator-facing text) *)
-(* ============================================================= *)
-CASE eFault OF
-    E_FaultCode.COMMS_LOSS:   sStatusText := 'FAULT: Communication lost to cabinet (F4S)';
-    E_FaultCode.WRITE_FAILED: sStatusText := 'FAULT: Setpoint write to cabinet failed';
-    E_FaultCode.NOT_ACCEPTED: sStatusText := 'FAULT: Cabinet did not accept the setpoint';
-    E_FaultCode.OUT_OF_RANGE: sStatusText := 'REJECTED: Setpoint outside safe limits';
-    E_FaultCode.OVER_TEMP:    sStatusText := 'ALARM: Cabinet OVER TEMPERATURE';
-ELSE
-    IF eState = E_SetpointState.IDLE AND xSetpointConfirmed THEN
-        sStatusText := 'OK: Setpoint accepted by cabinet';
-    ELSIF eState = E_SetpointState.WRITE_REQ
-       OR eState = E_SetpointState.WRITE_WAIT THEN
-        sStatusText := 'Writing setpoint to cabinet...';
-    ELSIF eState = E_SetpointState.CONFIRM THEN
-        sStatusText := 'Confirming setpoint with cabinet...';
-    ELSE
-        sStatusText := 'Ready';
-    END_IF
-END_CASE
+xFault                      := (eState = E_SetpointState.FAULTED);
+GVL_HMI.xSetpointConfirmed  := xConfirmed AND NOT xFault;
+GVL_HMI.xFaultActive        := xFault;
+GVL_HMI.eFaultCode          := eFault;
 ]]></xhtml></ST></body></pou>
-      <pou name="PLC_PRG" pouType="program"><interface><localVars><variable name="fbSetpoint"><type><derived name="FB_CabinetSetpointControl"/></type></variable></localVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[(* ---- Drive the supervisory setpoint controller ---- *)
+      <pou name="PLC_PRG" pouType="program"><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[Cyclic entry point (MainTask). xOverTempDI is wired to GVL_Modbus.xModbusError as a placeholder - REPLACE with the real mapped EL1409 digital-input channel before relying on this interlock.]]></xhtml></documentation><interface><localVars><variable name="fbSetpoint"><type><derived name="FB_CabinetSetpointControl"/></type></variable></localVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml"><![CDATA[(* ---- Drive the supervisory setpoint controller ---- *)
 fbSetpoint(
-    xEnable           := TRUE,
-
-    (* Operator interface (WebVisu) *)
-    rReqSetpoint      := GVL_HMI.rReqSetpoint,
-    xSetButton        := GVL_HMI.xSetButton,
-    xResetFault       := GVL_HMI.xResetFault,
-    rMinSetpoint      := GVL_HMI.rMinSetpoint,
-    rMaxSetpoint      := GVL_HMI.rMaxSetpoint,
-
-    (* Live values from the Modbus driver *)
-    iActualTemp_raw   := GVL_Modbus.iActualTemp_raw,
-    iSetpointEcho_raw := GVL_Modbus.iSetpointEcho_raw,
-    xCommsOk          := GVL_Modbus.xCommsOk,
-    xWriteDone        := GVL_Modbus.xWriteDone,
-    xWriteError       := GVL_Modbus.xWriteError,
-
-    (* Cabinet hard-wired safety lamp (spare EL1409 DI) *)
-    xOverTempLamp     := GVL_HMI.xOverTempLamp
-    (* Tuning inputs (rScaleFactor, timeouts, tolerance) use FB defaults;
-       override here only if the F4S is reconfigured. *)
+    rRequestedSetpoint := GVL_HMI.rReqSetpoint,
+    xSetCommand        := GVL_HMI.xSetBtn,
+    xReset             := GVL_HMI.xResetBtn,
+    xOverTempDI        := GVL_Modbus.xModbusError,  (* REPLACE with mapped EL1409 DI channel *)
+    rMinSetpoint       := 30.0,
+    rMaxSetpoint       := 130.0
 );
 
-(* ---- Publish results back to the driver and the HMI ---- *)
-(* To Modbus write channel *)
-GVL_Modbus.iWriteSP_raw     := fbSetpoint.iWriteSP_raw;
-GVL_Modbus.xWriteTrigger    := fbSetpoint.xWriteTrigger;
-
-(* To WebVisu *)
-GVL_HMI.rActualTemp         := fbSetpoint.rActualTemp;
-GVL_HMI.rConfirmedSetpoint  := fbSetpoint.rConfirmedSetpoint;
-GVL_HMI.xSetpointConfirmed  := fbSetpoint.xSetpointConfirmed;
-GVL_HMI.xFault              := fbSetpoint.xFault;
-GVL_HMI.eActiveFault        := fbSetpoint.eFault;
-GVL_HMI.sStatusText         := fbSetpoint.sStatusText;
+(* ---- Consume dialog button one-shots ---- *)
+GVL_HMI.xSetBtn   := FALSE;
+GVL_HMI.xResetBtn := FALSE;
 ]]></xhtml></ST></body></pou>
     </pous>
   </types>

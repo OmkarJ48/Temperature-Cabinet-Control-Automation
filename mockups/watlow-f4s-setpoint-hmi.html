@@ -994,7 +994,7 @@
               Send <strong id="pending-value">25.0 °C</strong> to the Watlow F4S setpoint register (Reg 300, Slave 1) via Modbus FC06?
             </div>
             <div class="confirm-warning">
-              Edge-triggered — fires once on confirm, never cyclic. Register 300 lives in EEPROM; repeated writes wear it out.
+              Edge-triggered — fires once on confirm, never cyclic. Register 300 is only followed while the F4S is in static mode, so writes only fire on an operator action.
             </div>
             <div class="modal-actions">
               <button id="confirm-cancel" class="modal-btn modal-btn-secondary">Cancel</button>
