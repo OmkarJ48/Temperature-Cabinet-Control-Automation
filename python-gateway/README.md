@@ -76,3 +76,39 @@ pkill -9 mbpoll 2>/dev/null
 sudo systemctl stop codesyscontrol         # only if it was holding the serial port
 sudo lsof /dev/ttyWatlowF4S                 # expect: nothing
 ```
+
+### 4. Temperature Range
+
+**Setpoint valid range:** -40°C to 200°C (x10 integers: -400 to 2000)
+- Minimum setpoint: -40°C (raw value -400)
+- Maximum setpoint: 200°C (raw value 2000)
+- Outside this range: gateway returns RANGE fault code (4)
+
+### 5. Running the Gateway
+
+```bash
+cd python-gateway
+python3 f4s_gateway.py
+```
+
+Logs to both `f4s_gateway.log` and stdout. Use `tail -f` to monitor live:
+
+```bash
+tail -f python-gateway/f4s_gateway.log
+```
+
+### 6. Troubleshooting
+
+**Serial port busy:**
+- Ensure CODESYS serial hold is released (no old Modbus RTU device in project)
+- Kill any old mbpoll: `pkill -9 mbpoll`
+- Check device exists: `ls -l /dev/ttyWatlowF4S`
+
+**Modbus TCP connection refused:**
+- Gateway must run with `sudo` or `setcap` to bind port 502
+- Check: `sudo netstat -ln | grep 502`
+
+**Temperature reads stuck / write fails:**
+- Verify F4S Modbus address is 1 and baud is 19200 8N1
+- Test with mbpoll: `mbpoll -m rtu -a 1 -b 19200 -r 100 -c 1 /dev/ttyWatlowF4S`
+- Check F4S is not in menu/profile mode (write must happen from run page)
