@@ -244,6 +244,9 @@ class F4SGateway:
 
         # Keep gateway alive (cyclic task and TCP server run in background)
         try:
+            from pymodbus.simulator import SimData
+            from pymodbus.simulator.simutils import DataType
+
             while self.running:
                 # Sync tcp_regs array to Modbus holding registers
                 # Recreate SimData with updated values for TCP server to read
@@ -251,9 +254,15 @@ class F4SGateway:
                     with tcp_regs_lock:
                         new_simdata = []
                         for i in range(10):
-                            from pymodbus.simulator import SimData
                             new_simdata.append(
-                                SimData(address=i, count=1, values=tcp_regs[i])
+                                SimData(
+                                    address=i,
+                                    count=1,
+                                    values=tcp_regs[i],
+                                    datatype=DataType.REGISTERS,
+                                    string_encoding='utf-8',
+                                    readonly=False
+                                )
                             )
                         hr_block.simdata = new_simdata
                 except Exception as e:
