@@ -64,7 +64,6 @@ class F4SGateway:
         """Connect to F4S via RTU."""
         try:
             self.rtu = ModbusSerialClient(
-                method="rtu",
                 port=SERIAL_PORT,
                 baudrate=BAUD,
                 timeout=1,
