@@ -9,7 +9,7 @@ import time
 import sys
 from pymodbus.client import ModbusSerialClient
 from pymodbus.server import StartTcpServer
-from pymodbus.datastore import ModbusDeviceContext, ModbusSequentialDataBlock, ModbusServerContext
+from pymodbus.datastore import ModbusDeviceContext, ModbusSparseDataBlock, ModbusServerContext
 
 import os
 log_dir = os.path.expanduser('~/.f4s_gateway')
@@ -186,10 +186,10 @@ class F4SGateway:
         # Set up TCP datastore using ModbusDeviceContext
         try:
             device = ModbusDeviceContext(
-                di=ModbusSequentialDataBlock(0, [0] * 100),
-                co=ModbusSequentialDataBlock(0, [0] * 100),
-                ir=ModbusSequentialDataBlock(0, [0] * 100),
-                hr=ModbusSequentialDataBlock(0, [0] * 100)
+                di=ModbusSparseDataBlock({i: 0 for i in range(100)}),
+                co=ModbusSparseDataBlock({i: 0 for i in range(100)}),
+                ir=ModbusSparseDataBlock({i: 0 for i in range(100)}),
+                hr=ModbusSparseDataBlock({i: 0 for i in range(100)})
             )
             self.context = ModbusServerContext(devices={1: device}, single=False)
             logger.info("Datastore initialized successfully")
