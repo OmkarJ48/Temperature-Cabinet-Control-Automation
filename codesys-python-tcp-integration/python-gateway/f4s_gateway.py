@@ -56,6 +56,7 @@ class F4SGateway:
     def __init__(self):
         self.rtu = None
         self.context = None
+        self.device = None
         self.running = False
         self.last_comms = time.time()
         self.write_pending = False
@@ -84,7 +85,7 @@ class F4SGateway:
     def read_rtu_reg(self, addr):
         """Read holding register from F4S."""
         try:
-            result = self.rtu.read_holding_registers(address=addr, count=1, slave=SLAVE_ADDR)
+            result = self.rtu.read_holding_registers(address=addr, count=1, unit=SLAVE_ADDR)
             if result.isError():
                 logger.warning(f"RTU read error @ reg{addr}")
                 return None
@@ -97,7 +98,7 @@ class F4SGateway:
     def write_rtu_reg(self, addr, value):
         """Write holding register to F4S."""
         try:
-            result = self.rtu.write_register(address=addr, value=value, slave=SLAVE_ADDR)
+            result = self.rtu.write_register(address=addr, value=value, unit=SLAVE_ADDR)
             if result.isError():
                 logger.warning(f"RTU write error @ reg{addr} = {value}")
                 return False
@@ -127,20 +128,20 @@ class F4SGateway:
                 # Read temperature from F4S
                 temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
-                    self.context.setValues(1, REG_TEMP, [temp])
+                    self.device.setValues(3, REG_TEMP, [temp])
                     logger.debug(f"Temp: {temp/10.0}°C")
 
                 # Read current setpoint from F4S
                 sp_read = self.read_rtu_reg(F4S_REG_SP)
                 if sp_read is not None:
-                    self.context.setValues(1, REG_SP_READ, [sp_read])
+                    self.device.setValues(3, REG_SP_READ, [sp_read])
                     logger.debug(f"SP: {sp_read/10.0}°C")
 
                 # Check for write trigger
-                trigger_vals = self.context.getValues(1, REG_TRIGGER, 1)
+                trigger_vals = self.device.getValues(3, REG_TRIGGER, 1)
                 if trigger_vals and trigger_vals[0] == 1 and not self.write_pending:
                     self.write_pending = True
-                    sp_req_vals = self.context.getValues(1, REG_REQ_SP, 1)
+                    sp_req_vals = self.device.getValues(3, REG_REQ_SP, 1)
                     if sp_req_vals:
                         sp_req = sp_req_vals[0]
                         # Validate range (0–200°C = 0–2000 x10)
@@ -149,24 +150,24 @@ class F4SGateway:
                             if self.write_rtu_reg(F4S_REG_SP, sp_req):
                                 # Confirm
                                 if self.confirm_write(sp_req):
-                                    self.context.setValues(1, REG_STATUS, [ST_OK])
+                                    self.device.setValues(3, REG_STATUS, [ST_OK])
                                     logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
                                 else:
-                                    self.context.setValues(1, REG_STATUS, [ST_NOT_ACCEPTED])
+                                    self.device.setValues(3, REG_STATUS, [ST_NOT_ACCEPTED])
                                     logger.warning(f"F4S rejected: {sp_req/10.0}°C")
                             else:
-                                self.context.setValues(1, REG_STATUS, [ST_WRITE_FAIL])
+                                self.device.setValues(3, REG_STATUS, [ST_WRITE_FAIL])
                                 logger.error("Write failed to F4S")
                         else:
-                            self.context.setValues(1, REG_STATUS, [ST_RANGE])
+                            self.device.setValues(3, REG_STATUS, [ST_RANGE])
                             logger.warning(f"Out of range: {sp_req/10.0}°C")
                     # Clear trigger
-                    self.context.setValues(1, REG_TRIGGER, [0])
+                    self.device.setValues(3, REG_TRIGGER, [0])
                     self.write_pending = False
 
                 # Check comms health
                 if (time.time() - self.last_comms) > 5.0:
-                    self.context.setValues(1, REG_STATUS, [ST_COMMS])
+                    self.device.setValues(3, REG_STATUS, [ST_COMMS])
                     logger.warning("RTU comms timeout")
 
                 time.sleep(POLL_PERIOD)
@@ -185,13 +186,13 @@ class F4SGateway:
 
         # Set up TCP datastore using ModbusDeviceContext
         try:
-            device = ModbusDeviceContext(
+            self.device = ModbusDeviceContext(
                 di=ModbusSparseDataBlock({i: 0 for i in range(100)}),
                 co=ModbusSparseDataBlock({i: 0 for i in range(100)}),
                 ir=ModbusSparseDataBlock({i: 0 for i in range(100)}),
                 hr=ModbusSparseDataBlock({i: 0 for i in range(100)})
             )
-            self.context = ModbusServerContext(devices={1: device}, single=False)
+            self.context = ModbusServerContext(devices={1: self.device}, single=False)
             logger.info("Datastore initialized successfully")
         except Exception as e:
             logger.error(f"Failed to create datastore: {e}")
