@@ -8,6 +8,8 @@ import threading
 import time
 import sys
 from pymodbus.client import ModbusSerialClient
+from pymodbus.server import StartAsyncTcpServer
+from pymodbus.datastore import ModbusBaseDataBlock, ModbusSlaveContext, ModbusServerContext
 
 import os
 log_dir = os.path.expanduser('~/.f4s_gateway')
@@ -51,6 +53,37 @@ ST_COMMS = 5
 
 # Global register storage (shared between cyclic task and TCP server)
 tcp_regs = [0] * 10
+tcp_regs_lock = threading.Lock()  # Synchronize access from cyclic task and TCP server
+
+
+class TcpRegsDataBlock(ModbusBaseDataBlock):
+    """Custom Modbus data block that wraps the tcp_regs global array."""
+
+    def __init__(self):
+        super().__init__(0, [0] * 10)
+        self.address = 0
+        self.size = 10
+
+    def validate(self, address, count=1):
+        """Check if address range is valid."""
+        return 0 <= address < self.size and (address + count) <= self.size
+
+    def getValues(self, address, count=1):
+        """Read values from tcp_regs."""
+        global tcp_regs
+        if not self.validate(address, count):
+            return []
+        with tcp_regs_lock:
+            return tcp_regs[address : address + count]
+
+    def setValues(self, address, values):
+        """Write values to tcp_regs."""
+        global tcp_regs
+        if not self.validate(address, len(values)):
+            return
+        with tcp_regs_lock:
+            for i, val in enumerate(values):
+                tcp_regs[address + i] = val
 
 
 class F4SGateway:
@@ -128,43 +161,54 @@ class F4SGateway:
                 # Read temperature from F4S
                 temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
-                    tcp_regs[REG_TEMP] = temp
+                    with tcp_regs_lock:
+                        tcp_regs[REG_TEMP] = temp
                     logger.debug(f"Temp: {temp/10.0}°C")
 
                 # Read current setpoint from F4S
                 sp_read = self.read_rtu_reg(F4S_REG_SP)
                 if sp_read is not None:
-                    tcp_regs[REG_SP_READ] = sp_read
+                    with tcp_regs_lock:
+                        tcp_regs[REG_SP_READ] = sp_read
                     logger.debug(f"SP: {sp_read/10.0}°C")
 
                 # Check for write trigger
-                if tcp_regs[REG_TRIGGER] == 1 and not self.write_pending:
-                    self.write_pending = True
+                with tcp_regs_lock:
+                    trigger = tcp_regs[REG_TRIGGER]
                     sp_req = tcp_regs[REG_REQ_SP]
+
+                if trigger == 1 and not self.write_pending:
+                    self.write_pending = True
                     # Validate range (0–200°C = 0–2000 x10)
                     if 0 <= sp_req <= 2000:
                         # Write to F4S
                         if self.write_rtu_reg(F4S_REG_SP, sp_req):
                             # Confirm
                             if self.confirm_write(sp_req):
-                                tcp_regs[REG_STATUS] = ST_OK
+                                with tcp_regs_lock:
+                                    tcp_regs[REG_STATUS] = ST_OK
                                 logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
                             else:
-                                tcp_regs[REG_STATUS] = ST_NOT_ACCEPTED
+                                with tcp_regs_lock:
+                                    tcp_regs[REG_STATUS] = ST_NOT_ACCEPTED
                                 logger.warning(f"F4S rejected: {sp_req/10.0}°C")
                         else:
-                            tcp_regs[REG_STATUS] = ST_WRITE_FAIL
+                            with tcp_regs_lock:
+                                tcp_regs[REG_STATUS] = ST_WRITE_FAIL
                             logger.error("Write failed to F4S")
                     else:
-                        tcp_regs[REG_STATUS] = ST_RANGE
+                        with tcp_regs_lock:
+                            tcp_regs[REG_STATUS] = ST_RANGE
                         logger.warning(f"Out of range: {sp_req/10.0}°C")
                     # Clear trigger
-                    tcp_regs[REG_TRIGGER] = 0
+                    with tcp_regs_lock:
+                        tcp_regs[REG_TRIGGER] = 0
                     self.write_pending = False
 
                 # Check comms health
                 if (time.time() - self.last_comms) > 5.0:
-                    tcp_regs[REG_STATUS] = ST_COMMS
+                    with tcp_regs_lock:
+                        tcp_regs[REG_STATUS] = ST_COMMS
                     logger.warning("RTU comms timeout")
 
                 time.sleep(POLL_PERIOD)
@@ -186,10 +230,38 @@ class F4SGateway:
         cyclic_thread = threading.Thread(target=self.cyclic, daemon=True)
         cyclic_thread.start()
         logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
-        logger.info(f"Register storage: tcp_regs array ready at memory addresses {REG_REQ_SP}-{REG_STATUS}")
-        logger.info("TCP server layer: deferred to next iteration (RTU foundation stable)")
 
-        # Keep gateway alive (cyclic task runs in background)
+        # Set up Modbus TCP server with custom data block
+        try:
+            data_block = TcpRegsDataBlock()
+            context = ModbusSlaveContext(
+                di=data_block,
+                co=data_block,
+                ir=data_block,
+                hr=data_block
+            )
+            server_context = ModbusServerContext(devices={1: context}, single=False)
+            logger.info(f"TCP server datastore initialized (registers 0-9)")
+        except Exception as e:
+            logger.error(f"Failed to create TCP server context: {e}")
+            self.running = False
+            if self.rtu:
+                self.rtu.close()
+            return False
+
+        # Start TCP server in background thread
+        def run_tcp_server():
+            try:
+                logger.info(f"Starting TCP server on {TCP_HOST}:{TCP_PORT}")
+                StartAsyncTcpServer(context=server_context, address=(TCP_HOST, TCP_PORT))
+            except Exception as e:
+                logger.error(f"TCP server error: {e}")
+                self.running = False
+
+        tcp_thread = threading.Thread(target=run_tcp_server, daemon=True)
+        tcp_thread.start()
+
+        # Keep gateway alive (cyclic task and TCP server run in background)
         try:
             while self.running:
                 time.sleep(1)
