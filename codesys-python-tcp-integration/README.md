@@ -125,7 +125,7 @@ CODESYS becomes a Modbus **TCP master** (client), reading/writing the F4S values
 ## Gateway Implementation & Troubleshooting
 
 ### Current Status (2026-07-20)
-✅ **Gateway is operational:** RTU reads working, cyclic polling active, ready for TCP server layer.
+✅ **Gateway is fully operational:** RTU reads working, cyclic polling active at 1s intervals, tcp_regs array populated with live F4S data (temperature 22.5°C, setpoint 105.0°C). Ready for TCP server layer implementation.
 
 ### Deployment & Testing Steps
 
@@ -265,14 +265,29 @@ trigger = tcp_regs[REG_TRIGGER]
 
 ---
 
-### Issue 7: Gateway Starts but No TCP Server
-**Error:** Gateway runs but no TCP listener on port 502.
+### Issue 7: RTU parameter name — 'unit' vs 'slave_id' vs 'device_id'
+**Error:** `read_holding_registers() got an unexpected keyword argument 'unit'` then `'slave_id'`
 
-**Root Cause:** pymodbus 3.14 TCP server setup is complex; requires proper SimData context.
+**Root Cause:** pymodbus 3.14 uses Modbus standard naming: `device_id` (not `unit` or `slave_id`)
 
-**Status:** TCP server layer is **next work item** — gateway foundation (RTU reads) is stable.
+**Solution:** Updated all RTU read/write calls to use `device_id=SLAVE_ADDR`:
+```python
+# Was: read_holding_registers(address=addr, count=1, unit=SLAVE_ADDR)
+# Now: read_holding_registers(address=addr, count=1, device_id=SLAVE_ADDR)
+```
 
-**Temporary Workaround:** Run gateway with RTU polling active; registers ready in memory for CODESYS over network socket.
+**Status:** ✅ **RESOLVED** — Gateway now reads F4S registers successfully (Temp: 22.5°C, SP: 105.0°C)
+
+---
+
+### Issue 8: ModbusDeviceContext and TCP server complexity
+**Error:** `ModbusDeviceContext` removed; complex datastore/SimData initialization required.
+
+**Root Cause:** pymodbus 3.14 changed TCP server setup significantly; old context API gone.
+
+**Solution:** Deferred TCP server layer; gateway runs with global `tcp_regs` array holding live register values in memory. TCP server will expose these registers to network clients in next iteration.
+
+**Status:** TCP server layer is **next work item** — RTU foundation (reads/writes to tcp_regs) is stable and proven.
 
 ---
 
@@ -292,15 +307,35 @@ trigger = tcp_regs[REG_TRIGGER]
 
 ## Next Steps (TCP Server Layer)
 
-1. **Create Modbus TCP server** that exposes `tcp_regs` array to network clients.
-2. **Test with mbpoll (TCP mode):** `mbpoll -m tcp -a 1 <pi-ip>:502 2` (read temp).
-3. **Configure CODESYS TCP master** to read/write registers 0–4 via TCP.
-4. **Run full T1–T4 integration tests** (temp, SP, write, status).
+### Phase 5: TCP Server Implementation (In Progress)
+
+**RTU Foundation Status:** ✅ Complete and proven
+- Gateway connects to F4S @ 19200 baud, reads registers 100 and 300 every 1s
+- Registers stored in global `tcp_regs[0-4]` array
+- Ready for TCP network exposure
+
+**Remaining Work:**
+1. **Add Modbus TCP server** to `f4s_gateway.py` that exposes `tcp_regs` array on port 502
+   - Create `ModbusSlaveContext` with holding registers (using updated pymodbus 3.14 API)
+   - Map tcp_regs indices to Modbus registers via SimData/SimDevice
+   - Start TCP server alongside cyclic RTU task
+2. **Test TCP connectivity** with mbpoll: `mbpoll -m tcp -a 1 <pi-ip>:502 2` (should return temperature)
+3. **Configure CODESYS TCP master** to read/write registers 0–4 via TCP (documented in setup guide Step 3)
+4. **Run full T1–T4 integration tests:**
+   - T1: Read current temperature from CODESYS
+   - T2: Read confirmed setpoint from CODESYS
+   - T3: Write new setpoint from CODESYS, verify F4S accepts it
+   - T4: Verify status codes for range errors, comms failures, F4S rejections
 
 ---
 
 **Started:** 2026-07-20  
 **Last updated:** 2026-07-20  
 **Author:** OJ (Omkar Joshi)  
-**Status:** RTU layer ✅ proven; TCP server layer 🚧 in progress  
+**Status:** 
+  - RTU foundation: ✅ **Proven** (reads temp 22.5°C, SP 105.0°C every 1s)
+  - Global register array: ✅ **Operational** (tcp_regs[0-4] populated)
+  - TCP server layer: 🚧 **Next** (ready for ModbusSlaveContext implementation)
+  - CODESYS integration: ⏳ **After TCP server**
+  
 **Gateway Log:** `~/.f4s_gateway/f4s_gateway.log`
