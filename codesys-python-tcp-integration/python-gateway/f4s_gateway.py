@@ -244,15 +244,16 @@ class F4SGateway:
         # Keep gateway alive (cyclic task and TCP server run in background)
         try:
             while self.running:
-                # Sync tcp_regs array to Modbus device context
+                # Sync tcp_regs array to Modbus holding registers
                 with tcp_regs_lock:
                     for i in range(10):
                         try:
-                            # Update device context holding registers directly
-                            device.setValues(fc_as_int=3, address=i, values=[tcp_regs[i]])
+                            # Update SimData values - the TCP server reads these
+                            if i < len(hr_block.simdata):
+                                hr_block.simdata[i].values = tcp_regs[i]
                         except Exception as e:
                             logger.debug(f"Sync error for reg {i}: {e}")
-                time.sleep(0.1)
+                time.sleep(0.05)  # Faster sync (50ms)
         except KeyboardInterrupt:
             logger.info("Shutting down...")
             self.running = False
