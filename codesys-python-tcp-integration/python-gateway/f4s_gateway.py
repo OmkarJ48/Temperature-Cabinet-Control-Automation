@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 import sys
+import asyncio
 from pymodbus.client import ModbusSerialClient
 from pymodbus.server import StartAsyncTcpServer
 from pymodbus.datastore import ModbusSparseDataBlock, ModbusServerContext, ModbusDeviceContext
@@ -222,18 +223,22 @@ class F4SGateway:
                 self.rtu.close()
             return False
 
-        # Start TCP server in background thread
+        # Start TCP server in background thread with asyncio event loop
         def run_tcp_server():
             try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 logger.info(f"Starting TCP server on {TCP_HOST}:{TCP_PORT}")
-                StartAsyncTcpServer(context=server_context, address=(TCP_HOST, TCP_PORT))
+                loop.run_until_complete(
+                    StartAsyncTcpServer(context=server_context, address=(TCP_HOST, TCP_PORT))
+                )
             except Exception as e:
                 logger.error(f"TCP server error: {e}")
                 self.running = False
 
         tcp_thread = threading.Thread(target=run_tcp_server, daemon=True)
         tcp_thread.start()
-        time.sleep(0.5)  # Give TCP server time to start
+        time.sleep(1)  # Give TCP server time to start
         logger.info(f"TCP server ready on {TCP_HOST}:{TCP_PORT}")
 
         # Keep gateway alive (cyclic task and TCP server run in background)
@@ -242,7 +247,8 @@ class F4SGateway:
                 # Sync tcp_regs array to Modbus datastore every cycle
                 with tcp_regs_lock:
                     for i in range(10):
-                        hr_block[i] = tcp_regs[i]
+                        if i < len(hr_block.simdata):
+                            hr_block.simdata[i].values = tcp_regs[i]
                 time.sleep(0.1)
         except KeyboardInterrupt:
             logger.info("Shutting down...")
