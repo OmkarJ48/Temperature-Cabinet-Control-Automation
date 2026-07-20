@@ -125,7 +125,7 @@ CODESYS becomes a Modbus **TCP master** (client), reading/writing the F4S values
 ## Gateway Implementation & Troubleshooting
 
 ### Current Status (2026-07-20)
-✅ **Gateway is fully operational:** RTU reads working, cyclic polling active at 1s intervals, tcp_regs array populated with live F4S data (temperature 22.5°C, setpoint 105.0°C). Ready for TCP server layer implementation.
+✅ **Gateway is fully operational:** RTU reads working, cyclic polling active at 1s intervals, tcp_regs array populated with live F4S data. TCP server running on port 502. TCP register sync fixed to directly update holding registers (hr_block) using dict-like access instead of SimData recreation. TCP clients should now see updated RTU values. Comprehensive testing guide available (TESTING_GUIDE.md).
 
 ### Deployment & Testing Steps
 
