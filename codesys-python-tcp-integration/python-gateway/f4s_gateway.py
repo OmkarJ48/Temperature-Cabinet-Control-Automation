@@ -63,6 +63,7 @@ hr_block = ModbusSparseDataBlock({i: 0 for i in range(10)})
 class F4SGateway:
     def __init__(self):
         self.rtu = None
+        self.device = None  # Modbus device context (for syncing values)
         self.running = False
         self.last_comms = time.time()
         self.write_pending = False
@@ -209,13 +210,13 @@ class F4SGateway:
         # Set up Modbus TCP server
         try:
             # Create device context with mutable datastore
-            device = ModbusDeviceContext(
+            self.device = ModbusDeviceContext(
                 di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
                 co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
                 ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
                 hr=hr_block
             )
-            server_context = ModbusServerContext(devices={1: device}, single=False)
+            server_context = ModbusServerContext(devices={1: self.device}, single=False)
             logger.info(f"TCP server datastore initialized (holding registers 0-9)")
         except Exception as e:
             logger.error(f"Failed to create TCP server context: {e}")
@@ -244,27 +245,12 @@ class F4SGateway:
 
         # Keep gateway alive (cyclic task and TCP server run in background)
         try:
-            from pymodbus.simulator import SimData
-            from pymodbus.simulator.simutils import DataType
-
             while self.running:
                 # Sync tcp_regs array to Modbus holding registers
-                # Recreate SimData with updated values for TCP server to read
                 try:
                     with tcp_regs_lock:
-                        new_simdata = []
                         for i in range(10):
-                            new_simdata.append(
-                                SimData(
-                                    address=i,
-                                    count=1,
-                                    values=tcp_regs[i],
-                                    datatype=DataType.REGISTERS,
-                                    string_encoding='utf-8',
-                                    readonly=False
-                                )
-                            )
-                        hr_block.simdata = new_simdata
+                            hr_block[i] = tcp_regs[i]
                 except Exception as e:
                     logger.debug(f"Sync error: {e}")
                 time.sleep(0.05)  # Faster sync (50ms)
