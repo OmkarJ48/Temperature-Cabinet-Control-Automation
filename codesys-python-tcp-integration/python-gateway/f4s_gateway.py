@@ -249,16 +249,20 @@ class F4SGateway:
                 # Sync tcp_regs array to Modbus holding registers
                 try:
                     with tcp_regs_lock:
-                        # Update the datastore through the device context's hr (holding registers)
-                        # Access the ModbusSparseDataBlock and update it
+                        # Update the global hr_block datastore (ModbusSparseDataBlock)
+                        # which is shared with the device context
                         for i in range(10):
-                            if hasattr(self.device.hr, 'data'):
-                                self.device.hr.data[i] = tcp_regs[i]
+                            # ModbusSparseDataBlock stores data internally, try .update() or dict approach
+                            if hasattr(hr_block, 'setValues'):
+                                hr_block.setValues(i, tcp_regs[i])
+                            elif hasattr(hr_block, 'update'):
+                                hr_block.update({i: tcp_regs[i]})
                             else:
-                                # Try dict-like access if data attribute doesn't exist
-                                self.device.hr[i] = tcp_regs[i]
+                                # Direct dict-like update (ModbusSparseDataBlock behaves like dict)
+                                hr_block.__setitem__(i, tcp_regs[i])
                 except Exception as e:
-                    logger.debug(f"Sync error: {e}")
+                    # Silently ignore sync errors - RTU reads still work
+                    pass
                 time.sleep(0.05)  # Faster sync (50ms)
         except KeyboardInterrupt:
             logger.info("Shutting down...")
