@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-F4S Modbus TCP ↔ RTU Gateway (pymodbus 3.14.0+)
+F4S Modbus TCP ↔ RTU Gateway (pymodbus==3.12.1 REQUIRED — see requirements.txt)
 Modbus TCP slave (server) ↔ Modbus RTU master to Watlow F4S
 """
 import logging
@@ -52,11 +52,25 @@ ST_NOT_ACCEPTED = 3
 ST_RANGE = 4
 ST_COMMS = 5
 
-# hr_block IS the datastore the TCP server reads/writes directly.
-# There is no separate shadow array — this is the single source of truth
-# for both the RTU cyclic task and TCP clients (CODESYS).
+# Modbus function code for holding registers (used by device.getValues/setValues)
+FC_HOLDING = 3
+
+# The device context is the single source of truth for both the RTU cyclic
+# task and TCP clients (CODESYS). It must be built at module scope, before
+# any thread starts, and ALL register access — from either side — must go
+# through device.getValues()/setValues(), never the raw ModbusSparseDataBlock.
+# (ModbusDeviceContext.getValues/setValues apply a +1 address offset before
+# delegating to the raw block; bypassing the device context desyncs the
+# addressing between the cyclic task and the TCP protocol layer.)
 hr_block = ModbusSparseDataBlock({i: 0 for i in range(10)})
-hr_lock = threading.Lock()  # Guards hr_block access from cyclic task vs TCP server
+device = ModbusDeviceContext(
+    di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+    co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+    ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+    hr=hr_block
+)
+server_context = ModbusServerContext(devices={1: device}, single=False)
+hr_lock = threading.Lock()  # Guards device access from cyclic task vs TCP server
 
 
 class F4SGateway:
@@ -127,28 +141,28 @@ class F4SGateway:
         return False
 
     def cyclic(self):
-        """Main polling loop. Reads/writes directly against hr_block —
-        the same datastore the TCP server exposes to CODESYS."""
+        """Main polling loop. Reads/writes through the device context —
+        the same accessor the TCP server uses to serve CODESYS requests."""
         while self.running:
             try:
                 # Read temperature from F4S
                 temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
                     with hr_lock:
-                        hr_block.simdata[REG_TEMP] = temp
+                        device.setValues(FC_HOLDING, REG_TEMP, [temp])
                     logger.debug(f"Temp: {temp/10.0}°C")
 
                 # Read current setpoint from F4S
                 sp_read = self.read_rtu_reg(F4S_REG_SP)
                 if sp_read is not None:
                     with hr_lock:
-                        hr_block.simdata[REG_SP_READ] = sp_read
+                        device.setValues(FC_HOLDING, REG_SP_READ, [sp_read])
                     logger.debug(f"SP: {sp_read/10.0}°C")
 
                 # Check for write trigger (set by CODESYS/TCP client over TCP)
                 with hr_lock:
-                    trigger = hr_block.simdata[REG_TRIGGER]
-                    sp_req = hr_block.simdata[REG_REQ_SP]
+                    trigger = device.getValues(FC_HOLDING, REG_TRIGGER, 1)[0]
+                    sp_req = device.getValues(FC_HOLDING, REG_REQ_SP, 1)[0]
 
                 if trigger == 1 and not self.write_pending:
                     self.write_pending = True
@@ -159,29 +173,29 @@ class F4SGateway:
                             # Confirm
                             if self.confirm_write(sp_req):
                                 with hr_lock:
-                                    hr_block.simdata[REG_STATUS] = ST_OK
+                                    device.setValues(FC_HOLDING, REG_STATUS, [ST_OK])
                                 logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
                             else:
                                 with hr_lock:
-                                    hr_block.simdata[REG_STATUS] = ST_NOT_ACCEPTED
+                                    device.setValues(FC_HOLDING, REG_STATUS, [ST_NOT_ACCEPTED])
                                 logger.warning(f"F4S rejected: {sp_req/10.0}°C")
                         else:
                             with hr_lock:
-                                hr_block.simdata[REG_STATUS] = ST_WRITE_FAIL
+                                device.setValues(FC_HOLDING, REG_STATUS, [ST_WRITE_FAIL])
                             logger.error("Write failed to F4S")
                     else:
                         with hr_lock:
-                            hr_block.simdata[REG_STATUS] = ST_RANGE
+                            device.setValues(FC_HOLDING, REG_STATUS, [ST_RANGE])
                         logger.warning(f"Out of range: {sp_req/10.0}°C")
                     # Clear trigger
                     with hr_lock:
-                        hr_block.simdata[REG_TRIGGER] = 0
+                        device.setValues(FC_HOLDING, REG_TRIGGER, [0])
                     self.write_pending = False
 
                 # Check comms health
                 if (time.time() - self.last_comms) > 5.0:
                     with hr_lock:
-                        hr_block.simdata[REG_STATUS] = ST_COMMS
+                        device.setValues(FC_HOLDING, REG_STATUS, [ST_COMMS])
                     logger.warning("RTU comms timeout")
 
                 time.sleep(POLL_PERIOD)
@@ -203,23 +217,6 @@ class F4SGateway:
         cyclic_thread = threading.Thread(target=self.cyclic, daemon=True)
         cyclic_thread.start()
         logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
-
-        # Set up Modbus TCP server pointing directly at hr_block
-        try:
-            device = ModbusDeviceContext(
-                di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
-                co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
-                ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
-                hr=hr_block
-            )
-            server_context = ModbusServerContext(devices={1: device}, single=False)
-            logger.info(f"TCP server datastore initialized (holding registers 0-9)")
-        except Exception as e:
-            logger.error(f"Failed to create TCP server context: {e}")
-            self.running = False
-            if self.rtu:
-                self.rtu.close()
-            return False
 
         # Start TCP server in background thread with asyncio event loop
         def run_tcp_server():
