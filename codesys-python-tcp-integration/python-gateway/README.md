@@ -249,10 +249,374 @@ INFO - Write SUCCESS: 28.0°C
 DEBUG - SP: 28.0°C
 ```
 
-## What's left before CODESYS
+## Full T1–T5 Test Plan
+
+### Prerequisites
+
+#### 1. Environment Setup
+```bash
+python3 --version  # Should be Python 3.10+
+pip3 install -r requirements.txt --break-system-packages
+pip3 list | grep pymodbus  # Expected: pymodbus 3.12.1
+```
+
+**IMPORTANT: pymodbus MUST be pinned to 3.12.1.** Starting in pymodbus 3.13.0,
+`ModbusSparseDataBlock`/`ModbusDeviceContext` became deprecated shims around
+the new SimData/SimDevice API: `ModbusDeviceContext.__init__` now does a
+one-time `deepcopy()` of the datablock into an internal store, so any
+register writes made after construction (e.g. from the RTU cyclic thread)
+never reach the live TCP-facing storage — TCP reads stay stuck at 0 and
+writes never get seen. pymodbus 3.12.1 is the last release where these
+classes store the datablock by reference, so runtime mutation actually
+works. Do not upgrade past 3.12.1 without re-validating this end-to-end.
+
+#### 2. Verify Serial Port
+```bash
+ls -la /dev/ttyWatlowF4S
+# Expected: /dev/ttyWatlowF4S -> ttyUSB0
+```
+
+#### 3. Verify RTU Communication Baseline
+```bash
+mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 100
+# Expected: Register 100 value (current temperature x10)
+
+mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 300
+# Expected: Register 300 value (current setpoint x10)
+```
+
+---
+
+### T1: Gateway Startup & RTU Layer Verification
+
+**Objective:** Confirm RTU connection works and cyclic polling is active
+
+**Steps:**
+1. Terminal 1: Start the gateway
+   ```bash
+   python3 f4s_gateway.py
+   ```
+   
+   **Expected output:**
+   ```
+   === F4S Gateway Starting ===
+   RTU connected: /dev/ttyWatlowF4S @ 19200
+   Cyclic task started (period=1.0s)
+   Starting TCP server on 0.0.0.0:502
+   TCP server ready on 0.0.0.0:502
+   ```
+
+2. Terminal 2: Monitor the log
+   ```bash
+   tail -f ~/.f4s_gateway/f4s_gateway.log
+   ```
+   
+   **Expected:** See "Temp:" and "SP:" messages every 1 second
+
+**Pass Criteria:**
+- ✅ RTU connected successfully
+- ✅ Cyclic task started
+- ✅ TCP server listening on :502
+- ✅ Logs show temperature and setpoint updates every 1s
+- ✅ No errors in the log
+
+---
+
+### T2: TCP Register Read (No Write)
+
+**Objective:** Verify TCP clients can read RTU values from gateway
+
+**Steps:**
+1. With gateway running (from T1), in Terminal 3:
+   ```bash
+   python3 -c "
+   from pymodbus.client import ModbusTcpClient
+   client = ModbusTcpClient(host='localhost', port=502)
+   client.connect()
+   
+   # Read 5 holding registers (indices 0-4)
+   result = client.read_holding_registers(address=0, count=5, device_id=1)
+   
+   print('Holding Registers (0-4):')
+   for i, val in enumerate(result.registers):
+       print(f'  Reg[{i}]: {val}')
+   
+   client.close()
+   "
+   ```
+   
+   **Expected output:**
+   ```
+   Holding Registers (0-4):
+     Reg[0]: 0         # REG_REQ_SP (requested setpoint, not yet written)
+     Reg[1]: 0         # REG_TRIGGER (trigger, not yet set)
+     Reg[2]: 225       # REG_TEMP (current temperature = 22.5°C)
+     Reg[3]: 250       # REG_SP_READ (current setpoint = 25.0°C)
+     Reg[4]: 0         # REG_STATUS (OK)
+   ```
+
+**Pass Criteria:**
+- ✅ TCP read succeeds (no connection errors)
+- ✅ Reg[2] (temperature) shows a non-zero value matching F4S
+- ✅ Reg[3] (setpoint) shows a non-zero value matching F4S
+- ✅ Reg[4] (status) is 0 (OK)
+- ✅ Values match what RTU reads show in the log
+
+---
+
+### T3: TCP Register Write (Setpoint Trigger)
+
+**Objective:** Verify write-trigger mechanism and confirmation
+
+**Steps:**
+1. With gateway running, in Terminal 3:
+   ```bash
+   python3 test_rtu_write.py
+   ```
+   
+   **Expected output:**
+   ```
+   F4S RTU Write Test via Modbus TCP
+   NOTE: Gateway must be running (python3 f4s_gateway.py)
+         Connecting to TCP server on localhost:502...
+   ✅ Connected to gateway!
+   
+   ============================================================
+   TEST: Write setpoint 28.0°C
+   ============================================================
+   
+   Before write:
+     Current temp:      22.5°C
+     Current setpoint:  25.0°C
+     Status:            0
+   
+   Setting write trigger:
+     Writing REG_REQ_SP (0):  280 = 28.0°C
+     Writing REG_TRIGGER (1):   1 (request sent)
+   
+   Waiting for gateway to process write...
+   
+   After write:
+     REG_TRIGGER (1):   0 (cleared=True)
+     REG_STATUS (4):    0 (0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS)
+     Current setpoint:  28.0°C (read from F4S)
+     Current temp:      22.5°C
+   
+   ✅ SUCCESS: Setpoint write confirmed!
+   ```
+
+2. Check the log for write operations:
+   ```bash
+   tail -50 ~/.f4s_gateway/f4s_gateway.log | grep -E "(Write|write|Setpoint)"
+   ```
+   
+   **Expected:**
+   ```
+   INFO - RTU write: reg300 = 280
+   INFO - Setpoint write confirmed: 280
+   INFO - Write SUCCESS: 28.0°C
+   ```
+
+**Pass Criteria:**
+- ✅ Write trigger accepted
+- ✅ Trigger cleared after processing
+- ✅ Status = 0 (OK)
+- ✅ Read-back shows new setpoint
+- ✅ Log shows RTU write and confirmation
+
+---
+
+### T4: Range Validation (Out-of-Range Write)
+
+**Objective:** Verify range check (0-200°C = 0-2000 x10)
+
+**Steps:**
+1. With gateway running, write an out-of-range value:
+   ```bash
+   python3 -c "
+   from pymodbus.client import ModbusTcpClient
+   client = ModbusTcpClient(host='localhost', port=502)
+   client.connect()
+   
+   # Write out-of-range: 250°C = 2500 x10 (valid range: 0-2000)
+   client.write_register(address=0, value=2500, device_id=1)
+   client.write_register(address=1, value=1, device_id=1)
+   
+   import time
+   time.sleep(1)  # Wait for gateway to process
+   
+   # Read status
+   result = client.read_holding_registers(address=4, count=1, device_id=1)
+   status = result.registers[0]
+   
+   print(f'Status after out-of-range write: {status}')
+   print(f'  0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS')
+   
+   client.close()
+   "
+   ```
+   
+   **Expected:**
+   ```
+   Status after out-of-range write: 4
+     0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS
+   ```
+
+2. Check the log:
+   ```bash
+   tail -20 ~/.f4s_gateway/f4s_gateway.log | grep -i range
+   ```
+   
+   **Expected:**
+   ```
+   WARNING - Out of range: 250.0°C
+   ```
+
+**Pass Criteria:**
+- ✅ Status = 4 (RANGE error)
+- ✅ Log shows range validation warning
+- ✅ F4S setpoint unchanged (remains at previous value)
+
+---
+
+### T5: Communications Timeout (Optional, Advanced)
+
+**Objective:** Verify comms health check
+
+**Steps:**
+1. With gateway running, manually disconnect the F4S serial cable
+2. Wait 5+ seconds (the timeout threshold)
+3. Read status:
+   ```bash
+   python3 -c "
+   from pymodbus.client import ModbusTcpClient
+   client = ModbusTcpClient(host='localhost', port=502)
+   client.connect()
+   
+   result = client.read_holding_registers(address=4, count=1, device_id=1)
+   status = result.registers[0]
+   
+   print(f'Status after comms timeout: {status}')
+   print(f'  0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS')
+   
+   client.close()
+   "
+   ```
+   
+   **Expected:**
+   ```
+   Status after comms timeout: 5
+     0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS
+   ```
+
+4. Reconnect the serial cable and wait 1s for recovery
+
+**Pass Criteria:**
+- ✅ Status = 5 (COMMS timeout)
+- ✅ Recovers after cable reconnected
+- ✅ No crashes, graceful degradation
+
+---
+
+## CODESYS Integration (After T1-T4 Passing)
+
+Once T1–T4 tests pass, the gateway is ready for CODESYS integration:
+
+### Step 1: Add Modbus TCP Master Device
+
+In CODESYS IDE (on the sandbox project):
+
+1. **Devices → Add Device**
+2. **Select "Modbus_Master" (or "Modbus TCP Master")**
+3. **Configuration:**
+   - **Network adapter:** Your network (Ethernet that can reach gateway IP)
+   - **IP address:** `10.1.6.17` (or your gateway's IP)
+   - **Port:** `502`
+   - **Slave ID:** `1`
+   - **Cycle time:** e.g., `100 ms` (cyclic read interval)
+
+### Step 2: Configure TCP Channels
+
+Create 5 channels (one per register):
+
+| Channel | Name | FC | Address | Length | Type | R/W |
+|---------|------|----|---------| -------|------|-----|
+| 1 | ReadTemp | 03 | 2 | 1 | WORD | Read |
+| 2 | ReadSetpoint | 03 | 3 | 1 | WORD | Read |
+| 3 | WriteSetpoint | 06 | 0 | 1 | WORD | Write |
+| 4 | WriteTrigger | 06 | 1 | 1 | WORD | Write |
+| 5 | ReadStatus | 03 | 4 | 1 | WORD | Read |
+
+### Step 3: Map Channels to GVL_Modbus
+
+**I/O Mapping:**
+- Channel 1 (ReadTemp) → `GVL_Modbus.wReadTempValue`
+- Channel 2 (ReadSetpoint) → `GVL_Modbus.wSetpoint1Read`
+- Channel 3 (WriteSetpoint) → `GVL_Modbus.wSetpoint1Write`
+- Channel 4 (WriteTrigger) → `GVL_Modbus.xWriteTrigger`
+- Channel 5 (ReadStatus) → `GVL_Modbus.xModbusError` (reuse for status, or create new var)
+
+### Step 4: Copy Retargeted PLC_PRG
+
+In sandbox CODESYS project, replace your `PLC_PRG` with `PLC_PRG_TCP_Retargeted.st`.
+
+The retargeted version:
+- Reads from TCP registers (via mapped channels)
+- Same state machine as serial version (IDLE → READY → WRITING → CONFIRM → IDLE/FAULTED)
+- Edge-triggered write (one pulse per user request)
+- Range validation (0–200 °C)
+- Status/fault code interpretation
+
+---
+
+## Systemd Service Setup
+
+To run the gateway permanently on a Raspberry Pi or Linux system:
+
+```bash
+sudo nano /etc/systemd/system/f4s-gateway.service
+```
+
+Paste the following:
+
+```ini
+[Unit]
+Description=F4S Modbus TCP<->RTU Gateway
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway/f4s_gateway.py
+Restart=always
+User=root
+WorkingDirectory=/path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Replace `/path/to/...` with the actual clone path on your machine.
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now f4s-gateway
+sudo systemctl status f4s-gateway
+```
+
+Verify status and logs:
+
+```bash
+sudo systemctl status f4s-gateway
+sudo journalctl -u f4s-gateway -f
+```
+
+---
+
+## What's Left Before Full Deployment
 
 Nothing on the Python side. The gateway is proven independent of CODESYS
-via the `mbpoll`/`test_rtu_write.py` verification above. The next step is
+via the `mbpoll`/`test_rtu_write.py` verification above (T1-T4). The next step is
 configuring the CODESYS Modbus TCP master to point at this gateway's IP:502
 and map the 5 registers per the table at the top of this file — that work
-has not started yet.
+is documented in the CODESYS Integration section above.
