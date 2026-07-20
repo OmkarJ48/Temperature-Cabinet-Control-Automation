@@ -40,10 +40,21 @@ address `1`, 19200 baud 8N1.
 - `test_rtu_write.py` — TCP client script exercising read / write-confirm / range-reject
 - `requirements.txt` — pinned dependencies (see below — **do not casually bump pymodbus**)
 
-## Install
+## Quick Start
+
+**Always navigate to the python-gateway folder first:**
 
 ```bash
-cd codesys-python-tcp-integration/python-gateway
+cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
+```
+
+All commands below assume you are in this directory.
+
+## Install
+
+From the python-gateway directory:
+
+```bash
 pip3 install -r requirements.txt --break-system-packages
 ls -la /dev/ttyWatlowF4S   # confirm the udev symlink exists
 ```
@@ -54,13 +65,15 @@ breaks the whole gateway.
 
 ## Run
 
+From the python-gateway directory:
+
 Port 502 needs root, or grant the bind capability once and run as a normal user:
 
 ```bash
-# option 1: run as root
+# option 1: run as root (from python-gateway directory)
 sudo python3 f4s_gateway.py
 
-# option 2 (better): grant bind capability, run as user
+# option 2 (better): grant bind capability, run as user (from python-gateway directory)
 sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which python3))
 python3 f4s_gateway.py
 ```
@@ -292,8 +305,9 @@ mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 300
 **Objective:** Confirm RTU connection works and cyclic polling is active
 
 **Steps:**
-1. Terminal 1: Start the gateway
+1. Terminal 1: Navigate to python-gateway folder and start the gateway
    ```bash
+   cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
    python3 f4s_gateway.py
    ```
    
@@ -369,8 +383,9 @@ mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 300
 **Objective:** Verify write-trigger mechanism and confirmation
 
 **Steps:**
-1. With gateway running, in Terminal 3:
+1. With gateway running, in Terminal 3: Navigate to python-gateway folder and run the test
    ```bash
+   cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
    python3 test_rtu_write.py
    ```
    
