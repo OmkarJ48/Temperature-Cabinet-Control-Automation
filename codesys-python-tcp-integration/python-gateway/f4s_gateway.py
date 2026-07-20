@@ -84,7 +84,7 @@ class F4SGateway:
     def read_rtu_reg(self, addr):
         """Read holding register from F4S."""
         try:
-            result = self.rtu.read_holding_registers(address=addr, count=1, slave_id=SLAVE_ADDR)
+            result = self.rtu.read_holding_registers(address=addr, count=1, device_id=SLAVE_ADDR)
             if result.isError():
                 logger.warning(f"RTU read error @ reg{addr}")
                 return None
@@ -97,7 +97,7 @@ class F4SGateway:
     def write_rtu_reg(self, addr, value):
         """Write holding register to F4S."""
         try:
-            result = self.rtu.write_register(address=addr, value=value, slave_id=SLAVE_ADDR)
+            result = self.rtu.write_register(address=addr, value=value, device_id=SLAVE_ADDR)
             if result.isError():
                 logger.warning(f"RTU write error @ reg{addr} = {value}")
                 return False
