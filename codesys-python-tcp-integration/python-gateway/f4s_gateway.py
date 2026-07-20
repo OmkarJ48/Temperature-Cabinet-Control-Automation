@@ -135,20 +135,20 @@ class F4SGateway:
                 temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
                     with hr_lock:
-                        hr_block[REG_TEMP] = temp
+                        hr_block.simdata[REG_TEMP] = temp
                     logger.debug(f"Temp: {temp/10.0}°C")
 
                 # Read current setpoint from F4S
                 sp_read = self.read_rtu_reg(F4S_REG_SP)
                 if sp_read is not None:
                     with hr_lock:
-                        hr_block[REG_SP_READ] = sp_read
+                        hr_block.simdata[REG_SP_READ] = sp_read
                     logger.debug(f"SP: {sp_read/10.0}°C")
 
                 # Check for write trigger (set by CODESYS/TCP client over TCP)
                 with hr_lock:
-                    trigger = hr_block[REG_TRIGGER]
-                    sp_req = hr_block[REG_REQ_SP]
+                    trigger = hr_block.simdata[REG_TRIGGER]
+                    sp_req = hr_block.simdata[REG_REQ_SP]
 
                 if trigger == 1 and not self.write_pending:
                     self.write_pending = True
@@ -159,29 +159,29 @@ class F4SGateway:
                             # Confirm
                             if self.confirm_write(sp_req):
                                 with hr_lock:
-                                    hr_block[REG_STATUS] = ST_OK
+                                    hr_block.simdata[REG_STATUS] = ST_OK
                                 logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
                             else:
                                 with hr_lock:
-                                    hr_block[REG_STATUS] = ST_NOT_ACCEPTED
+                                    hr_block.simdata[REG_STATUS] = ST_NOT_ACCEPTED
                                 logger.warning(f"F4S rejected: {sp_req/10.0}°C")
                         else:
                             with hr_lock:
-                                hr_block[REG_STATUS] = ST_WRITE_FAIL
+                                hr_block.simdata[REG_STATUS] = ST_WRITE_FAIL
                             logger.error("Write failed to F4S")
                     else:
                         with hr_lock:
-                            hr_block[REG_STATUS] = ST_RANGE
+                            hr_block.simdata[REG_STATUS] = ST_RANGE
                         logger.warning(f"Out of range: {sp_req/10.0}°C")
                     # Clear trigger
                     with hr_lock:
-                        hr_block[REG_TRIGGER] = 0
+                        hr_block.simdata[REG_TRIGGER] = 0
                     self.write_pending = False
 
                 # Check comms health
                 if (time.time() - self.last_comms) > 5.0:
                     with hr_lock:
-                        hr_block[REG_STATUS] = ST_COMMS
+                        hr_block.simdata[REG_STATUS] = ST_COMMS
                     logger.warning("RTU comms timeout")
 
                 time.sleep(POLL_PERIOD)
