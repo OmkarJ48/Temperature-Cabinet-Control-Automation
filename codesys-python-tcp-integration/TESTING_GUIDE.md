@@ -6,13 +6,23 @@
 ```bash
 # On Raspberry Pi 10.1.6.17 or target deployment system
 python3 --version  # Should be Python 3.10+
-pip3 install pymodbus==3.14.0
+pip3 install -r python-gateway/requirements.txt --break-system-packages
 ```
+
+**IMPORTANT: pymodbus MUST be pinned to 3.12.1.** Starting in pymodbus 3.13.0,
+`ModbusSparseDataBlock`/`ModbusDeviceContext` became deprecated shims around
+the new SimData/SimDevice API: `ModbusDeviceContext.__init__` now does a
+one-time `deepcopy()` of the datablock into an internal store, so any
+register writes made after construction (e.g. from the RTU cyclic thread)
+never reach the live TCP-facing storage — TCP reads stay stuck at 0 and
+writes never get seen. pymodbus 3.12.1 is the last release where these
+classes store the datablock by reference, so runtime mutation actually
+works. Do not upgrade past 3.12.1 without re-validating this end-to-end.
 
 ### 2. Verify Dependencies
 ```bash
 pip3 list | grep pymodbus
-# Expected: pymodbus 3.14.0
+# Expected: pymodbus 3.12.1
 ```
 
 ### 3. Check Serial Port

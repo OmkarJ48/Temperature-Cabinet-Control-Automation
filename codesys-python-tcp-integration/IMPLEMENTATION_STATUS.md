@@ -108,7 +108,7 @@
    git clone https://github.com/OJ4884/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI.git
    cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
    git checkout Omkar_Temperature_Cabinet_Setpoint_Control
-   pip3 install pymodbus==3.14.0
+   pip3 install -r codesys-python-tcp-integration/python-gateway/requirements.txt --break-system-packages
    python3 codesys-python-tcp-integration/python-gateway/f4s_gateway.py
    ```
 

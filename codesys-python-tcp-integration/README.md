@@ -125,16 +125,22 @@ CODESYS becomes a Modbus **TCP master** (client), reading/writing the F4S values
 ## Gateway Implementation & Troubleshooting
 
 ### Current Status (2026-07-20)
-✅ **Gateway is fully operational:** RTU reads working, cyclic polling active at 1s intervals, tcp_regs array populated with live F4S data. TCP server running on port 502. TCP register sync fixed to directly update holding registers (hr_block) using dict-like access instead of SimData recreation. TCP clients should now see updated RTU values. Comprehensive testing guide available (TESTING_GUIDE.md).
+✅ **Gateway is fully operational, verified end-to-end on hardware:** RTU reads working, cyclic polling active at 1s intervals. TCP server running on port 502, with bidirectional sync between RTU and TCP clients confirmed via read, write-with-confirmation, and range-validation tests.
+
+**Root cause of earlier "TCP always reads 0 / writes never take effect" bug:**
+Two separate pymodbus issues stacked on top of each other:
+1. **pymodbus 3.13.0+ deprecation shim:** `ModbusDeviceContext.__init__` does a one-time `deepcopy()` of the datablock into an internal `SimDevice`. Any mutation of the raw datablock *after* the server context is constructed (e.g. from the RTU cyclic thread) never reaches the live TCP-facing store. **Fix: pin `pymodbus==3.12.1`** (see `python-gateway/requirements.txt`), the last release where the datastore is held by reference, not copied.
+2. **Address offset mismatch:** `ModbusDeviceContext.getValues()/setValues()` apply a `+1` address offset before delegating to the underlying block — this is the standard pymodbus convention for protocol-facing access. Code that pokes the raw `ModbusSparseDataBlock` directly (no offset) will read/write one register off from what a real Modbus TCP request resolves to. **Fix:** all register access, from both the RTU cyclic task and the TCP server, must go through the same `ModbusDeviceContext.getValues(func_code, addr, count)` / `.setValues(func_code, addr, values)` calls — never touch the raw block directly.
 
 ### Deployment & Testing Steps
 
 #### Step 1: Verify Python & pymodbus Installation
 ```bash
 python3 --version
+pip3 install -r python-gateway/requirements.txt --break-system-packages
 pip3 list | grep pymodbus
 ```
-**Expected:** Python 3.10+ and pymodbus 3.14.0+
+**Expected:** Python 3.10+ and pymodbus 3.12.1 (pinned — see requirements.txt; do not upgrade past this without re-validating the datastore behavior above)
 
 #### Step 2: Run the Gateway
 ```bash
