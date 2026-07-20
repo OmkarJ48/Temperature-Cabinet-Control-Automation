@@ -249,9 +249,14 @@ class F4SGateway:
                 # Sync tcp_regs array to Modbus holding registers
                 try:
                     with tcp_regs_lock:
-                        # Update the device context's holding register datastore
+                        # Update the datastore through the device context's hr (holding registers)
+                        # Access the ModbusSparseDataBlock and update it
                         for i in range(10):
-                            self.device.setValues(3, i, [tcp_regs[i]])
+                            if hasattr(self.device.hr, 'data'):
+                                self.device.hr.data[i] = tcp_regs[i]
+                            else:
+                                # Try dict-like access if data attribute doesn't exist
+                                self.device.hr[i] = tcp_regs[i]
                 except Exception as e:
                     logger.debug(f"Sync error: {e}")
                 time.sleep(0.05)  # Faster sync (50ms)
