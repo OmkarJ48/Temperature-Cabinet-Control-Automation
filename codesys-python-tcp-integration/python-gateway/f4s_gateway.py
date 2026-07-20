@@ -10,7 +10,7 @@ import sys
 import asyncio
 from pymodbus.client import ModbusSerialClient
 from pymodbus.server import StartAsyncTcpServer
-from pymodbus.datastore import ModbusSparseDataBlock, ModbusServerContext, ModbusSimulatorContext
+from pymodbus.datastore import ModbusSparseDataBlock, ModbusServerContext, ModbusDeviceContext
 
 import os
 log_dir = os.path.expanduser('~/.f4s_gateway')
@@ -206,10 +206,17 @@ class F4SGateway:
         cyclic_thread.start()
         logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
 
-        # Set up Modbus TCP server using SimulatorContext (supports dynamic updates)
+        # Set up Modbus TCP server
         try:
-            server_context = ModbusSimulatorContext()
-            logger.info(f"TCP server datastore initialized (ModbusSimulatorContext)")
+            # Create device context with mutable datastore
+            device = ModbusDeviceContext(
+                di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+                co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+                ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+                hr=hr_block
+            )
+            server_context = ModbusServerContext(devices={1: device}, single=False)
+            logger.info(f"TCP server datastore initialized (holding registers 0-9)")
         except Exception as e:
             logger.error(f"Failed to create TCP server context: {e}")
             self.running = False
@@ -239,14 +246,18 @@ class F4SGateway:
         try:
             while self.running:
                 # Sync tcp_regs array to Modbus holding registers
-                with tcp_regs_lock:
-                    for i in range(10):
-                        try:
-                            # Update SimData values - the TCP server reads these
-                            if i < len(hr_block.simdata):
-                                hr_block.simdata[i].values = tcp_regs[i]
-                        except Exception as e:
-                            logger.debug(f"Sync error for reg {i}: {e}")
+                # Recreate SimData with updated values for TCP server to read
+                try:
+                    with tcp_regs_lock:
+                        new_simdata = []
+                        for i in range(10):
+                            from pymodbus.simulator import SimData
+                            new_simdata.append(
+                                SimData(address=i, count=1, values=tcp_regs[i])
+                            )
+                        hr_block.simdata = new_simdata
+                except Exception as e:
+                    logger.debug(f"Sync error: {e}")
                 time.sleep(0.05)  # Faster sync (50ms)
         except KeyboardInterrupt:
             logger.info("Shutting down...")
