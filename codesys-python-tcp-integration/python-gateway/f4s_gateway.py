@@ -11,11 +11,16 @@ from pymodbus.client import ModbusSerialClient
 from pymodbus.server import StartTcpServer
 from pymodbus.datastore import ModbusDeviceContext, ModbusSequentialDataBlock, ModbusServerContext
 
+import os
+log_dir = os.path.expanduser('~/.f4s_gateway')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, 'f4s_gateway.log')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/var/log/f4s_gateway.log'),
+        logging.FileHandler(log_file),
         logging.StreamHandler(sys.stdout)
     ]
 )
