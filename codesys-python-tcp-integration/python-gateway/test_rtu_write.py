@@ -29,9 +29,9 @@ def test_write_setpoint(client, new_sp_x10):
 
     # Read current state before write
     print(f"\nBefore write:")
-    temp_result = client.read_holding_registers(address=REG_TEMP, count=1, slave_id=1)
-    sp_result = client.read_holding_registers(address=REG_SP_READ, count=1, slave_id=1)
-    status_result = client.read_holding_registers(address=REG_STATUS, count=1, slave_id=1)
+    temp_result = client.read_holding_registers(address=REG_TEMP, count=1, device_id=1)
+    sp_result = client.read_holding_registers(address=REG_SP_READ, count=1, device_id=1)
+    status_result = client.read_holding_registers(address=REG_STATUS, count=1, device_id=1)
 
     if not temp_result.isError() and not sp_result.isError() and not status_result.isError():
         print(f"  Current temp:      {temp_result.registers[0]/10.0}°C")
@@ -44,27 +44,27 @@ def test_write_setpoint(client, new_sp_x10):
     # Write setpoint request and trigger
     print(f"\nSetting write trigger:")
     print(f"  Writing REG_REQ_SP ({REG_REQ_SP}):  {new_sp_x10} = {new_sp_x10/10.0}°C")
-    client.write_register(address=REG_REQ_SP, value=new_sp_x10, slave_id=1)
+    client.write_register(address=REG_REQ_SP, value=new_sp_x10, device_id=1)
 
     print(f"  Writing REG_TRIGGER ({REG_TRIGGER}):   1 (request sent)")
-    client.write_register(address=REG_TRIGGER, value=1, slave_id=1)
+    client.write_register(address=REG_TRIGGER, value=1, device_id=1)
 
     # Wait for gateway to process write
     print(f"\nWaiting for gateway to process write...")
     trigger_cleared = False
     for i in range(20):  # Wait up to 2 seconds
         time.sleep(0.1)
-        trigger_result = client.read_holding_registers(address=REG_TRIGGER, count=1, slave_id=1)
+        trigger_result = client.read_holding_registers(address=REG_TRIGGER, count=1, device_id=1)
         if not trigger_result.isError() and trigger_result.registers[0] == 0:
             trigger_cleared = True
             break
 
     # Read result
     print(f"\nAfter write:")
-    trigger_result = client.read_holding_registers(address=REG_TRIGGER, count=1, slave_id=1)
-    status_result = client.read_holding_registers(address=REG_STATUS, count=1, slave_id=1)
-    sp_result = client.read_holding_registers(address=REG_SP_READ, count=1, slave_id=1)
-    temp_result = client.read_holding_registers(address=REG_TEMP, count=1, slave_id=1)
+    trigger_result = client.read_holding_registers(address=REG_TRIGGER, count=1, device_id=1)
+    status_result = client.read_holding_registers(address=REG_STATUS, count=1, device_id=1)
+    sp_result = client.read_holding_registers(address=REG_SP_READ, count=1, device_id=1)
+    temp_result = client.read_holding_registers(address=REG_TEMP, count=1, device_id=1)
 
     if not all([trigger_result.isError(), status_result.isError(), sp_result.isError(), temp_result.isError()]):
         trigger_val = 0 if trigger_result.isError() else trigger_result.registers[0]
