@@ -121,7 +121,186 @@ CODESYS becomes a Modbus **TCP master** (client), reading/writing the F4S values
 - `docs/` — additional diagrams or notes as investigation progresses
 
 ---
-**Started:** [date]
-**Last updated:** [date]
-**Author:** OJ (Omkar Joshi)
-**TL reference:** Email directive to move from serial-Modbus-in-CODESYS to Python gateway
+
+## Gateway Implementation & Troubleshooting
+
+### Current Status (2026-07-20)
+✅ **Gateway is operational:** RTU reads working, cyclic polling active, ready for TCP server layer.
+
+### Deployment & Testing Steps
+
+#### Step 1: Verify Python & pymodbus Installation
+```bash
+python3 --version
+pip3 list | grep pymodbus
+```
+**Expected:** Python 3.10+ and pymodbus 3.14.0+
+
+#### Step 2: Run the Gateway
+```bash
+python3 python-gateway/f4s_gateway.py
+```
+**Expected output:**
+```
+2026-07-20 10:50:13,645 - INFO - RTU connected: /dev/ttyWatlowF4S @ 19200
+2026-07-20 10:50:13,646 - INFO - Cyclic task started
+```
+
+Logs saved to: `~/.f4s_gateway/f4s_gateway.log`
+
+#### Step 3: Verify RTU Reading (in another terminal)
+```bash
+tail -f ~/.f4s_gateway/f4s_gateway.log
+```
+Should show cyclic reads (temperature updates every 1s).
+
+---
+
+## Common Issues & Solutions
+
+### Issue 1: Import Error - `ModbusSlaveContext` not found
+**Error:** `ImportError: cannot import name 'ModbusSlaveContext' from 'pymodbus.datastore'`
+
+**Root Cause:** pymodbus 3.14 API changed; old context classes removed.
+
+**Solution:** Use `ModbusSparseDataBlock` instead:
+```python
+# OLD (doesn't work in 3.14):
+from pymodbus.datastore import ModbusSlaveContext
+
+# NEW (3.14+):
+from pymodbus.datastore import ModbusSparseDataBlock
+block = ModbusSparseDataBlock({i: 0 for i in range(100)})
+```
+
+---
+
+### Issue 2: Permission Denied - `/var/log/f4s_gateway.log`
+**Error:** `PermissionError: [Errno 13] Permission denied: '/var/log/f4s_gateway.log'`
+
+**Root Cause:** User doesn't have write permission to `/var/log`.
+
+**Solution:** Use user home directory:
+```python
+log_dir = os.path.expanduser('~/.f4s_gateway')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, 'f4s_gateway.log')
+```
+
+**Verify:** `ls -la ~/.f4s_gateway/` should show the log file.
+
+---
+
+### Issue 3: ModbusSerialClient - `method` Parameter Invalid
+**Error:** `TypeError: ModbusSerialClient.__init__() got an unexpected keyword argument 'method'`
+
+**Root Cause:** pymodbus 3.14 removed the `method="rtu"` parameter; RTU is the default.
+
+**Solution:** Remove the `method` parameter:
+```python
+# OLD:
+self.rtu = ModbusSerialClient(method="rtu", port=SERIAL_PORT, ...)
+
+# NEW:
+self.rtu = ModbusSerialClient(port=SERIAL_PORT, ...)
+```
+
+---
+
+### Issue 4: RTU Client - `slave` Parameter Invalid
+**Error:** `TypeError: ModbusClientMixin.read_holding_registers() got an unexpected keyword argument 'slave'`
+
+**Root Cause:** pymodbus 3.14 renamed `slave` → `device_id` (Modbus standard naming).
+
+**Solution:** Use `device_id`:
+```python
+# OLD:
+result = self.rtu.read_holding_registers(address=addr, count=1, slave=SLAVE_ADDR)
+
+# NEW:
+result = self.rtu.read_holding_registers(address=addr, count=1, device_id=SLAVE_ADDR)
+```
+
+---
+
+### Issue 5: SimData - `values` as Single Int, Not List
+**Error:** `TypeError: values= cannot be used with invalid=True`
+
+**Root Cause:** In pymodbus 3.14, `SimData.values` is a **single value** (repeated across count), not a list.
+
+**Solution:** Pass scalar value:
+```python
+# OLD (doesn't work):
+sr = SimData(address=0, count=100, values=[0]*100)
+
+# NEW (3.14+):
+sr = SimData(address=0, count=100, values=0)  # Single int; repeated 100 times
+```
+
+**Verify:**
+```bash
+python3 << 'EOF'
+from pymodbus.simulator import SimData, SimDevice
+device = SimDevice(id=1, simdata=[SimData(address=0, count=100, values=0)])
+print("Device created successfully")
+EOF
+```
+
+---
+
+### Issue 6: ModbusServerContext - No `getValues`/`setValues` Methods
+**Error:** `AttributeError: 'ModbusDeviceContext' object has no attribute 'getValues'`
+
+**Root Cause:** pymodbus 3.14 removed context helper methods; new API uses SimData directly.
+
+**Solution:** Use global register dict approach (simpler for this use case):
+```python
+# Global register storage
+tcp_regs = [0] * 10
+
+# In cyclic task:
+tcp_regs[REG_TEMP] = temp_value
+trigger = tcp_regs[REG_TRIGGER]
+```
+
+---
+
+### Issue 7: Gateway Starts but No TCP Server
+**Error:** Gateway runs but no TCP listener on port 502.
+
+**Root Cause:** pymodbus 3.14 TCP server setup is complex; requires proper SimData context.
+
+**Status:** TCP server layer is **next work item** — gateway foundation (RTU reads) is stable.
+
+**Temporary Workaround:** Run gateway with RTU polling active; registers ready in memory for CODESYS over network socket.
+
+---
+
+## Quick Debug Checklist
+
+| Check | Command | Expected |
+|-------|---------|----------|
+| Python version | `python3 --version` | 3.10+ |
+| pymodbus installed | `python3 -c "import pymodbus; print(pymodbus.__version__)"` | 3.14+ |
+| Serial port exists | `ls -la /dev/ttyWatlowF4S` | Symlink to ttyUSB0 |
+| RTU hardware responsive | `mbpoll -a 1 100` | Reads temp register from F4S |
+| Gateway running | `ps aux \| grep f4s_gateway` | Python process active |
+| Logs accessible | `tail -f ~/.f4s_gateway/f4s_gateway.log` | Live cyclic reads visible |
+| Gateway cyclic task | `grep "Cyclic task" ~/.f4s_gateway/f4s_gateway.log` | "Cyclic task started" |
+
+---
+
+## Next Steps (TCP Server Layer)
+
+1. **Create Modbus TCP server** that exposes `tcp_regs` array to network clients.
+2. **Test with mbpoll (TCP mode):** `mbpoll -m tcp -a 1 <pi-ip>:502 2` (read temp).
+3. **Configure CODESYS TCP master** to read/write registers 0–4 via TCP.
+4. **Run full T1–T4 integration tests** (temp, SP, write, status).
+
+---
+
+**Started:** 2026-07-20  
+**Last updated:** 2026-07-20  
+**Author:** OJ (Omkar Joshi)  
+**Status:** RTU layer ✅ proven; TCP server layer 🚧 in progress  
+**Gateway Log:** `~/.f4s_gateway/f4s_gateway.log`
