@@ -10,7 +10,7 @@ import sys
 import asyncio
 from pymodbus.client import ModbusSerialClient
 from pymodbus.server import StartAsyncTcpServer
-from pymodbus.datastore import ModbusSparseDataBlock, ModbusServerContext, ModbusDeviceContext
+from pymodbus.datastore import ModbusSparseDataBlock, ModbusServerContext, ModbusSimulatorContext
 
 import os
 log_dir = os.path.expanduser('~/.f4s_gateway')
@@ -206,16 +206,10 @@ class F4SGateway:
         cyclic_thread.start()
         logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
 
-        # Set up Modbus TCP server
+        # Set up Modbus TCP server using SimulatorContext (supports dynamic updates)
         try:
-            device = ModbusDeviceContext(
-                di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
-                co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
-                ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
-                hr=hr_block
-            )
-            server_context = ModbusServerContext(devices={1: device}, single=False)
-            logger.info(f"TCP server datastore initialized (holding registers 0-9)")
+            server_context = ModbusSimulatorContext()
+            logger.info(f"TCP server datastore initialized (ModbusSimulatorContext)")
         except Exception as e:
             logger.error(f"Failed to create TCP server context: {e}")
             self.running = False
