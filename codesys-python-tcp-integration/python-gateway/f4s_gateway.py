@@ -38,7 +38,7 @@ F4S_REG_SP = 300
 POLL_PERIOD = 1.0
 READ_TIMEOUT = 0.5
 
-# TCP registers (holding registers) — shared memory between cyclic task and TCP server
+# TCP holding registers exposed to CODESYS
 REG_REQ_SP = 0       # Requested setpoint (CODESYS → Python)
 REG_TRIGGER = 1      # Apply trigger (CODESYS → Python)
 REG_TEMP = 2         # Current temperature (Python → CODESYS, read-only)
@@ -52,18 +52,16 @@ ST_NOT_ACCEPTED = 3
 ST_RANGE = 4
 ST_COMMS = 5
 
-# Global register storage (shared between cyclic task and TCP server)
-tcp_regs = [0] * 10
-tcp_regs_lock = threading.Lock()  # Synchronize access from cyclic task and TCP server
-
-# Initialize Modbus datastore with sparse holding registers
+# hr_block IS the datastore the TCP server reads/writes directly.
+# There is no separate shadow array — this is the single source of truth
+# for both the RTU cyclic task and TCP clients (CODESYS).
 hr_block = ModbusSparseDataBlock({i: 0 for i in range(10)})
+hr_lock = threading.Lock()  # Guards hr_block access from cyclic task vs TCP server
 
 
 class F4SGateway:
     def __init__(self):
         self.rtu = None
-        self.device = None  # Modbus device context (for syncing values)
         self.running = False
         self.last_comms = time.time()
         self.write_pending = False
@@ -129,28 +127,28 @@ class F4SGateway:
         return False
 
     def cyclic(self):
-        """Main polling loop."""
-        global tcp_regs
+        """Main polling loop. Reads/writes directly against hr_block —
+        the same datastore the TCP server exposes to CODESYS."""
         while self.running:
             try:
                 # Read temperature from F4S
                 temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
-                    with tcp_regs_lock:
-                        tcp_regs[REG_TEMP] = temp
+                    with hr_lock:
+                        hr_block.setValues(REG_TEMP, [temp])
                     logger.debug(f"Temp: {temp/10.0}°C")
 
                 # Read current setpoint from F4S
                 sp_read = self.read_rtu_reg(F4S_REG_SP)
                 if sp_read is not None:
-                    with tcp_regs_lock:
-                        tcp_regs[REG_SP_READ] = sp_read
+                    with hr_lock:
+                        hr_block.setValues(REG_SP_READ, [sp_read])
                     logger.debug(f"SP: {sp_read/10.0}°C")
 
-                # Check for write trigger
-                with tcp_regs_lock:
-                    trigger = tcp_regs[REG_TRIGGER]
-                    sp_req = tcp_regs[REG_REQ_SP]
+                # Check for write trigger (set by CODESYS/TCP client over TCP)
+                with hr_lock:
+                    trigger = hr_block.getValues(REG_TRIGGER, 1)[0]
+                    sp_req = hr_block.getValues(REG_REQ_SP, 1)[0]
 
                 if trigger == 1 and not self.write_pending:
                     self.write_pending = True
@@ -160,30 +158,30 @@ class F4SGateway:
                         if self.write_rtu_reg(F4S_REG_SP, sp_req):
                             # Confirm
                             if self.confirm_write(sp_req):
-                                with tcp_regs_lock:
-                                    tcp_regs[REG_STATUS] = ST_OK
+                                with hr_lock:
+                                    hr_block.setValues(REG_STATUS, [ST_OK])
                                 logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
                             else:
-                                with tcp_regs_lock:
-                                    tcp_regs[REG_STATUS] = ST_NOT_ACCEPTED
+                                with hr_lock:
+                                    hr_block.setValues(REG_STATUS, [ST_NOT_ACCEPTED])
                                 logger.warning(f"F4S rejected: {sp_req/10.0}°C")
                         else:
-                            with tcp_regs_lock:
-                                tcp_regs[REG_STATUS] = ST_WRITE_FAIL
+                            with hr_lock:
+                                hr_block.setValues(REG_STATUS, [ST_WRITE_FAIL])
                             logger.error("Write failed to F4S")
                     else:
-                        with tcp_regs_lock:
-                            tcp_regs[REG_STATUS] = ST_RANGE
+                        with hr_lock:
+                            hr_block.setValues(REG_STATUS, [ST_RANGE])
                         logger.warning(f"Out of range: {sp_req/10.0}°C")
                     # Clear trigger
-                    with tcp_regs_lock:
-                        tcp_regs[REG_TRIGGER] = 0
+                    with hr_lock:
+                        hr_block.setValues(REG_TRIGGER, [0])
                     self.write_pending = False
 
                 # Check comms health
                 if (time.time() - self.last_comms) > 5.0:
-                    with tcp_regs_lock:
-                        tcp_regs[REG_STATUS] = ST_COMMS
+                    with hr_lock:
+                        hr_block.setValues(REG_STATUS, [ST_COMMS])
                     logger.warning("RTU comms timeout")
 
                 time.sleep(POLL_PERIOD)
@@ -194,7 +192,6 @@ class F4SGateway:
 
     def run(self):
         """Start gateway."""
-        global hr_block
         logger.info("=== F4S Gateway Starting ===")
 
         if not self.connect_rtu():
@@ -207,16 +204,15 @@ class F4SGateway:
         cyclic_thread.start()
         logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
 
-        # Set up Modbus TCP server
+        # Set up Modbus TCP server pointing directly at hr_block
         try:
-            # Create device context with mutable datastore
-            self.device = ModbusDeviceContext(
+            device = ModbusDeviceContext(
                 di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
                 co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
                 ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
                 hr=hr_block
             )
-            server_context = ModbusServerContext(devices={1: self.device}, single=False)
+            server_context = ModbusServerContext(devices={1: device}, single=False)
             logger.info(f"TCP server datastore initialized (holding registers 0-9)")
         except Exception as e:
             logger.error(f"Failed to create TCP server context: {e}")
@@ -243,27 +239,10 @@ class F4SGateway:
         time.sleep(1)  # Give TCP server time to start
         logger.info(f"TCP server ready on {TCP_HOST}:{TCP_PORT}")
 
-        # Keep gateway alive (cyclic task and TCP server run in background)
+        # Keep gateway alive (cyclic task and TCP server run in background threads)
         try:
             while self.running:
-                # Sync tcp_regs array to Modbus holding registers
-                try:
-                    with tcp_regs_lock:
-                        # Update the global hr_block datastore (ModbusSparseDataBlock)
-                        # which is shared with the device context
-                        for i in range(10):
-                            # ModbusSparseDataBlock stores data internally, try .update() or dict approach
-                            if hasattr(hr_block, 'setValues'):
-                                hr_block.setValues(i, tcp_regs[i])
-                            elif hasattr(hr_block, 'update'):
-                                hr_block.update({i: tcp_regs[i]})
-                            else:
-                                # Direct dict-like update (ModbusSparseDataBlock behaves like dict)
-                                hr_block.__setitem__(i, tcp_regs[i])
-                except Exception as e:
-                    # Silently ignore sync errors - RTU reads still work
-                    pass
-                time.sleep(0.05)  # Faster sync (50ms)
+                time.sleep(0.5)
         except KeyboardInterrupt:
             logger.info("Shutting down...")
             self.running = False
