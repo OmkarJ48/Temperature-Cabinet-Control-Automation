@@ -9,7 +9,7 @@ import time
 import sys
 from pymodbus.client import ModbusSerialClient
 from pymodbus.server import StartAsyncTcpServer
-from pymodbus.datastore import ModbusBaseDataBlock, ModbusSlaveContext, ModbusServerContext
+from pymodbus.datastore import ModbusSparseDataBlock, ModbusServerContext, ModbusDeviceContext
 
 import os
 log_dir = os.path.expanduser('~/.f4s_gateway')
@@ -55,35 +55,8 @@ ST_COMMS = 5
 tcp_regs = [0] * 10
 tcp_regs_lock = threading.Lock()  # Synchronize access from cyclic task and TCP server
 
-
-class TcpRegsDataBlock(ModbusBaseDataBlock):
-    """Custom Modbus data block that wraps the tcp_regs global array."""
-
-    def __init__(self):
-        super().__init__(0, [0] * 10)
-        self.address = 0
-        self.size = 10
-
-    def validate(self, address, count=1):
-        """Check if address range is valid."""
-        return 0 <= address < self.size and (address + count) <= self.size
-
-    def getValues(self, address, count=1):
-        """Read values from tcp_regs."""
-        global tcp_regs
-        if not self.validate(address, count):
-            return []
-        with tcp_regs_lock:
-            return tcp_regs[address : address + count]
-
-    def setValues(self, address, values):
-        """Write values to tcp_regs."""
-        global tcp_regs
-        if not self.validate(address, len(values)):
-            return
-        with tcp_regs_lock:
-            for i, val in enumerate(values):
-                tcp_regs[address + i] = val
+# Initialize Modbus datastore with sparse holding registers
+hr_block = ModbusSparseDataBlock({i: 0 for i in range(10)})
 
 
 class F4SGateway:
@@ -219,6 +192,7 @@ class F4SGateway:
 
     def run(self):
         """Start gateway."""
+        global hr_block
         logger.info("=== F4S Gateway Starting ===")
 
         if not self.connect_rtu():
@@ -231,17 +205,16 @@ class F4SGateway:
         cyclic_thread.start()
         logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
 
-        # Set up Modbus TCP server with custom data block
+        # Set up Modbus TCP server
         try:
-            data_block = TcpRegsDataBlock()
-            context = ModbusSlaveContext(
-                di=data_block,
-                co=data_block,
-                ir=data_block,
-                hr=data_block
+            device = ModbusDeviceContext(
+                di=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+                co=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+                ir=ModbusSparseDataBlock({i: 0 for i in range(10)}),
+                hr=hr_block
             )
-            server_context = ModbusServerContext(devices={1: context}, single=False)
-            logger.info(f"TCP server datastore initialized (registers 0-9)")
+            server_context = ModbusServerContext(devices={1: device}, single=False)
+            logger.info(f"TCP server datastore initialized (holding registers 0-9)")
         except Exception as e:
             logger.error(f"Failed to create TCP server context: {e}")
             self.running = False
@@ -260,11 +233,17 @@ class F4SGateway:
 
         tcp_thread = threading.Thread(target=run_tcp_server, daemon=True)
         tcp_thread.start()
+        time.sleep(0.5)  # Give TCP server time to start
+        logger.info(f"TCP server ready on {TCP_HOST}:{TCP_PORT}")
 
         # Keep gateway alive (cyclic task and TCP server run in background)
         try:
             while self.running:
-                time.sleep(1)
+                # Sync tcp_regs array to Modbus datastore every cycle
+                with tcp_regs_lock:
+                    for i in range(10):
+                        hr_block[i] = tcp_regs[i]
+                time.sleep(0.1)
         except KeyboardInterrupt:
             logger.info("Shutting down...")
             self.running = False
