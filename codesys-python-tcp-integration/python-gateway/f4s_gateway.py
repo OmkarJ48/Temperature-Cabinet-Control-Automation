@@ -1,35 +1,16 @@
 #!/usr/bin/env python3
 """
-f4s_gateway.py
-Modbus TCP ↔ RTU Gateway for Watlow F4S Temperature Cabinet
-Author: OJ (Omkar Joshi)
-Purpose: Bridge CODESYS (TCP master) to Watlow F4S (RTU slave) over RS-232
-
-Architecture:
-  CODESYS (TCP master)  ←→  f4s_gateway (TCP slave + RTU master)  ←→  Watlow F4S (RTU slave)
-
-TCP Register Map (holding registers):
-  Reg 0: Requested new setpoint (x10, CODESYS → Python)
-  Reg 1: Apply trigger (write 1, Python clears to 0)
-  Reg 2: Current temperature (x10, Python → CODESYS, read-only)
-  Reg 3: Current setpoint confirmed (x10, Python → CODESYS, read-only)
-  Reg 4: Status/fault code (Python → CODESYS, read-only)
-         0=OK, 2=WRITE_FAILED, 3=NOT_ACCEPTED, 4=RANGE, 5=COMMS
-
-Values carry one implied decimal place: x10 integer (1300 = 130.0 °C).
+F4S Modbus TCP ↔ RTU Gateway (pymodbus 3.14.0)
+Modbus TCP slave (server) ↔ Modbus RTU master to Watlow F4S
 """
-
 import logging
+import threading
 import time
 import sys
-from pymodbus.client import ModbusSerialClient as RTUClient
-from pymodbus.server import StartAsyncTcpServer
-from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
-from pymodbus.datastore import ModbusSequentialDataBlock
-import threading
-import asyncio
+from pymodbus.client import ModbusSerialClient
+from pymodbus.server import StartTcpServer
+from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -40,218 +21,193 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Gateway constants
-SERIAL_PORT = '/dev/ttyWatlowF4S'
-SERIAL_BAUD = 19200
-RTU_SLAVE_ADDR = 1
+# Configuration
+SERIAL_PORT = "/dev/ttyWatlowF4S"
+BAUD = 19200
+SLAVE_ADDR = 1
+TCP_HOST = "0.0.0.0"
 TCP_PORT = 502
-HEARTBEAT_INTERVAL = 1.0  # seconds
-READ_TIMEOUT = 0.5  # seconds for write confirmation
+F4S_REG_TEMP = 100
+F4S_REG_SP = 300
+POLL_PERIOD = 1.0
+READ_TIMEOUT = 0.5
 
-# TCP register addresses
-REG_REQUESTED_SETPOINT = 0
-REG_APPLY_TRIGGER = 1
-REG_CURRENT_TEMP = 2
-REG_CURRENT_SETPOINT = 3
-REG_STATUS = 4
+# TCP registers (holding registers)
+REG_REQ_SP = 0       # Requested setpoint (CODESYS → Python)
+REG_TRIGGER = 1      # Apply trigger (CODESYS → Python)
+REG_TEMP = 2         # Current temperature (Python → CODESYS, read-only)
+REG_SP_READ = 3      # Confirmed setpoint (Python → CODESYS, read-only)
+REG_STATUS = 4       # Status code (Python → CODESYS, read-only)
 
 # Status codes
-STATUS_OK = 0
-STATUS_WRITE_FAILED = 2
-STATUS_NOT_ACCEPTED = 3
-STATUS_RANGE_ERROR = 4
-STATUS_COMMS_ERROR = 5
-
-# F4S RTU register addresses
-F4S_REG_TEMP = 100
-F4S_REG_SETPOINT = 300
+ST_OK = 0
+ST_WRITE_FAIL = 2
+ST_NOT_ACCEPTED = 3
+ST_RANGE = 4
+ST_COMMS = 5
 
 
 class F4SGateway:
-    """Modbus TCP ↔ RTU gateway for Watlow F4S."""
-
     def __init__(self):
-        self.rtu_client = None
-        self.tcp_context = None
+        self.rtu = None
+        self.ctx = None
         self.running = False
-        self.last_rtu_comms = time.time()
-        self.write_in_progress = False
-        self.write_target = None
+        self.last_comms = time.time()
+        self.write_pending = False
 
     def connect_rtu(self):
-        """Initialize RTU connection to F4S."""
+        """Connect to F4S via RTU."""
         try:
-            self.rtu_client = RTUClient(
-                method='rtu',
+            self.rtu = ModbusSerialClient(
+                method="rtu",
                 port=SERIAL_PORT,
-                baudrate=SERIAL_BAUD,
-                timeout=1.0,
-                stopbits=1,
+                baudrate=BAUD,
+                timeout=1,
                 bytesize=8,
-                parity='N'
+                stopbits=1,
+                parity="N"
             )
-            if self.rtu_client.connect():
-                logger.info(f"RTU connection established: {SERIAL_PORT} @ {SERIAL_BAUD}")
+            if self.rtu.connect():
+                logger.info(f"RTU connected: {SERIAL_PORT} @ {BAUD}")
                 return True
             else:
-                logger.error(f"Failed to connect RTU on {SERIAL_PORT}")
+                logger.error(f"RTU connect failed: {SERIAL_PORT}")
                 return False
         except Exception as e:
-            logger.error(f"RTU connection error: {e}")
+            logger.error(f"RTU exception: {e}")
             return False
 
-    def read_f4s_register(self, reg_addr):
-        """Read a single register from F4S (FC03)."""
+    def read_rtu_reg(self, addr):
+        """Read holding register from F4S."""
         try:
-            result = self.rtu_client.read_holding_registers(
-                address=reg_addr,
-                count=1,
-                slave=RTU_SLAVE_ADDR
-            )
+            result = self.rtu.read_holding_registers(address=addr, count=1, slave=SLAVE_ADDR)
             if result.isError():
-                logger.warning(f"RTU read error at reg {reg_addr}: {result}")
-                self.last_rtu_comms = time.time()
+                logger.warning(f"RTU read error @ reg{addr}")
                 return None
-            self.last_rtu_comms = time.time()
+            self.last_comms = time.time()
             return result.registers[0] if result.registers else None
         except Exception as e:
-            logger.error(f"RTU read exception at reg {reg_addr}: {e}")
+            logger.error(f"RTU read exception @ reg{addr}: {e}")
             return None
 
-    def write_f4s_register(self, reg_addr, value):
-        """Write a single register to F4S (FC06)."""
+    def write_rtu_reg(self, addr, value):
+        """Write holding register to F4S."""
         try:
-            result = self.rtu_client.write_register(
-                address=reg_addr,
-                value=value,
-                slave=RTU_SLAVE_ADDR
-            )
+            result = self.rtu.write_register(address=addr, value=value, slave=SLAVE_ADDR)
             if result.isError():
-                logger.warning(f"RTU write error at reg {reg_addr}, value {value}: {result}")
-                self.last_rtu_comms = time.time()
+                logger.warning(f"RTU write error @ reg{addr} = {value}")
                 return False
-            self.last_rtu_comms = time.time()
-            logger.info(f"RTU write: reg{reg_addr} = {value}")
+            self.last_comms = time.time()
+            logger.info(f"RTU write: reg{addr} = {value}")
             return True
         except Exception as e:
-            logger.error(f"RTU write exception at reg {reg_addr}, value {value}: {e}")
+            logger.error(f"RTU write exception @ reg{addr}: {e}")
             return False
 
-    def confirm_setpoint_write(self, written_value):
-        """Read back setpoint within timeout to confirm F4S accepted it."""
+    def confirm_write(self, written_val):
+        """Read back after write to confirm F4S accepted it."""
         start = time.time()
         while (time.time() - start) < READ_TIMEOUT:
-            read_back = self.read_f4s_register(F4S_REG_SETPOINT)
-            if read_back is not None and read_back == written_value:
-                logger.info(f"Setpoint write confirmed: reg{F4S_REG_SETPOINT} = {written_value}")
+            read_back = self.read_rtu_reg(F4S_REG_SP)
+            if read_back is not None and read_back == written_val:
+                logger.info(f"Setpoint write confirmed: {written_val}")
                 return True
-            time.sleep(0.1)
-        logger.warning(f"Setpoint write NOT confirmed (timeout): expected {written_value}")
+            time.sleep(0.05)
+        logger.warning(f"Setpoint write NOT confirmed (timeout): expected {written_val}")
         return False
 
-    def cyclic_task(self):
-        """Main cyclic heartbeat: read F4S, update TCP, handle writes."""
+    def cyclic(self):
+        """Main polling loop."""
         while self.running:
             try:
-                # Read current temperature from F4S
-                temp = self.read_f4s_register(F4S_REG_TEMP)
+                # Read temperature from F4S
+                temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
-                    self.tcp_context.setValues(3, REG_CURRENT_TEMP, [temp])
+                    self.ctx.setValues(3, REG_TEMP, [temp])
                     logger.debug(f"Temp: {temp/10.0}°C")
 
                 # Read current setpoint from F4S
-                current_sp = self.read_f4s_register(F4S_REG_SETPOINT)
-                if current_sp is not None:
-                    self.tcp_context.setValues(3, REG_CURRENT_SETPOINT, [current_sp])
-                    logger.debug(f"Current SP: {current_sp/10.0}°C")
+                sp_read = self.read_rtu_reg(F4S_REG_SP)
+                if sp_read is not None:
+                    self.ctx.setValues(3, REG_SP_READ, [sp_read])
+                    logger.debug(f"SP: {sp_read/10.0}°C")
 
-                # Check for apply trigger from CODESYS
-                trigger_regs = self.tcp_context.getValues(3, REG_APPLY_TRIGGER, 1)
-                if trigger_regs and trigger_regs[0]:
-                    if not self.write_in_progress:
-                        # Get the requested setpoint
-                        sp_regs = self.tcp_context.getValues(3, REG_REQUESTED_SETPOINT, 1)
-                        if sp_regs:
-                            new_sp = sp_regs[0]
-                            self.write_in_progress = True
-                            self.write_target = new_sp
-
-                            # Validate range (0–200 °C = 0–2000 x10)
-                            if 0 <= new_sp <= 2000:
-                                # Write to F4S
-                                if self.write_f4s_register(F4S_REG_SETPOINT, new_sp):
-                                    # Confirm write
-                                    if self.confirm_setpoint_write(new_sp):
-                                        self.tcp_context.setValues(3, REG_STATUS, [STATUS_OK])
-                                        logger.info(f"Setpoint write SUCCESS: {new_sp/10.0}°C")
-                                    else:
-                                        self.tcp_context.setValues(3, REG_STATUS, [STATUS_NOT_ACCEPTED])
-                                        logger.warning(f"F4S rejected setpoint: {new_sp/10.0}°C")
+                # Check for write trigger
+                trigger_vals = self.ctx.getValues(3, REG_TRIGGER, 1)
+                if trigger_vals and trigger_vals[0] == 1 and not self.write_pending:
+                    self.write_pending = True
+                    sp_req_vals = self.ctx.getValues(3, REG_REQ_SP, 1)
+                    if sp_req_vals:
+                        sp_req = sp_req_vals[0]
+                        # Validate range (0–200°C = 0–2000 x10)
+                        if 0 <= sp_req <= 2000:
+                            # Write to F4S
+                            if self.write_rtu_reg(F4S_REG_SP, sp_req):
+                                # Confirm
+                                if self.confirm_write(sp_req):
+                                    self.ctx.setValues(3, REG_STATUS, [ST_OK])
+                                    logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
                                 else:
-                                    self.tcp_context.setValues(3, REG_STATUS, [STATUS_WRITE_FAILED])
-                                    logger.error(f"Write failed to F4S")
+                                    self.ctx.setValues(3, REG_STATUS, [ST_NOT_ACCEPTED])
+                                    logger.warning(f"F4S rejected: {sp_req/10.0}°C")
                             else:
-                                self.tcp_context.setValues(3, REG_STATUS, [STATUS_RANGE_ERROR])
-                                logger.warning(f"Setpoint out of range: {new_sp/10.0}°C")
-
-                            # Clear the trigger and write-in-progress
-                            self.tcp_context.setValues(3, REG_APPLY_TRIGGER, [0])
-                            self.write_in_progress = False
+                                self.ctx.setValues(3, REG_STATUS, [ST_WRITE_FAIL])
+                                logger.error("Write failed to F4S")
+                        else:
+                            self.ctx.setValues(3, REG_STATUS, [ST_RANGE])
+                            logger.warning(f"Out of range: {sp_req/10.0}°C")
+                    # Clear trigger
+                    self.ctx.setValues(3, REG_TRIGGER, [0])
+                    self.write_pending = False
 
                 # Check comms health
-                time_since_comms = time.time() - self.last_rtu_comms
-                if time_since_comms > 5.0:
-                    self.tcp_context.setValues(3, REG_STATUS, [STATUS_COMMS_ERROR])
-                    logger.warning("RTU communication timeout")
+                if (time.time() - self.last_comms) > 5.0:
+                    self.ctx.setValues(3, REG_STATUS, [ST_COMMS])
+                    logger.warning("RTU comms timeout")
 
-                time.sleep(HEARTBEAT_INTERVAL)
+                time.sleep(POLL_PERIOD)
 
             except Exception as e:
                 logger.error(f"Cyclic task error: {e}")
-                time.sleep(HEARTBEAT_INTERVAL)
+                time.sleep(POLL_PERIOD)
 
     def run(self):
-        """Start the gateway."""
+        """Start gateway."""
         logger.info("=== F4S Gateway Starting ===")
 
-        # Connect to F4S
         if not self.connect_rtu():
-            logger.error("Failed to connect to F4S. Exiting.")
+            logger.error("Failed to connect RTU. Exiting.")
             return False
 
-        # Set up TCP slave context
+        # Set up TCP datastore
         store = ModbusSlaveContext(
             di=ModbusSequentialDataBlock(0, [0] * 100),
             co=ModbusSequentialDataBlock(0, [0] * 100),
             hr=ModbusSequentialDataBlock(0, [0] * 100),
             ir=ModbusSequentialDataBlock(0, [0] * 100)
         )
-        contexts = ModbusServerContext(stores={1: store}, single=False)
-        self.tcp_context = contexts
+        self.ctx = ModbusServerContext(stores={1: store}, single=False)
 
-        # Start cyclic task in background thread
+        # Start cyclic task
         self.running = True
-        cyclic_thread = threading.Thread(target=self.cyclic_task, daemon=True)
+        cyclic_thread = threading.Thread(target=self.cyclic, daemon=True)
         cyclic_thread.start()
-        logger.info(f"Cyclic task started (interval={HEARTBEAT_INTERVAL}s)")
+        logger.info(f"Cyclic task started (period={POLL_PERIOD}s)")
 
         # Start TCP server
-        logger.info(f"Starting TCP server on port {TCP_PORT}")
+        logger.info(f"Starting TCP server on {TCP_HOST}:{TCP_PORT}")
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            StartAsyncTcpServer(address=("0.0.0.0", TCP_PORT), context=contexts, loop=loop)
-            loop.run_forever()
+            StartTcpServer(context=self.ctx, address=(TCP_HOST, TCP_PORT))
         except KeyboardInterrupt:
             logger.info("Shutting down...")
             self.running = False
-            if self.rtu_client:
-                self.rtu_client.close()
+            if self.rtu:
+                self.rtu.close()
         except Exception as e:
             logger.error(f"TCP server error: {e}")
             self.running = False
-            if self.rtu_client:
-                self.rtu_client.close()
+            if self.rtu:
+                self.rtu.close()
             return False
 
         return True
