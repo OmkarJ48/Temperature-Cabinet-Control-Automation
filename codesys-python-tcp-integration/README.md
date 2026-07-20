@@ -154,6 +154,52 @@ tail -f ~/.f4s_gateway/f4s_gateway.log
 ```
 Should show cyclic reads (temperature updates every 1s).
 
+#### Step 4: Test RTU Write to Register 300 (Setpoint)
+
+In a third terminal (with gateway still running):
+
+```bash
+cd python-gateway
+python3 test_rtu_write.py
+```
+
+This script will:
+1. Trigger a write of 28.0°C (280 x10) to register 300
+2. Wait for the gateway to confirm the write (read-back verification)
+3. Trigger a write of 26.5°C (265 x10)
+4. Test an out-of-range write (250°C) to verify rejection
+
+**Expected output:**
+```
+TEST: Write setpoint 28.0°C
+========================================
+Before write:
+  Current temp:      22.5°C
+  Current setpoint:  105.0°C
+  Status:            0
+
+Setting write trigger:
+  REG_REQ_SP (0):  280 = 28.0°C
+  REG_TRIGGER (1):   1 (request sent)
+
+Waiting for gateway to process write...
+
+After write:
+  REG_TRIGGER (1):   0 (cleared by gateway)
+  REG_STATUS (4):    0 (0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS)
+  Current setpoint:  28.0°C (read from F4S)
+  Current temp:      22.5°C
+
+✅ SUCCESS: Setpoint write confirmed!
+```
+
+If write fails, check the status code:
+- Status 0 = ✅ Write successful and confirmed
+- Status 2 = ❌ Write failed (RTU error, check wiring/baud)
+- Status 3 = ❌ F4S rejected (menu locked or out of F4S limits)
+- Status 4 = ❌ Out of gateway range (0-200°C = 0-2000 x10)
+- Status 5 = ❌ RTU comms timeout (no response from F4S)
+
 ---
 
 ## Common Issues & Solutions
