@@ -7,6 +7,103 @@ Next step is CODESYS integration (not started).
 This is the canonical, only copy of the gateway. Any other `python-gateway/`
 folder in older clones or branches is stale — delete it.
 
+## Daily Startup Runbook (Read This First)
+
+Two starting conditions, depending on whether the USB-to-RS232 adapter is
+still plugged into the Pi from last time. Work through the one that matches
+reality, then move on to [CODESYS Integration](#codesys-integration-after-t1-t4-passing).
+
+### Condition A — Adapter already plugged in (normal day)
+
+Use this when the adapter has been sitting in the Pi's USB port since the
+last session (the gateway runs as a systemd service, so it also survives Pi
+reboots on its own).
+
+1. Visually confirm the USB-to-RS232 adapter is still seated in the Pi and
+   the DB9 wiring is still landed on the F4S terminal block (Tx white → 14,
+   Rx red → 15, GND black → 16). No physical action needed if it looks fine.
+2. On your laptop: launch VS Code.
+3. **File → Open Recent** → pick the Remote-SSH workspace for `10.1.6.17`.
+4. Enter the SSH password when prompted; wait for VS Code to finish
+   attaching to the remote.
+5. Open an integrated terminal (``Ctrl+` ``) — you're now on the Pi.
+6. Sync the repo:
+   ```bash
+   cd ~/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
+   git fetch origin Omkar_Temperature_Cabinet_Setpoint_Control
+   git pull origin Omkar_Temperature_Cabinet_Setpoint_Control
+   ```
+7. Open this README (`codesys-python-tcp-integration/python-gateway/README.md`)
+   in the VS Code editor so the commands below are one click away.
+8. Confirm the serial symlink is present:
+   ```bash
+   ls -la /dev/ttyWatlowF4S
+   ```
+9. Confirm the gateway service is already running (`Restart=always` +
+   `enable`d, so it should have survived any reboot):
+   ```bash
+   sudo systemctl status f4s-gateway
+   sudo journalctl -u f4s-gateway -n 20
+   ```
+   Look for `active (running)` and recent `Temp:`/`SP:` log lines. If it's
+   not running: `sudo systemctl start f4s-gateway`, then re-check status.
+10. Run the full TCP verification — `mbpoll` one-liners or
+    `python3 test_rtu_write.py` — see
+    [Verify the TCP side](#verify-the-tcp-side--do-this-before-touching-codesys) below.
+11. **Visually confirm on the F4S front panel** that the setpoint written in
+    step 10 actually shows up (SP1 updates, displayed temperature ramps
+    toward it).
+12. Only once steps 9–11 all pass, move on to
+    [CODESYS Integration](#codesys-integration-after-t1-t4-passing).
+
+### Condition B — Adapter was unplugged (re-plugging it in)
+
+Use this any time the adapter was physically removed (moved benches,
+someone unplugged it, new Pi, etc.). This repeats the hardware bring-up
+from `linux-integration/README.md` before trusting the gateway again —
+don't skip straight to starting the service.
+
+1. Plug the USB-to-RS232 adapter into the Pi.
+2. SSH in the same way as Condition A (steps 2–7 above: VS Code → Open
+   Recent → SSH to `10.1.6.17` → password → sync repo → open this README).
+3. Confirm the OS sees the adapter and note which device node it landed on:
+   ```bash
+   dmesg | tail -n 20
+   # look for: usb ...: pl2303 converter now attached to ttyUSBx
+   ```
+4. Confirm `/dev/ttyWatlowF4S` resolved to that node. The symlink is
+   udev-rule-based, keyed on the adapter's USB ID, so it should auto-attach
+   regardless of which `ttyUSBx` number the kernel assigns this time:
+   ```bash
+   ls -la /dev/ttyWatlowF4S
+   ```
+   If it's missing or dangling, don't just point the gateway at
+   `/dev/ttyUSBx` directly — fix the udev rule/symlink first so future
+   replugs keep working unattended.
+5. Confirm permissions (`dialout` group) are still correct:
+   ```bash
+   ./linux-integration/scripts/check-serial-permissions.sh /dev/ttyWatlowF4S
+   ```
+6. Physically double-check the DB9 wiring is still seated at the F4S
+   terminal block (Tx white → 14, Rx red → 15, GND black → 16) — reseating
+   the adapter sometimes tugs the terminal block loose.
+7. Baseline the RTU link directly with `mbpoll` *before* trusting the
+   gateway, exactly as in `linux-integration/README.md` Part 3:
+   ```bash
+   mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyWatlowF4S
+   # expect a live temperature value matching the F4S front panel
+   ```
+8. Restart the gateway service so it picks up the fresh serial connection
+   immediately instead of waiting on its own restart backoff:
+   ```bash
+   sudo systemctl restart f4s-gateway
+   sudo systemctl status f4s-gateway
+   ```
+9. Continue from Condition A, step 10 onward — TCP verification → front
+   panel confirmation → CODESYS.
+
+---
+
 ## What this is
 
 A Python process that sits between CODESYS (Modbus TCP master) and a Watlow
