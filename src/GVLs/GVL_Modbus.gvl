@@ -2,50 +2,55 @@
     GVL:      GVL_Modbus
     Project:  Temperature Cabinet Setpoint Control from CODESYS HMI
     Author:   OJ (Omkar Joshi) - Oliver Mechatronics
-    Purpose:  Channel-mapped raw variables that the CODESYS Modbus Serial
+    Purpose:  Channel-mapped raw variables that the CODESYS Modbus TCP
               Master channels wire onto (I/O Mapping tab). The device-tree
-              Modbus configuration does the actual RTU transactions on
-              /dev/ttyUSB0; this GVL is the clean boundary between the
-              driver and the application logic.
+              Modbus TCP Master configuration communicates with the
+              Python F4S gateway on 10.1.6.17:502; this GVL is the clean
+              boundary between the driver and the application logic.
               Matches the Project Development Package spec and the build
-              guide already in codesys-modbus-integration/README.md
-              (Part 3C, Part 4).
+              guide already in codesys-python-tcp-integration/python-gateway/README.md
+              (CODESYS Integration section).
 
     ------------------------------------------------------------------
-    F4S link parameters (confirmed on site and via bench-test - see
-    README ADR-001 and the Retest/Requalify phase log):
-        Port      : /dev/ttyUSB0  (USB-to-RS232 adapter, no EtherCAT path)
-        Baud      : 19200         (F4 "Choose Baud Rate" menu -> 19200)
-        Data/Par  : 8 data, No parity, 1 stop (8N1)
-        Slave addr: 1             (F4 "Enter Address" menu -> 1)
-        Framing   : Modbus RTU
+    CODESYS Modbus TCP Master Configuration (to be set in IDE):
+        Network adapter : [your LAN, reach to gateway IP]
+        IP address      : 10.1.6.17
+        Port            : 502
+        Slave ID        : 1
+        Cycle time      : 100 ms (or desired cyclic read interval)
     ------------------------------------------------------------------
-    Channel configuration in the device tree (Modbus_COM -> Modbus_Master,
-    COM Port -> Modbus_Slave, COM Port, address 1):
-
-      ReadChamberTemp   FC03  offset 100 (fallback 99)   qty 1  Cyclic
-                 -> map Holding registers[0] to wInput1Value
-      (read-back of the setpoint register is polled the same way at
-       offset 300 (fallback 299) -> wSetpoint1Read)
-      WriteSetpoint     FC06  offset 300                 qty 1  RISING_EDGE
-                 -> map trigger to xWriteTrigger
-                 -> map data    to wSetpoint1Write
+    TCP Channel configuration (5 holding registers, all x10 scaled):
+      Reg 2: ReadTemp            FC03 (read)   -> wInput1Value (chamber temp)
+      Reg 3: ReadSetpoint        FC03 (read)   -> wSetpoint1Read (confirmed SP)
+      Reg 4: ReadStatus          FC03 (read)   -> wStatus (0=OK, 2=WRITE_FAILED, etc.)
+      Reg 0: WriteSetpoint       FC06 (write)  -> wSetpoint1Write (requested SP)
+      Reg 1: WriteTrigger        FC06 (write)  -> xWriteTrigger (apply pulse)
 
     Values carry one implied decimal place: raw 1300 == 130.0 degC.
-    Register 300 is edge-triggered only (never cyclic) so a write only
-    fires when the operator actually changes the setpoint.
+    Register 1 (trigger) is edge-triggered only (RISING_EDGE in I/O Mapping)
+    so a write pulse fires the request once.
+
+    See Gateway README for register semantics and fault codes.
 *)
 {attribute 'qualified_only'}
 VAR_GLOBAL
-    (* FC03 cyclic read, offset 100 (fallback 99), length 1 -> actual temp raw (x10) *)
+    (* Reg 2: FC03 cyclic read -> actual chamber temperature raw (x10) *)
     wInput1Value    : WORD;
-    (* FC03 read-back, offset 300 (fallback 299), length 1 -> SP1 raw read (x10) *)
+
+    (* Reg 3: FC03 cyclic read -> confirmed setpoint read-back raw (x10) *)
     wSetpoint1Read  : WORD;
-    (* FC06 write single register, offset 300 -> SP1 raw write (x10) *)
+
+    (* Reg 4: FC03 cyclic read -> gateway status code
+       0=OK, 2=WRITE_FAILED, 3=NOT_ACCEPTED, 4=RANGE, 5=COMMS *)
+    wStatus         : WORD;
+
+    (* Reg 0: FC06 write -> requested setpoint raw (x10) *)
     wSetpoint1Write : WORD;
-    (* Rising-edge trigger var for the FC06 channel (I/O Mapping tab) *)
+
+    (* Reg 1: FC06 write (RISING_EDGE only) -> apply trigger pulse (0/1) *)
     xWriteTrigger   : BOOL;
+
     (* Master/slave diagnostic bits from the device IEC objects *)
-    xModbusError    : BOOL;   (* Modbus_Slave_COM.xError *)
-    xModbusDone     : BOOL;   (* last transaction done *)
+    xModbusError    : BOOL;   (* Modbus master error flag *)
+    xModbusDone     : BOOL;   (* last transaction completed *)
 END_VAR
