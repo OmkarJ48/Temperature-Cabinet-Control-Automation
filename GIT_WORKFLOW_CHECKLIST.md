@@ -2,6 +2,21 @@
 
 **Quick reference guide before making changes to the repo.**
 
+## Initial Setup (One-Time)
+
+Install project dependencies from root:
+```bash
+pip3 install -r requirements.txt --break-system-packages
+```
+
+Verify installation:
+```bash
+pip3 list | grep pymodbus
+# Expected: pymodbus 3.12.1 (critical - do not upgrade)
+```
+
+---
+
 ## Branch Status
 
 Current working branch: `Omkar_Temperature_Cabinet_Setpoint_Control`
