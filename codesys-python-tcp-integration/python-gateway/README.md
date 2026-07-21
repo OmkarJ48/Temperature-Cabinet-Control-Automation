@@ -102,6 +102,16 @@ don't skip straight to starting the service.
 9. Continue from Condition A, step 10 onward — TCP verification → front
    panel confirmation → CODESYS.
 
+**If the adapter re-enumerates while the gateway is already running**
+(service was fine, then suddenly `Input/output error` / stuck
+`RTU comms timeout` in the logs with no wiring changes) — don't start a
+second manual gateway process to "check". Kill any manually-started
+`python3 f4s_gateway.py`, then jump straight to step 8 above
+(`sudo systemctl restart f4s-gateway`) and step 3 (`ls -la
+/dev/ttyWatlowF4S`). See
+[troubleshooting #8](#8-gateway-stuck-in-permanent-rtu-comms-timeout-after-the-adapter-re-enumerates)
+for the full story.
+
 ---
 
 ## What this is
@@ -401,6 +411,48 @@ sudo python3 -c "import pymodbus; print(pymodbus.__version__, pymodbus.__file__)
 python3 -c "import pymodbus; print(pymodbus.__version__, pymodbus.__file__)"
 ```
 If these print different paths/versions, that's the bug.
+
+### 8. Gateway stuck in permanent `RTU comms timeout` after the adapter re-enumerates
+
+The systemd-managed gateway was running cleanly (`Temp:`/`SP:` logging every
+second), then every RTU read started failing with
+`[Errno 5] Input/output error`, followed by continuous
+`WARNING - RTU comms timeout` — with the physical wiring untouched and the
+F4S powered the whole time. Starting a second `python3 f4s_gateway.py` by
+hand to "check" made it worse: `[Errno 98] address already in use` on port
+502, because two gateway processes were now running at once.
+
+**Root cause:** the USB-to-RS232 adapter re-enumerated (kernel reassigned
+it from `/dev/ttyUSB1` to `/dev/ttyUSB0` — confirmed by comparing
+`ls -la /dev/ttyWatlowF4S` before and after). `f4s_gateway.py` opens the
+serial port once at startup and never reopens it; `read_rtu_reg`/
+`write_rtu_reg` catch the resulting I/O error, log it, and just retry the
+same dead file descriptor forever — there is no reconnect logic. The
+process never crashes (so `Restart=always` never fires), it just spins
+uselessly. A second, manually-started instance can still open the *new*
+node fine, which is why the two processes disagreed with each other:
+the old one was stuck, the new one worked but couldn't bind TCP because
+the old one already held port 502.
+
+**Fix — get back to exactly one instance, pointed at the current device
+node:**
+1. Kill every manually-started `python3 f4s_gateway.py` (`Ctrl+C` in
+   whichever terminal has one running in the foreground). Systemd is the
+   only thing that should ever run this script.
+2. `sudo systemctl restart f4s-gateway` — this makes the systemd instance
+   reopen `/dev/ttyWatlowF4S` fresh, picking up whatever `ttyUSBx` it
+   currently points to.
+3. `sudo journalctl -u f4s-gateway -n 20 -f` and confirm clean `Temp:`/
+   `SP:` lines with no `Input/output error` or `comms timeout` before
+   doing anything else.
+
+This is the same failure mode [Condition B in the Daily Startup
+Runbook](#condition-b--adapter-was-unplugged-re-plugging-it-in) exists to
+prevent for a cold start; this is the same recovery, applied mid-session
+when the re-enumeration happens while the service is already running.
+Known gap: auto-reconnect-on-I/O-error is not implemented in
+`f4s_gateway.py` — until it is, any adapter re-enumeration while the
+service is running requires this manual restart.
 
 ## Full T1–T5 Test Plan
 
