@@ -29,7 +29,7 @@ CODESYS (TCP master) ──TCP:502──> [this gateway] ──RTU──> Watlow
 | 3 | `REG_SP_READ` | gateway → CODESYS | Confirmed setpoint (read back from F4S) |
 | 4 | `REG_STATUS` | gateway → CODESYS | `0`=OK `2`=WRITE_FAILED `3`=NOT_ACCEPTED `4`=RANGE `5`=COMMS |
 
-Valid setpoint range enforced by the gateway: 0–200°C (0–2000 raw).
+Valid setpoint range enforced by the gateway: **-40–200°C (-400–2000 raw)**.
 
 F4S-side RTU registers used: `100` = temperature, `300` = setpoint, slave
 address `1`, 19200 baud 8N1.
@@ -291,11 +291,11 @@ ls -la /dev/ttyWatlowF4S
 
 #### 3. Verify RTU Communication Baseline
 ```bash
-mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 100
-# Expected: Register 100 value (current temperature x10)
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 /dev/ttyWatlowF4S
+# Expected: Register 100 value (current temperature x10, e.g., 215 = 21.5°C)
 
-mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 300
-# Expected: Register 300 value (current setpoint x10)
+mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 /dev/ttyWatlowF4S
+# Expected: Register 300 value (current setpoint x10, e.g., 265 = 26.5°C)
 ```
 
 ---
@@ -443,7 +443,7 @@ mbpoll -m rtu -a 1 -b 19200 -t 4:uint16 -c 1 /dev/ttyWatlowF4S 300
 
 ### T4: Range Validation (Out-of-Range Write)
 
-**Objective:** Verify range check (0-200°C = 0-2000 x10)
+**Objective:** Verify range check (-40-200°C = -400-2000 x10)
 
 **Steps:**
 1. With gateway running, write an out-of-range value:
@@ -579,7 +579,7 @@ The retargeted version:
 - Reads from TCP registers (via mapped channels)
 - Same state machine as serial version (IDLE → READY → WRITING → CONFIRM → IDLE/FAULTED)
 - Edge-triggered write (one pulse per user request)
-- Range validation (0–200 °C)
+- Range validation (-40–200 °C)
 - Status/fault code interpretation
 
 ---
