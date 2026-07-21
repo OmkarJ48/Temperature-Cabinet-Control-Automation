@@ -190,7 +190,16 @@ Logs are written to `~/.f4s_gateway/f4s_gateway.log`.
 
 ## Run permanently (systemd)
 
+**Do not set `User=root` in the service file.** `pip3 install --break-system-packages`
+installs into *your user's* site-packages, not root's — a service running as
+root will silently resolve a different (unpinned) pymodbus install and fail
+with `'ModbusDeviceContext' object has no attribute 'getValues'` even though
+everything worked when you ran it manually. Grant the port-502 bind
+capability instead and run as your normal user, same as the manual `Run`
+step above:
+
 ```bash
+sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which python3))
 sudo nano /etc/systemd/system/f4s-gateway.service
 ```
 
@@ -202,20 +211,23 @@ After=network.target
 [Service]
 ExecStart=/usr/bin/python3 /path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway/f4s_gateway.py
 Restart=always
-User=root
+User=YOUR_USERNAME
 WorkingDirectory=/path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+Replace `/path/to/...` with the actual clone path on your machine, and
+`YOUR_USERNAME` with the account that ran `pip3 install -r requirements.txt`
+(the same one that must already be in the `dialout` group for serial
+access).
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now f4s-gateway
 sudo systemctl status f4s-gateway
 ```
-
-Replace `/path/to/...` with the actual clone path on your machine.
 
 ## Verify the TCP side — do this before touching CODESYS
 
@@ -358,6 +370,37 @@ INFO - Write SUCCESS: 28.0°C
 ...
 DEBUG - SP: 28.0°C
 ```
+
+### 7. `AttributeError: 'ModbusDeviceContext' object has no attribute 'getValues'` — only under systemd
+
+Everything passed manually (T1–T4, this file's earlier verification steps),
+then the exact same code failed immediately after being wrapped in a
+systemd unit with `User=root`, throwing this `AttributeError` on every
+cyclic loop iteration, sometimes paired with `[Errno 5] Input/output error`
+on the RTU reads.
+
+**Root cause:** `pip3 install -r requirements.txt --break-system-packages`
+installs into the invoking *user's* site-packages
+(`~/.local/lib/pythonX.Y/site-packages`), not root's. `User=root` in the
+service file means systemd's Python resolves a completely different,
+unpinned pymodbus install — one where `ModbusDeviceContext` doesn't expose
+`getValues` the way 3.12.1 does. `setValues` happened to still resolve
+(present under a different name/shim in whichever version root saw), which
+made the symptom look asymmetric and confusing. The accompanying I/O errors
+were a secondary effect of a leftover manually-started gateway process
+still holding `/dev/ttyWatlowF4S` open while the systemd-managed one also
+tried to use it.
+
+**Fix:** never run the service as `User=root`. Grant the port-502 bind
+capability to `python3` with `setcap` and run the service as the same
+non-root user that installed the pinned dependencies (see
+[Run permanently (systemd)](#run-permanently-systemd) above). Confirm the
+mismatch directly if this recurs:
+```bash
+sudo python3 -c "import pymodbus; print(pymodbus.__version__, pymodbus.__file__)"
+python3 -c "import pymodbus; print(pymodbus.__version__, pymodbus.__file__)"
+```
+If these print different paths/versions, that's the bug.
 
 ## Full T1–T5 Test Plan
 
@@ -683,38 +726,10 @@ The retargeted version:
 
 ## Systemd Service Setup
 
-To run the gateway permanently on a Raspberry Pi or Linux system:
-
-```bash
-sudo nano /etc/systemd/system/f4s-gateway.service
-```
-
-Paste the following:
-
-```ini
-[Unit]
-Description=F4S Modbus TCP<->RTU Gateway
-After=network.target
-
-[Service]
-ExecStart=/usr/bin/python3 /path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway/f4s_gateway.py
-Restart=always
-User=root
-WorkingDirectory=/path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Replace `/path/to/...` with the actual clone path on your machine.
-
-Enable and start:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now f4s-gateway
-sudo systemctl status f4s-gateway
-```
+See [Run permanently (systemd)](#run-permanently-systemd) above for the
+unit file and setup steps. **Do not use `User=root`** — see
+[troubleshooting #7](#7-attributeerror-modbusdevicecontext-object-has-no-attribute-getvalues--only-under-systemd)
+for why that breaks the gateway even though the code is correct.
 
 Verify status and logs:
 
