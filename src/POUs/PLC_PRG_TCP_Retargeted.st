@@ -28,7 +28,7 @@ VAR
     rReqSetpoint        : REAL := 26.5;           (* set in watch window or WebVisu *)
     rConfirmedSetpoint  : REAL;
 
-    rMinSetpoint        : REAL := 0.0;
+    rMinSetpoint        : REAL := -40.0;
     rMaxSetpoint        : REAL := 200.0;
 
     eSetpointState      : E_SetpointState := E_SetpointState.IDLE;
