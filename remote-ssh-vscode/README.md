@@ -28,7 +28,7 @@ kept separate on purpose so each concern can be read, fixed, and referenced inde
    (or wherever the repo is cloned on this Pi — see Step 6 below if it isn't cloned yet). This
    is the same repository as
    `github.com/OJ4884/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI`, branch
-   `OJ4884-patch-1`. VS Code's Source Control panel talks to GitHub exactly as it would from a
+   `Omkar_Temperature_Cabinet_Setpoint_Control`. VS Code's Source Control panel talks to GitHub exactly as it would from a
    local clone — it is just physically executing on the Pi's filesystem.
 
 If the connection fails, check:
@@ -48,24 +48,57 @@ about it beyond where the files physically live.
 
 ```bash
 cd ~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
+
+# Activate Python virtual environment (do this FIRST, every terminal session)
+source venv/bin/activate
+# (you should see (venv) at the start of your prompt now)
+
+# Then sync with GitHub
+git config pull.rebase true
 git status
-git fetch origin OJ4884-patch-1
-git pull origin OJ4884-patch-1
+git fetch origin Omkar_Temperature_Cabinet_Setpoint_Control
+git pull origin Omkar_Temperature_Cabinet_Setpoint_Control
 ```
 
 Stage and commit new/changed files (ST code, docs, configs, etc.) either via the VS Code Source
 Control UI, or from the integrated terminal:
 
 ```bash
+# Make sure venv is still activated (you should see (venv) in your prompt)
+# If not, run: source venv/bin/activate
+
 git add <files>
 git commit -m "…"
-git push -u origin OJ4884-patch-1
+git push -u origin Omkar_Temperature_Cabinet_Setpoint_Control
 ```
 
 **First-time clone (fresh Pi, repo not present yet):**
 
 ```bash
-git clone -b OJ4884-patch-1 https://github.com/OJ4884/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI.git
+# Clone the repo
+git clone -b Omkar_Temperature_Cabinet_Setpoint_Control https://github.com/OJ4884/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI.git
+
+# Navigate into repo
+cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
+
+# Set rebase strategy for clean history
+git config pull.rebase true
+
+# Create and activate Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+# (you should see (venv) at the start of your prompt)
+
+# Install Python dependencies
+pip3 install -r codesys-python-tcp-integration/python-gateway/requirements.txt
+
+# Verify pymodbus version (must be exactly 3.12.1)
+pip3 list | grep pymodbus
+```
+
+The venv will remain active for the current terminal session. Each time you open a new terminal, activate it again with:
+```bash
+source venv/bin/activate
 ```
 
 This Remote-SSH + GitHub path is how the `.html`, `.md`, `.dut`, `.gvl`, `.xml`, and `.st` files
