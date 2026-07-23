@@ -736,6 +736,58 @@ walks through configuring the CODESYS IDE to connect to the Python gateway on
 **Gateway connection path:** CODESYS IDE (Windows) ←TCP:1740→ CODESYS Control
 runtime (Pi) ←TCP:502→ Python F4S Gateway (Pi) ←RTU→ Watlow F4S cabinet.
 
+### Project Structure Overview
+
+The completed CODESYS project tree should match this structure:
+
+```
+Temperature Cabinet Setpoint Control for CODESYS HMI (Project)
+└── Device (CODESYS Control for Linux ARM64 SL)
+    ├── PLC Logic
+    │   ├── Application
+    │   │   ├── E_FaultCode (ENUM)
+    │   │   ├── E_SetpointState (ENUM)
+    │   │   ├── GVL_Modbus (Global Variable List)
+    │   │   ├── Library Manager
+    │   │   └── PLC_PRG (Program)
+    │   └── Task Configuration
+    │       ├── EtherCAT_Task (IEC-Task) — optional, for EtherCAT I/O
+    │       └── MainTask (IEC-Task)
+    │           └── PLC_PRG
+    ├── EtherCAT_Master (optional, for EtherCAT I/O modules)
+    └── Ethernet (Ethernet Device)
+        └── Modbus_TCP_Master (Modbus TCP Client)
+            └── Modbus_TCP_Slave_Device (Modbus TCP Server / gateway proxy)
+```
+
+**Key elements:**
+- **PLC Logic → Application:** Contains your DUTs (E_FaultCode, E_SetpointState),
+  GVL_Modbus (channel-mapped variables), and PLC_PRG (main cyclic program).
+- **Task Configuration → MainTask:** The cyclic entry point. Must call PLC_PRG
+  and be the bus cycle task for the Modbus master (see Step 6 for cycle time).
+- **Ethernet → Modbus_TCP_Master:** The Modbus TCP client that polls the gateway
+  on 10.1.6.17:502 (see Step 2).
+- **Modbus_TCP_Slave_Device:** Represents the Python gateway as a remote slave
+  with 5 holding registers (see Step 3).
+
+### PLC Settings Configuration
+
+Before configuring devices, set the **PLC Settings** (right-click **Application**
+or access via **Project → Project Settings → PLC → General**):
+
+- **Update I/O while in stop:** ☐ (unchecked) — standard setting for this architecture
+- **Behavior for outputs in stop:** `Keep current values` — ensures outputs
+  maintain state when the program stops (safer for hardware)
+- **Always update variables:** ☑ `Enabled 1 (use bus cycle task if not used in
+  any task)` — CODESYS refreshes mapped GVL variables on every MainTask cycle,
+  so application code always sees fresh Modbus reads and writes happen
+  synchronously
+- **Bus cycle task:** `MainTask` — confirms GVL I/O variables are synced on the
+  MainTask cycle (the same cycle that runs the Modbus master and your PLC program)
+
+These settings ensure the Modbus→GVL sync and PLC logic all run in lockstep on
+the same 10 ms MainTask cycle.
+
 ### Step 1: Add Ethernet Device
 
 In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
