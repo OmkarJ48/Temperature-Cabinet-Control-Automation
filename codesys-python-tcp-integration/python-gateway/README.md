@@ -755,20 +755,56 @@ In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
 ### Step 2: Add Modbus TCP Master under Ethernet Device
 
 1. Right-click the **Ethernet** device → **Add Device** → select **Modbus TCP Master**
-2. Click the new **Modbus TCP Master** device and configure:
-   - Go to **General** tab:
-     - **IP address:** `10.1.6.17` (same as Ethernet)
-     - **Port:** `502` (F4S gateway port)
-     - **Slave ID/Unit ID:** `1`
-     - **Response timeout (ms):** `1000` (1 second, enough for the gateway cyclic rate)
-   - Go to **Modbus TCP** tab:
-     - **Auto-reconnect:** ☐ (unchecked, normal operation)
-     - Cycle time / update rate: defaults are fine
+2. Click the new **Modbus TCP Master** device and configure across its tabs:
+   - **General** tab:
+     - **Response timeout (ms):** `1000` (1 second, enough for the gateway's 1s cyclic RTU poll)
+   - **Modbus TCP Client** tab (parameters):
+     - Leave defaults; the actual target IP/port is set per-slave in Step 3, not here
+   - **Modbus TCP Client IEC Objects** tab:
+     - Leave the auto-generated status/error variables as-is — these are the
+       diagnostic bits CODESYS exposes for the master itself (connection state,
+       error code). You can map these to `GVL_Modbus.xModbusError` /
+       `xModbusDone` later if you want master-level diagnostics distinct from
+       the gateway's own `wStatus` register.
+   - **Client Mapping / Bus Cycle** tab:
+     - **Task:** `MainTask` (confirms the master polls on the same cyclic
+       task as the rest of the logic)
+   - **Log**, **Status**, **Information** tabs: informational only, same as
+     the Ethernet device — nothing to configure here for Phase 1.
 
 ### Step 3: Add Modbus TCP Slave and Configure Channels
 
 1. Right-click **Modbus TCP Master** → **Add Device** → select **Modbus TCP Slave**
-2. Configure the slave and add **5 channels** (one per register):
+   (this is the last device in the tree — it represents the Python gateway
+   itself as a single remote Modbus slave, Unit ID 1)
+2. On the **General** tab, under **Config Parameters**:
+   - **IP address:** `10.1.6.17`
+   - **Port:** `502` (the Python gateway's TCP port — **do not** use 1740 here,
+     that's the CODESYS runtime gateway port, unrelated to this Modbus link)
+   - **Slave ID / Unit ID:** `1`
+   - **Watchdog:** ☐ leave unchecked for Phase 1 (optional comms-loss detection;
+     revisit once basic reads/writes are proven)
+3. Still on **General**, under **Data Parameters** — this defines the address
+   space CODESYS reserves for this slave. Our register map only uses
+   **holding registers**, so:
+   - ☑ **Holding registers:** enabled, **start address `0`**, **size `5`**
+     (covers reg0–reg4, the entire register map)
+   - ☐ **Input registers:** leave unchecked / size `0` — not used, the F4S
+     gateway doesn't expose any
+   - ☐ **Coils** / ☐ **Discrete inputs:** leave both unchecked / size `0` —
+     no bit-level I/O in this register map, everything is a WORD holding
+     register (including the trigger, which is `xWriteTrigger` mapped onto a
+     WORD register, not a native Modbus coil)
+   - ☐ **Holding/Input register data areas overlay:** leave unchecked — we
+     aren't using input registers at all, so there's nothing to overlay
+4. Ignore the **Serial Gateway** parameters (COM port, baud rate) on this
+   device. Those fields exist for talking to a transparent Modbus
+   TCP-to-serial gateway that expects CODESYS to specify the downstream
+   serial settings in every request. Our Python gateway is not transparent —
+   it terminates the TCP connection itself and manages its own RTU link to
+   the F4S independently. Leave COM port/baud at default/disabled; CODESYS
+   never needs to know about `/dev/ttyWatlowF4S` or 19200 baud.
+5. Add **5 channels** under the Modbus TCP Slave (one per register):
 
 | Channel | Name | Function Code | Address | Type | Access |
 |---------|------|----------------|---------|------|--------|
