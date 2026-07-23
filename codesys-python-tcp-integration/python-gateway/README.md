@@ -823,14 +823,70 @@ In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
 
 ### Step 4: Create I/O Mapping (Channels → GVL)
 
-Go to **I/O Mapping** tab on the Modbus TCP Slave:
+The **I/O Mapping** tab on the Modbus TCP Slave device links each Modbus channel
+(read/write operation) to a `GVL_Modbus` variable. Both read and write operations
+use the unified **Holding Registers** array — indices 0–4 correspond directly to
+register addresses, and CODESYS automatically polls/writes based on each
+channel's function code (FC03 read, FC06 write).
 
-Map each channel to the corresponding `GVL_Modbus` variable:
-- Channel 1 (ReadTemp) → `GVL_Modbus.wInput1Value`
-- Channel 2 (ReadSetpoint) → `GVL_Modbus.wSetpoint1Read`
-- Channel 3 (ReadStatus) → `GVL_Modbus.wStatus`
-- Channel 4 (WriteSetpoint) → `GVL_Modbus.wSetpoint1Write`
-- Channel 5 (WriteTrigger) → `GVL_Modbus.xWriteTrigger` (set to rising-edge trigger)
+#### I/O Mapping Interface Overview
+
+The I/O Mapping tab displays:
+- **Holding Registers** array section with columns:
+  - **Variable:** Name of the GVL_Modbus variable to map
+  - **Mapping:** Icon/button to select or edit the mapping
+  - **Address:** Register address (0–4; auto-derived from channel definition)
+  - **Type:** Data type (always `WORD` for our register map)
+  - **Unit:** Optional label (e.g., "°C×10", "status code")
+  - **Description:** Optional comment
+- **Settings** at the bottom:
+  - ☑ **Always update variables:** enabled (set to `1`) — CODESYS refreshes
+    mapped GVL variables on every cyclic scan, even if the value didn't change
+  - **Bus cycle task:** set to `MainTask` (matches Step 2 and Step 6)
+
+#### Mapping Procedure
+
+For each of the 5 registers, create one I/O mapping by:
+
+1. Click the **Mapping** icon in the Holding Registers row (or use the
+   "Create new variable" / "Map to existing variable" buttons if shown)
+2. Select or type the `GVL_Modbus` variable name
+3. Confirm the **Address** field matches the register (CODESYS auto-fills this
+   from the channel definition)
+4. Verify **Type** is `WORD`
+5. (Optional) Add a **Unit** label for clarity
+6. Proceed to the next register
+
+#### Mapping Table
+
+| Register | Channel | Direction | Function Code | Variable | Address | Type | Unit | Description |
+|----------|---------|-----------|----------------|----------|---------|------|------|-------------|
+| 0 | WriteSetpoint | Write (CODESYS → gateway) | FC06 | `wSetpoint1Write` | 0 | WORD | °C×10 | Requested setpoint |
+| 1 | WriteTrigger | Write (CODESYS → gateway, rising edge only) | FC06 | `xWriteTrigger` | 1 | WORD | (pulse) | Apply write pulse |
+| 2 | ReadTemp | Read (gateway → CODESYS) | FC03 | `wInput1Value` | 2 | WORD | °C×10 | Chamber temperature |
+| 3 | ReadSetpoint | Read (gateway → CODESYS) | FC03 | `wSetpoint1Read` | 3 | WORD | °C×10 | Confirmed setpoint read-back |
+| 4 | ReadStatus | Read (gateway → CODESYS) | FC03 | `wStatus` | 4 | WORD | code | Gateway status (0=OK, 2=FAIL, 3=REJECTED, 4=RANGE, 5=COMMS) |
+
+#### Key Points
+
+- **Unified Holding Registers array:** Don't confuse this with separate "read"
+  and "write" register arrays — CODESYS has one Holding Registers array [0–9],
+  and each index can have both reads (FC03 to the gateway) and writes (FC06 to
+  the gateway) depending on the channel direction. Indices 0–4 are our active
+  registers; indices 5–9 are unused.
+- **WORD type:** All registers are `WORD` (16-bit unsigned integer). Even
+  `xWriteTrigger` (a logical "boolean" trigger) is mapped to a WORD register,
+  because Modbus registers are always 16 bits. CODESYS automatically handles
+  the bool↔WORD conversion.
+- **Always update variables:** Ensure this is enabled (`1`). CODESYS refreshes
+  the GVL variables on every MainTask cycle, so application code always sees
+  the latest value.
+- **Bus cycle task:** Confirm it's set to `MainTask`, the same task that runs
+  the Modbus TCP Master and your PLC program. This ensures synchronized reads
+  and writes across the entire link (master cyclic poll → update GVL → program
+  logic reads/writes GVL → next cycle).
+
+Once all 5 registers are mapped, proceed to Step 5.
 
 ### Step 5: Import or Create PLC Program
 
