@@ -729,52 +729,119 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 /dev/ttyWatlowF4S
 
 ## CODESYS Integration (After T1-T4 Passing)
 
-Once T1–T4 tests pass, the gateway is ready for CODESYS integration:
+Once T1–T4 tests pass, the gateway is ready for CODESYS integration. This section
+walks through configuring the CODESYS IDE to connect to the Python gateway on
+10.1.6.17:502 and exchange setpoint/temperature data via Modbus TCP.
 
-### Step 1: Add Modbus TCP Master Device
+**Gateway connection path:** CODESYS IDE (Windows) ←TCP:1740→ CODESYS Control
+runtime (Pi) ←TCP:502→ Python F4S Gateway (Pi) ←RTU→ Watlow F4S cabinet.
 
-In CODESYS IDE (on the sandbox project):
+### Step 1: Add Ethernet Device
 
-1. **Devices → Add Device**
-2. **Select "Modbus_Master" (or "Modbus TCP Master")**
-3. **Configuration:**
-   - **Network adapter:** Your network (Ethernet that can reach gateway IP)
-   - **IP address:** `10.1.6.17` (or your gateway's IP)
-   - **Port:** `502`
-   - **Slave ID:** `1`
-   - **Cycle time:** e.g., `100 ms` (cyclic read interval)
+In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
 
-### Step 2: Configure TCP Channels
+1. Right-click **Devices** → **Add Device** → select **Ethernet** (generic adapter)
+2. A new "Ethernet" device appears under Devices
+3. Click the Ethernet device and go to the **General** tab:
+   - **Network interface:** (auto-detected, or select your LAN interface)
+   - **IP address:** `10.1.6.17` (the Pi's IP)
+   - **Subnet mask:** `255.255.255.0`
+   - **Default gateway:** `0.0.0.0` (or leave blank)
+   - **Adjust operating system settings:** ☐ (unchecked)
+4. Go to the **Bus Cycle Options** tab:
+   - **Bus cycle task:** `MainTask`
+   - Click **Recreate required tasks** (auto-generates the task)
 
-Create 5 channels (one per register):
+### Step 2: Add Modbus TCP Master under Ethernet Device
 
-| Channel | Name | FC | Address | Length | Type | R/W |
-|---------|------|----|---------| -------|------|-----|
-| 1 | ReadTemp | 03 | 2 | 1 | WORD | Read |
-| 2 | ReadSetpoint | 03 | 3 | 1 | WORD | Read |
-| 3 | WriteSetpoint | 06 | 0 | 1 | WORD | Write |
-| 4 | WriteTrigger | 06 | 1 | 1 | WORD | Write |
-| 5 | ReadStatus | 03 | 4 | 1 | WORD | Read |
+1. Right-click the **Ethernet** device → **Add Device** → select **Modbus TCP Master**
+2. Click the new **Modbus TCP Master** device and configure:
+   - Go to **General** tab:
+     - **IP address:** `10.1.6.17` (same as Ethernet)
+     - **Port:** `502` (F4S gateway port)
+     - **Slave ID/Unit ID:** `1`
+     - **Response timeout (ms):** `1000` (1 second, enough for the gateway cyclic rate)
+   - Go to **Modbus TCP** tab:
+     - **Auto-reconnect:** ☐ (unchecked, normal operation)
+     - Cycle time / update rate: defaults are fine
 
-### Step 3: Map Channels to GVL_Modbus
+### Step 3: Add Modbus TCP Slave and Configure Channels
 
-**I/O Mapping:**
-- Channel 1 (ReadTemp) → `GVL_Modbus.wReadTempValue`
+1. Right-click **Modbus TCP Master** → **Add Device** → select **Modbus TCP Slave**
+2. Configure the slave and add **5 channels** (one per register):
+
+| Channel | Name | Function Code | Address | Type | Access |
+|---------|------|----------------|---------|------|--------|
+| 1 | ReadTemp | FC03 (Read) | 2 | WORD | Read |
+| 2 | ReadSetpoint | FC03 (Read) | 3 | WORD | Read |
+| 3 | ReadStatus | FC03 (Read) | 4 | WORD | Read |
+| 4 | WriteSetpoint | FC06 (Write) | 0 | WORD | Write |
+| 5 | WriteTrigger | FC06 (Write) | 1 | WORD | Write (rising edge) |
+
+**Register meanings (x10 scaled integers):**
+- Reg 0: Requested setpoint (CODESYS → gateway)
+- Reg 1: Apply trigger (CODESYS → gateway; pulse when ready)
+- Reg 2: Chamber temperature (gateway → CODESYS)
+- Reg 3: Confirmed setpoint (gateway → CODESYS)
+- Reg 4: Status code (gateway → CODESYS; 0=OK, 2=WRITE_FAILED, 3=NOT_ACCEPTED, 4=RANGE, 5=COMMS)
+
+### Step 4: Create I/O Mapping (Channels → GVL)
+
+Go to **I/O Mapping** tab on the Modbus TCP Slave:
+
+Map each channel to the corresponding `GVL_Modbus` variable:
+- Channel 1 (ReadTemp) → `GVL_Modbus.wInput1Value`
 - Channel 2 (ReadSetpoint) → `GVL_Modbus.wSetpoint1Read`
-- Channel 3 (WriteSetpoint) → `GVL_Modbus.wSetpoint1Write`
-- Channel 4 (WriteTrigger) → `GVL_Modbus.xWriteTrigger`
-- Channel 5 (ReadStatus) → `GVL_Modbus.xModbusError` (reuse for status, or create new var)
+- Channel 3 (ReadStatus) → `GVL_Modbus.wStatus`
+- Channel 4 (WriteSetpoint) → `GVL_Modbus.wSetpoint1Write`
+- Channel 5 (WriteTrigger) → `GVL_Modbus.xWriteTrigger` (set to rising-edge trigger)
 
-### Step 4: Copy Retargeted PLC_PRG
+### Step 5: Import or Create PLC Program
 
-In sandbox CODESYS project, replace your `PLC_PRG` with `PLC_PRG_TCP_Retargeted.st`.
+In your sandbox CODESYS project, replace or create the **PLC_PRG** program:
 
-The retargeted version:
-- Reads from TCP registers (via mapped channels)
-- Same state machine as serial version (IDLE → READY → WRITING → CONFIRM → IDLE/FAULTED)
-- Edge-triggered write (one pulse per user request)
-- Range validation (-40–200 °C)
-- Status/fault code interpretation
+**Option A (Recommended for Phase 1):** Use the standalone retargeted state machine
+- Copy the full contents of `src/POUs/PLC_PRG_TCP_Retargeted.st` into your `PLC_PRG`
+- This is self-contained: reads/writes GVL_Modbus only, no HMI dependencies
+
+**Option B:** Use the FB-based version (if you need HMI integration later)
+- Copy `src/POUs/FB_CabinetSetpointControl.st` as a function block
+- Copy `src/GVLs/GVL_HMI.gvl` for operator-facing variables
+- Wire the FB calls in `PLC_PRG`
+
+The state machine handles:
+- Edge-triggered write (one pulse per user request via `rReqSetpoint` + `xStartWrite`)
+- Range validation (-40–200 °C, enforced on Pi side too)
+- Timeout monitoring (300 scans ~ 3 seconds at 10 ms MainTask)
+- Fault latching and recovery
+
+### Step 6: Configure MainTask Cycle Time
+
+**MainTask** (auto-created in Step 1) is the cyclic entry point:
+
+1. Right-click **MainTask** in the PLC Logic tree → **Properties**
+2. Set **Cycle time:** `10 ms` (matches the state machine timeout constants)
+3. Confirm it calls `PLC_PRG` in order
+
+### Step 7: Compile and Download
+
+1. **Build → Generate Code** (F11) — expect 0 errors (no visu libs, clean logic)
+2. **Online → Login** (Alt+F8) to the Pi runtime at 10.1.6.17:1740
+   - If login fails, check Windows Firewall: allow TCP 1740 outbound to 10.1.6.17
+3. Once logged in: **Download** to the PLC
+4. **Debug → Start** (F5) to run the program
+
+### Step 8: Live Test via Watch Window
+
+With the program running:
+
+1. Watch `PLC_PRG.rChamberTemp` — should track the cabinet's real temperature (reg2 / 10)
+2. Watch `PLC_PRG.rConfirmedSetpoint` — should show the current confirmed SP (reg3 / 10)
+3. Set `PLC_PRG.rReqSetpoint` to a new value (e.g., 26.5)
+4. Force `PLC_PRG.xStartWrite := TRUE` (rising edge triggers the write)
+5. Watch `PLC_PRG.eSetpointState` walk: IDLE → READY → WRITING → CONFIRM → IDLE
+6. Confirm `PLC_PRG.rConfirmedSetpoint` snaps to your requested value
+7. On any fault, `PLC_PRG.eFaultCode` shows the reason (COMMS_TIMEOUT=1, WRITE_FAILED=2, NOT_ACCEPTED=3, RANGE=4/5)
 
 ---
 
