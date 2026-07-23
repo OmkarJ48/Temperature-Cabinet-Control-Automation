@@ -788,6 +788,59 @@ or access via **Project → Project Settings → PLC → General**):
 These settings ensure the Modbus→GVL sync and PLC logic all run in lockstep on
 the same 10 ms MainTask cycle.
 
+### GVL_Modbus Definition (Create Before Step 1)
+
+Before adding any devices, create the **GVL_Modbus** global variable list in
+**Application** with **exactly these variable names and types**. This is the
+boundary between the Modbus driver and your PLC logic:
+
+```iec61131
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    (* Reg 2: FC03 cyclic read -> actual chamber temperature raw (x10) *)
+    wInput1Value    : WORD;
+
+    (* Reg 3: FC03 cyclic read -> confirmed setpoint read-back raw (x10) *)
+    wSetpoint1Read  : WORD;
+
+    (* Reg 4: FC03 cyclic read -> gateway status code
+       0=OK, 2=WRITE_FAILED, 3=NOT_ACCEPTED, 4=RANGE, 5=COMMS *)
+    wStatus         : WORD;
+
+    (* Reg 0: FC06 write -> requested setpoint raw (x10) *)
+    wSetpoint1Write : WORD;
+
+    (* Reg 1: FC06 write (RISING_EDGE only) -> apply trigger pulse (0/1) *)
+    xWriteTrigger   : BOOL;
+
+    (* Master/slave diagnostic bits from the device IEC objects *)
+    xModbusError    : BOOL;   (* Modbus master error flag *)
+    xModbusDone     : BOOL;   (* last transaction completed *)
+END_VAR
+```
+
+**Critical notes:**
+- **Variable names are case-sensitive.** `wInput1Value` (not `wReadTempValue`),
+  `wStatus` (not omitted), `wSetpoint1Read`, `wSetpoint1Write`, `xWriteTrigger`.
+- **`wStatus` is essential:** `PLC_PRG_TCP_Retargeted.st` checks this register
+  to detect faults (COMMS_TIMEOUT, WRITE_FAILED, NOT_ACCEPTED, RANGE). If
+  `wStatus` is missing, the program will not compile.
+- The **`{attribute 'qualified_only'}`** line at the top enforces qualified
+  access (e.g., `GVL_Modbus.wInput1Value`), matching the style of the imported
+  program logic.
+
+**Mapping to Modbus registers (shown for reference; I/O Mapping tab wires these):**
+
+| Variable | Modbus Register | Direction | Purpose |
+|----------|-----------------|-----------|---------|
+| `wInput1Value` | Reg 2 | Read (FC03) | Chamber temperature (°C × 10) |
+| `wSetpoint1Read` | Reg 3 | Read (FC03) | Confirmed setpoint read-back (°C × 10) |
+| `wStatus` | Reg 4 | Read (FC03) | Gateway status code (0=OK, 1=COMMS, 2=FAIL, 3=REJECT, 4=RANGE, 5=COMMS) |
+| `wSetpoint1Write` | Reg 0 | Write (FC06) | Requested setpoint to write (°C × 10) |
+| `xWriteTrigger` | Reg 1 | Write (FC06, rising edge) | Pulse to apply the write (0→1 triggers, gateway clears to 0) |
+
+Once created and saved, proceed to **Step 1** to add the Ethernet device.
+
 ### Step 1: Add Ethernet Device
 
 In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
