@@ -152,7 +152,7 @@ address `1`, 19200 baud 8N1.
 **Always navigate to the python-gateway folder first:**
 
 ```bash
-cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/codesys-python-tcp-integration/python-gateway
+cd codesys-python-tcp-integration/python-gateway
 ```
 
 All commands below assume you are in this directory.
