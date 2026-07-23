@@ -436,9 +436,11 @@ the old one already held port 502.
 
 **Fix — get back to exactly one instance, pointed at the current device
 node:**
-1. Kill every manually-started `python3 f4s_gateway.py` (`Ctrl+C` in
-   whichever terminal has one running in the foreground). Systemd is the
-   only thing that should ever run this script.
+1. Kill every manually-started `python3 f4s_gateway.py`. Systemd is the
+   only thing that should ever run this script:
+   ```bash
+   pkill -9 -f "python3 f4s_gateway.py"
+   ```
 2. `sudo systemctl restart f4s-gateway` — this makes the systemd instance
    reopen `/dev/ttyWatlowF4S` fresh, picking up whatever `ttyUSBx` it
    currently points to.
