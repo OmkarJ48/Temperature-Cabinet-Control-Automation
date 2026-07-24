@@ -452,9 +452,52 @@ This is the same failure mode [Condition B in the Daily Startup
 Runbook](#condition-b--adapter-was-unplugged-re-plugging-it-in) exists to
 prevent for a cold start; this is the same recovery, applied mid-session
 when the re-enumeration happens while the service is already running.
-Known gap: auto-reconnect-on-I/O-error is not implemented in
-`f4s_gateway.py` — until it is, any adapter re-enumeration while the
-service is running requires this manual restart.
+
+**Permanent fix — implemented.** `f4s_gateway.py` now supervises the RTU
+link and reopens the port by itself; the manual restart above is only a
+fallback if the automatic recovery is ever seen to fail. What it does:
+
+- **Classifies failures.** An `OSError` (errno 5 `Input/output error`,
+  including pyserial's `SerialException`) means the file descriptor is dead
+  and the port is reopened immediately. A protocol-level failure
+  (`isError()`: timeout, bad CRC, exception response) leaves the fd valid,
+  so it only increments a counter — reopening on every unanswered poll
+  would thrash the port.
+- **Threshold backstop.** `RECONNECT_FAIL_THRESHOLD` (3) consecutive
+  failures force a reopen even when the port dies without raising.
+- **Reopen re-resolves the node.** `connect_rtu()` closes the stale client,
+  builds a fresh one, and opens `/dev/ttyWatlowF4S` — the *symlink*, not a
+  fixed `ttyUSBx` — so it lands on whatever node the adapter now owns.
+- **Backoff.** Retry delay doubles per attempt to `RECONNECT_BACKOFF_MAX`
+  (10 s) and is reset only by a genuinely successful read, so a truly
+  unplugged cable settles into one quiet retry every 10 s while recovery
+  after a re-enumeration is near-instant.
+- **Status 5 now clears itself.** Previously `REG_STATUS` was latched to
+  `5` (COMMS) and the *only* path back to `0` was a successful write — so
+  once it tripped it stayed tripped, and `PLC_PRG` sat in `FAULTED` long
+  after comms had recovered. The health check now clears a `5` on the first
+  successful read. A real `WRITE_FAILED`/`NOT_ACCEPTED`/`RANGE` code is
+  never overwritten.
+- **A missing adapter at boot is no longer fatal.** The gateway serves TCP
+  regardless, so CODESYS sees status `5` instead of a refused connection,
+  and heals the moment the adapter appears.
+
+Net behaviour: **status 5 appears only while the adapter is physically
+absent**, and clears on its own within a poll or two of it returning.
+
+Verify after a re-enumeration (or by unplugging the adapter and plugging it
+back in):
+```bash
+sudo journalctl -u f4s-gateway -f
+# expect: RTU read I/O error @ reg100: [Errno 5] Input/output error
+#         RTU comms timeout — status -> 5 (COMMS)
+#         Reopening /dev/ttyWatlowF4S (consecutive failures=3, port_dead=True)
+#         /dev/ttyWatlowF4S reopened — awaiting first successful read
+#         RTU comms recovered — status 5 -> 0 (OK)
+```
+If you instead see the reopen line repeating with a growing delay and no
+recovery, the adapter genuinely is not enumerating — check the cable and
+`ls -la /dev/ttyWatlowF4S`.
 
 ## Full T1–T5 Test Plan
 
