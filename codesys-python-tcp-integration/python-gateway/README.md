@@ -788,6 +788,43 @@ or access via **Project → Project Settings → PLC → General**):
 These settings ensure the Modbus→GVL sync and PLC logic all run in lockstep on
 the same 10 ms MainTask cycle.
 
+### Pre-Configuration: Verify Network Connectivity
+
+**Before adding devices in CODESYS, verify your Windows PC can reach the Pi.**
+
+On your Windows development machine, open Command Prompt and run:
+
+```bash
+# Check your local network adapters
+ipconfig
+
+# Verify the Pi is reachable
+ping 10.1.6.17
+```
+
+**Expected output for ipconfig:**
+```
+Ethernet adapter Ethernet 2:
+   IPv4 Address . . . . . . . . : 10.1.6.100   (or any 10.1.6.x address)
+   Subnet Mask . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . : 10.1.6.1
+```
+
+**Expected output for ping:**
+```
+Pinging 10.1.6.17 with 32 bytes of data:
+Reply from 10.1.6.17: bytes=32 time=1ms TTL=63
+...
+Ping statistics: Sent=4, Received=4, Lost=0 (0% loss)
+```
+
+**If ping fails:**
+- Your Windows PC is on a different network than the Pi (10.1.6.x)
+- Connect to the network that has the Pi before proceeding
+- Contact your network admin to identify the correct network
+
+**Critical:** The Windows PC and Pi MUST be on the same network (10.1.6.0/24) for CODESYS to reach the runtime.
+
 ### GVL_Modbus Definition (Create Before Step 1)
 
 Before adding any devices, create the **GVL_Modbus** global variable list in
@@ -848,14 +885,17 @@ In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
 1. Right-click **Devices** → **Add Device** → select **Ethernet** (generic adapter)
 2. A new "Ethernet" device appears under Devices
 3. Click the Ethernet device and go to the **General** tab:
-   - **Network interface:** (auto-detected, or select your LAN interface)
-   - **IP address:** `10.1.6.17` (the Pi's IP)
+   - **Network interface:** Leave blank (auto-detected) OR click **Browse** to select your Windows LAN adapter
+     - ⚠️ **Do NOT select 127.0.0.1 (localhost/lo)** — this is your PC's loopback, not the network to the Pi
+     - Select the adapter that shows an IP in the 10.1.6.x range, or the Ethernet/WiFi adapter that physically connects to the Pi's network
+     - If unsure, leave blank and let CODESYS auto-detect
+   - **IP address:** `10.1.6.17` (the Pi's IP address)
    - **Subnet mask:** `255.255.255.0`
    - **Default gateway:** `0.0.0.0` (or leave blank)
-   - **Adjust operating system settings:** ☐ (unchecked)
+   - **Adjust operating system settings:** ☐ (unchecked — do not modify Pi's network config from here)
 4. Go to the **Bus Cycle Options** tab:
    - **Bus cycle task:** `MainTask`
-   - Click **Recreate required tasks** (auto-generates the task)
+   - Click **Recreate required tasks** (auto-generates the task if it doesn't exist)
 
 ### Step 2: Add Modbus TCP Master under Ethernet Device
 
@@ -863,6 +903,9 @@ In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
 2. Click the new **Modbus TCP Master** device and configure across its tabs:
    - **General** tab:
      - **Response timeout (ms):** `1000` (1 second, enough for the gateway's 1s cyclic RTU poll)
+     - **Auto-reconnect:** ☑ **recommended** (optional, but enables automatic reconnection if the link drops)
+       - Checked: CODESYS will automatically reconnect if the Pi restarts or connection is lost
+       - Unchecked: Manual reconnection required after a connection loss
    - **Modbus TCP Client** tab (parameters):
      - Leave defaults; the actual target IP/port is set per-slave in Step 3, not here
    - **Modbus TCP Client IEC Objects** tab:
@@ -889,26 +932,26 @@ In CODESYS IDE, go to **Devices** tree and add an **Ethernet device**:
    - **Slave ID / Unit ID:** `1`
    - **Watchdog:** ☐ leave unchecked for Phase 1 (optional comms-loss detection;
      revisit once basic reads/writes are proven)
-3. Still on **General**, under **Data Parameters** — this defines the address
-   space CODESYS reserves for this slave. Our register map only uses
-   **holding registers**, so:
-   - ☑ **Holding registers:** enabled, **start address `0`**, **size `5`**
-     (covers reg0–reg4, the entire register map)
-   - ☐ **Input registers:** leave unchecked / size `0` — not used, the F4S
-     gateway doesn't expose any
-   - ☐ **Coils** / ☐ **Discrete inputs:** leave both unchecked / size `0` —
-     no bit-level I/O in this register map, everything is a WORD holding
-     register (including the trigger, which is `xWriteTrigger` mapped onto a
-     WORD register, not a native Modbus coil)
-   - ☐ **Holding/Input register data areas overlay:** leave unchecked — we
-     aren't using input registers at all, so there's nothing to overlay
-4. Ignore the **Serial Gateway** parameters (COM port, baud rate) on this
-   device. Those fields exist for talking to a transparent Modbus
-   TCP-to-serial gateway that expects CODESYS to specify the downstream
-   serial settings in every request. Our Python gateway is not transparent —
-   it terminates the TCP connection itself and manages its own RTU link to
-   the F4S independently. Leave COM port/baud at default/disabled; CODESYS
-   never needs to know about `/dev/ttyWatlowF4S` or 19200 baud.
+3. Still on **General**, under **Configured Parameters** — this section configures the Modbus server behavior:
+   - **Watchdog:** ☐ (unchecked for Phase 1) — optional comms-loss detection; revisit after basic reads/writes are proven
+   - **Server port:** `502` (the Python gateway's TCP port)
+   - **Holding registers:** ☑ **enabled**, **start address `0`**, **size `5`** (covers reg0–reg4, the entire register map)
+   - **Input registers:** ☐ (unchecked), size `0` — not used
+   - **Writeable:** ☑ **MUST be checked** — this allows CODESYS to WRITE to holding registers (reg0, reg1)
+     - When checked: notation changes from %IW (input/read-only) to %QW (output/writable) ✓ This is correct
+     - When unchecked: CODESYS can only read, not write — setpoint and trigger writes will fail
+   - **Discrete Bit Areas:** ☐ (unchecked)
+   - **Coils / Discrete Inputs:** both `0`
+
+4. Still on **General**, under **Data Model** — set start addresses:
+   - **Holding register:** `0` (start at register 0)
+   - Other addresses: all `0` (not used)
+   - **Holding-and input register data areas overlay:** ☐ (unchecked — we don't use input registers)
+
+5. **Serial Gateway** section — ☐ **MUST be UNCHECKED**:
+   - **Serial gateway active:** ☐ **UNCHECKED** (critical setting)
+   - COM port and Baud rate fields become inactive/grayed out (this is correct)
+   - **Why?** The Serial Gateway checkbox is for **transparent** Modbus TCP-to-serial relays that pass raw serial commands. Our Python gateway is NOT transparent — it's a standalone Modbus TCP slave that independently manages its own RTU link to the F4S at 19200 baud. CODESYS does not need to (and cannot) specify serial settings. Leaving it checked interferes with normal TCP communication.
 5. Add **5 channels** under the Modbus TCP Slave (one per register):
 
 | Channel | Name | Function Code | Address | Type | Access |
@@ -953,14 +996,22 @@ The I/O Mapping tab displays:
 
 For each of the 5 registers, create one I/O mapping by:
 
-1. Click the **Mapping** icon in the Holding Registers row (or use the
-   "Create new variable" / "Map to existing variable" buttons if shown)
-2. Select or type the `GVL_Modbus` variable name
-3. Confirm the **Address** field matches the register (CODESYS auto-fills this
-   from the channel definition)
-4. Verify **Type** is `WORD`
-5. (Optional) Add a **Unit** label for clarity
-6. Proceed to the next register
+1. **Map to the WORD level, not individual bits:**
+   - Look for rows labeled "**Holding Registers[0]**, "**Holding Registers[1]**", etc. (%QW1, %QW2, %QW3, %QW4, %QW5)
+   - **Do NOT** map to "Bit0", "Bit1", etc. (those are for bit-level access, which we don't need)
+   - Modbus registers are always 16-bit WORD values; we read/write the entire register, not individual bits
+
+2. For each Holding Registers[i] row:
+   - Click the **Mapping** icon (or right-click → "Map to existing variable")
+   - Select **"Map to existing variable"** (do not create new variables — GVL_Modbus already exists)
+   - Choose the corresponding `GVL_Modbus` variable (see mapping table below)
+   - Verify **Type** is `WORD`
+   - (Optional) Add **Unit** label for clarity (e.g., "°C×10" for temperature)
+
+3. **Address strikethrough (before login):**
+   - Before you log in to the PLC, addresses will show with strikethrough: ~~%QW1~~, ~~%QW2~~, etc.
+   - This is normal — it means CODESYS has planned the mapping but hasn't confirmed it with the PLC device yet
+   - After you download the program (Step 7), the strikethrough disappears as CODESYS confirms the mapping online
 
 #### Mapping Table
 
