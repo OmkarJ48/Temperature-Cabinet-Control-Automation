@@ -204,7 +204,8 @@ Retest → Requalify → Repeat.
 
 | Step | Action | Verify |
 |------|--------|--------|
-| M1 | Pi: `sudo systemctl status f4s-gateway` — restart if not fresh: `sudo systemctl restart f4s-gateway` | active (running), recent DEBUG read logs |
+| M0 | Pi: `cd ~/.ssh/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI && git pull && sudo systemctl restart f4s-gateway` — picks up the RTU auto-reconnect fix | `journalctl -u f4s-gateway -n 20` shows clean `Temp:`/`SP:` lines |
+| M1 | Pi: `sudo systemctl status f4s-gateway` | active (running), recent DEBUG read logs |
 | M2 | Pi: `python3 test_rtu_write.py` (baseline sanity — gateway ↔ F4S leg) | 3/3 tests pass. If status=5 COMMS → restart gateway, retest |
 | M3 | **Bug 1:** set Modbus_TCP_Slave **Unit ID = 1** (§2) | — |
 | M4 | **Bug 3:** channel 0 trigger back to **Cyclic 1000 ms** | — |
@@ -309,7 +310,7 @@ Everything below was either hit this week or is the next most likely trap.
 | 1 | Errors ≈ 2× requests, `GATEWAY TARGET FAILED TO RESPOND`, values 0 | Unit ID ≠ 1 (CODESYS default 255) | §2 Bug 1. Verify on the Pi: `sudo journalctl -u f4s-gateway -n 20` — if you see `requested device id does not exist: N`, CODESYS is sending unit N |
 | 2 | Reads fine, write "succeeds" but F4S never changes, no fault | Trigger channel data word unmapped → writes 0 to reg 1 | §2 Bug 2 — map data WORD to `wTriggerValue` (=1) |
 | 3 | `wSetpoint1Write` shown in watch but gateway reg 0 stays 0 | Channel 0 trigger left on "Application" | §2 Bug 3 — Cyclic 1000 ms |
-| 4 | `test_rtu_write.py` fails, status = 5 (COMMS), temp frozen | Stale serial connection in gateway (USB re-enumeration) | `sudo systemctl restart f4s-gateway`, wait 5 s, retest. Happened twice this week — first reflex on any status-5 |
+| 4 | `test_rtu_write.py` fails, status = 5 (COMMS), temp frozen | Stale serial connection in gateway (USB re-enumeration, errno 5) | **Now self-healing** — the gateway reopens the port and clears status 5 automatically. Confirm with `journalctl -u f4s-gateway -f` (expect `Reopening /dev/ttyWatlowF4S` → `comms recovered — status 5 -> 0`). Only if it keeps retrying with no recovery is the adapter genuinely absent |
 | 5 | CODESYS log: `Connect failed! (Socket-Error = 111)` | Gateway not listening (service down/restarting) | `sudo systemctl status f4s-gateway` → start it; CODESYS reconnects on its own |
 | 6 | Watch window completely empty / no values | App not running, or monitoring not active | Status bar must say RUN; re-login (Alt+F8) if stale |
 | 7 | `wStatus` reads 3 (NOT_ACCEPTED) on every write | F4S front panel sitting in setpoint-edit menu | EXIT to main run page (§4 Tuesday step 1) |
@@ -334,9 +335,13 @@ after config + cabling are verified, capture evidence (Status tab counters,
    prepared conceptually, waiting for cabinet access + approval. Do not
    change the proven baseline script before then.
 3. **F4T cabinet (Ethernet-native)** — future phase, out of scope this week.
-4. **Gateway resilience** — status-5 needed two manual service restarts
-   this week. Candidate fix: serial reconnect/watchdog inside the gateway
-   or systemd `Restart=` hardening. Needs approval.
+4. ~~**Gateway resilience**~~ — **RESOLVED.** The permanent RTU
+   auto-reconnect is implemented in `f4s_gateway.py` (failure
+   classification, threshold backstop, symlink re-resolve, backoff) along
+   with the status-5-never-clears fix. Status 5 now appears only while the
+   adapter is physically absent and clears itself on recovery. See gateway
+   README troubleshooting #8. **Monday step M0: `git pull` on the Pi and
+   restart the service to pick it up.**
 5. **WebVisu/HMI phase** — returns only after this package's exit
    criteria (T1–T6 twice) are met, per the Without-HMI package.
 

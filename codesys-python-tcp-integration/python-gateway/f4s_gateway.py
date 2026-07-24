@@ -38,6 +38,16 @@ F4S_REG_SP = 300
 POLL_PERIOD = 1.0
 READ_TIMEOUT = 0.5
 
+# --- RTU link supervision ---------------------------------------------------
+# The USB-RS232 adapter re-enumerates occasionally (kernel moves it between
+# /dev/ttyUSBx nodes) while the service keeps running. The old file descriptor
+# then raises OSError errno 5 (Input/output error) on every access. Reopening
+# by the udev symlink re-resolves it to the node the adapter currently owns.
+COMMS_TIMEOUT_S = 5.0            # no successful RTU exchange for this long -> status 5
+RECONNECT_FAIL_THRESHOLD = 3     # consecutive failures that force a port reopen
+RECONNECT_BACKOFF_START = 1.0    # first retry delay after a failed reopen
+RECONNECT_BACKOFF_MAX = 10.0     # cap, so an unplugged cable doesn't spam the log
+
 # TCP holding registers exposed to CODESYS
 REG_REQ_SP = 0       # Requested setpoint (CODESYS → Python)
 REG_TRIGGER = 1      # Apply trigger (CODESYS → Python)
@@ -77,11 +87,32 @@ class F4SGateway:
     def __init__(self):
         self.rtu = None
         self.running = False
-        self.last_comms = time.time()
+        # 0.0 (not now()) so the link counts as down until a read actually
+        # succeeds — a gateway that never reached the F4S must not report OK.
+        self.last_comms = 0.0
         self.write_pending = False
+        # Link supervision state
+        self.consecutive_failures = 0
+        self.port_dead = False          # an OSError was seen; the fd is unusable
+        self.reconnect_backoff = RECONNECT_BACKOFF_START
+        self.next_reconnect_at = 0.0
+        self.comms_healthy = None       # tri-state, so transitions log once
 
     def connect_rtu(self):
-        """Connect to F4S via RTU."""
+        """(Re)open the serial port.
+
+        Closes any existing client first so the stale file descriptor is
+        released, then builds a *fresh* client. Opening by the udev symlink
+        (not a fixed ttyUSBx) is what makes this pick up the adapter's current
+        node after a re-enumeration.
+        """
+        if self.rtu is not None:
+            try:
+                self.rtu.close()
+            except Exception as e:
+                logger.debug(f"Ignoring error while closing stale RTU client: {e}")
+            self.rtu = None
+
         try:
             self.rtu = ModbusSerialClient(
                 port=SERIAL_PORT,
@@ -101,31 +132,112 @@ class F4SGateway:
             logger.error(f"RTU exception: {e}")
             return False
 
+    def _note_success(self):
+        """A real exchange with the F4S completed — the link is healthy."""
+        self.last_comms = time.time()
+        self.consecutive_failures = 0
+        self.port_dead = False
+        self.reconnect_backoff = RECONNECT_BACKOFF_START
+        self.next_reconnect_at = 0.0
+
+    def _note_failure(self, port_dead=False):
+        """Record a failed exchange.
+
+        port_dead=True means the file descriptor itself is unusable (OSError,
+        e.g. errno 5 after a re-enumeration) and the port must be reopened.
+        A protocol-level failure (isError(): timeout, bad CRC, exception
+        response) leaves the fd valid, so it only increments the counter —
+        reopening the port on every unanswered poll would thrash it.
+        """
+        self.consecutive_failures += 1
+        if port_dead:
+            self.port_dead = True
+
+    def ensure_rtu(self):
+        """Reopen the serial port when the current handle looks unusable.
+
+        Triggers on either a dead fd or RECONNECT_FAIL_THRESHOLD consecutive
+        failures — the latter covers a port that stops answering without ever
+        raising. Backoff grows per attempt and is reset only by a genuinely
+        successful read, so an unplugged cable settles at one quiet retry
+        every RECONNECT_BACKOFF_MAX seconds while recovery stays near-instant.
+        """
+        needs_reopen = (
+            self.port_dead
+            or self.consecutive_failures >= RECONNECT_FAIL_THRESHOLD
+        )
+        if not needs_reopen:
+            return
+
+        now = time.time()
+        if now < self.next_reconnect_at:
+            return
+
+        logger.warning(
+            f"Reopening {SERIAL_PORT} "
+            f"(consecutive failures={self.consecutive_failures}, port_dead={self.port_dead})"
+        )
+        # Schedule the next attempt before trying, so every path is rate-limited.
+        self.next_reconnect_at = now + self.reconnect_backoff
+        self.reconnect_backoff = min(self.reconnect_backoff * 2, RECONNECT_BACKOFF_MAX)
+
+        if self.connect_rtu():
+            # Port opened, but recovery is only proven by a successful read;
+            # _note_success() (next poll) is what clears the failure state.
+            self.port_dead = False
+            logger.info(f"{SERIAL_PORT} reopened — awaiting first successful read")
+        else:
+            logger.warning(
+                f"Reopen failed; next attempt in {self.reconnect_backoff:.0f}s "
+                f"(adapter unplugged?)"
+            )
+
     def read_rtu_reg(self, addr):
         """Read holding register from F4S."""
+        if self.rtu is None:
+            self._note_failure(port_dead=True)
+            return None
         try:
             result = self.rtu.read_holding_registers(address=addr, count=1, device_id=SLAVE_ADDR)
             if result.isError():
                 logger.warning(f"RTU read error @ reg{addr}")
+                self._note_failure()
                 return None
-            self.last_comms = time.time()
+            self._note_success()
             return result.registers[0] if result.registers else None
+        except OSError as e:
+            # errno 5 (Input/output error) lands here when the adapter has
+            # re-enumerated and this fd now points at a node that is gone.
+            # pyserial's SerialException is an OSError subclass.
+            logger.error(f"RTU read I/O error @ reg{addr}: {e}")
+            self._note_failure(port_dead=True)
+            return None
         except Exception as e:
             logger.error(f"RTU read exception @ reg{addr}: {e}")
+            self._note_failure()
             return None
 
     def write_rtu_reg(self, addr, value):
         """Write holding register to F4S."""
+        if self.rtu is None:
+            self._note_failure(port_dead=True)
+            return False
         try:
             result = self.rtu.write_register(address=addr, value=value, device_id=SLAVE_ADDR)
             if result.isError():
                 logger.warning(f"RTU write error @ reg{addr} = {value}")
+                self._note_failure()
                 return False
-            self.last_comms = time.time()
+            self._note_success()
             logger.info(f"RTU write: reg{addr} = {value}")
             return True
+        except OSError as e:
+            logger.error(f"RTU write I/O error @ reg{addr}: {e}")
+            self._note_failure(port_dead=True)
+            return False
         except Exception as e:
             logger.error(f"RTU write exception @ reg{addr}: {e}")
+            self._note_failure()
             return False
 
     def confirm_write(self, written_val):
@@ -145,6 +257,10 @@ class F4SGateway:
         the same accessor the TCP server uses to serve CODESYS requests."""
         while self.running:
             try:
+                # Reopen the port first if the last pass showed it dead, so the
+                # reads below run against a live handle instead of failing again.
+                self.ensure_rtu()
+
                 # Read temperature from F4S
                 temp = self.read_rtu_reg(F4S_REG_TEMP)
                 if temp is not None:
@@ -192,11 +308,27 @@ class F4SGateway:
                         device.setValues(FC_HOLDING, REG_TRIGGER, [0])
                     self.write_pending = False
 
-                # Check comms health
-                if (time.time() - self.last_comms) > 5.0:
+                # Check comms health.
+                # COMMS is latched while the link is down AND cleared again on
+                # recovery. Without the clear, REG_STATUS stayed at 5 forever
+                # once it had ever tripped, which parks PLC_PRG's state machine
+                # in FAULTED long after RTU comms are back. Only a 5 is cleared
+                # here — a real WRITE_FAILED/NOT_ACCEPTED/RANGE result must
+                # survive for CODESYS to act on.
+                comms_ok = (time.time() - self.last_comms) <= COMMS_TIMEOUT_S
+                if not comms_ok:
                     with hr_lock:
                         device.setValues(FC_HOLDING, REG_STATUS, [ST_COMMS])
-                    logger.warning("RTU comms timeout")
+                    if self.comms_healthy is not False:
+                        logger.warning("RTU comms timeout — status -> 5 (COMMS)")
+                    self.comms_healthy = False
+                else:
+                    if self.comms_healthy is False:
+                        with hr_lock:
+                            if device.getValues(FC_HOLDING, REG_STATUS, 1)[0] == ST_COMMS:
+                                device.setValues(FC_HOLDING, REG_STATUS, [ST_OK])
+                        logger.info("RTU comms recovered — status 5 -> 0 (OK)")
+                    self.comms_healthy = True
 
                 time.sleep(POLL_PERIOD)
 
@@ -208,9 +340,16 @@ class F4SGateway:
         """Start gateway."""
         logger.info("=== F4S Gateway Starting ===")
 
+        # A missing adapter at boot is no longer fatal: come up anyway so the
+        # TCP server is reachable and CODESYS sees status 5 (COMMS) instead of
+        # a refused connection. ensure_rtu() keeps retrying with backoff and
+        # the gateway heals itself the moment the adapter appears.
         if not self.connect_rtu():
-            logger.error("Failed to connect RTU. Exiting.")
-            return False
+            logger.warning(
+                f"RTU not available at startup ({SERIAL_PORT}); "
+                f"serving TCP and retrying in background"
+            )
+            self.port_dead = True
 
         # Start cyclic task
         self.running = True
