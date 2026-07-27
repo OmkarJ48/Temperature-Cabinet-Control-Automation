@@ -3,7 +3,7 @@
 Test script: Write setpoint to F4S via Modbus TCP gateway
 Simulates CODESYS writing a new setpoint and reading back confirmation
 
-USAGE (from the python-gateway directory):
+USAGE (from the python-rtu-integration directory):
   python3 f4s_gateway.py   # Terminal 1
   python3 test_rtu_write.py  # Terminal 2 (after gateway has started)
 """

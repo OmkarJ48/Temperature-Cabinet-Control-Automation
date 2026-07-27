@@ -1,4 +1,14 @@
 # CODESYS Modbus RTU Integration: Watlow F4S Cabinet Control
+
+> **⚠️ SUPERSEDED — historical record only.**
+> This documents the RS-232 serial-direct approach, where CODESYS drove the
+> Watlow F4S over its own Modbus RTU device tree. That approach was abandoned:
+> the Python gateway now owns the serial port and CODESYS talks Modbus **TCP**.
+> For the current, proven integration see
+> [`../codesys-tcp-modbus-integration/`](../codesys-tcp-modbus-integration/).
+> Kept because the parity/wiring investigation it records is still the reference
+> for the physical RS-232 link.
+
 ## Complete Setup Guide (Zero Prior Knowledge Assumed)
 
 **For:** Engineers integrating Watlow F4S setpoint control into CODESYS running on Raspberry Pi  
