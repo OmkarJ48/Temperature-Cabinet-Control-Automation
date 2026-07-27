@@ -292,7 +292,7 @@ proven.
 | File | Change |
 |---|---|
 | `python-rtu-integration/f4s_gateway.py` | Signed range check (`SP_MIN_X10 = -400`, `SP_MAX_X10 = 2000`); `u16_to_i16` / `i16_to_u16` helpers; sign-correct log lines |
-| `codesys-tcp-modbus-integration/src/POUs/PLC_PRG_TCP_Retargeted.st` | `WORD_TO_INT` on both reads; `INT_TO_WORD(REAL_TO_INT(...))` on the write; `RANGE_LOW`/`RANGE_HIGH` resolved by direction; `dwMaxTimeout` 300 → 1000 |
+| `codesys-python-gateway-modbus/src/POUs/PLC_PRG_TCP_Retargeted.st` | `WORD_TO_INT` on both reads; `INT_TO_WORD(REAL_TO_INT(...))` on the write; `RANGE_LOW`/`RANGE_HIGH` resolved by direction; `dwMaxTimeout` 300 → 1000 |
 | `python-rtu-integration/probe_f4s_limits.py` | **New.** Measures the F4S's own limits over RTU |
 | `python-rtu-integration/test_range_sweep.py` | **New.** Full −40…200 qualification over TCP |
 | `python-rtu-integration/test_rtu_write.py` | **Unchanged** — proven baseline preserved deliberately |

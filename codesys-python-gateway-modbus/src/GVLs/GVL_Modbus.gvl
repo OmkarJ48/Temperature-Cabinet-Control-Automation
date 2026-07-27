@@ -34,7 +34,7 @@
     WORD_TO_INT on every read and INT_TO_WORD(REAL_TO_INT(..)) on every write.
     Dividing these WORDs directly is what made the entire sub-zero half of the
     -40..200 degC range unreachable -- see
-    codesys-tcp-modbus-integration/docs/RANGE_INVESTIGATION.md.
+    codesys-python-gateway-modbus/docs/RANGE_INVESTIGATION.md.
     Register 1 (trigger) is edge-triggered only (RISING_EDGE in I/O Mapping)
     so a write pulse fires the request once.
 

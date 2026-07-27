@@ -5,7 +5,7 @@
 > Watlow F4S over its own Modbus RTU device tree. That approach was abandoned:
 > the Python gateway now owns the serial port and CODESYS talks Modbus **TCP**.
 > For the current, proven integration see
-> [`../codesys-tcp-modbus-integration/`](../codesys-tcp-modbus-integration/).
+> [`../codesys-python-gateway-modbus/`](../codesys-python-gateway-modbus/).
 > Kept because the parity/wiring investigation it records is still the reference
 > for the physical RS-232 link.
 
