@@ -56,7 +56,7 @@ Edit files as needed:
 nano src/POUs/FB_CabinetSetpointControl.st
 
 # Example: Add new files to a folder
-cp new_file.py codesys-python-tcp-integration/python-gateway/
+cp new_file.py python-rtu-integration/
 ```
 
 ---
