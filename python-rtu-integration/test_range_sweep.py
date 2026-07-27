@@ -82,6 +82,11 @@ def apply_setpoint(client, sp_x10, timeout=8.0):
     else:
         return None, None
 
+    # Wait for gateway's cyclic polling (1.0s period) to update the read-back
+    # register. The F4S needs time to confirm the setpoint over RTU. Without
+    # this delay, we read stale values from the previous cycle.
+    time.sleep(1.5)
+
     status = read(client, REG_STATUS)
     raw = read(client, REG_SP_READ)
     return status, (None if raw is None else u16_to_i16(raw))
