@@ -38,6 +38,26 @@ F4S_REG_SP = 300
 POLL_PERIOD = 1.0
 READ_TIMEOUT = 0.5
 
+# --- Setpoint range (x10, SIGNED) -------------------------------------------
+# The cabinet range is -40..200 degC and PLC_PRG validates against exactly
+# that. The gateway previously checked `0 <= sp_req <= 2000` against the RAW
+# UNSIGNED register, so every negative setpoint arrived as its two's-complement
+# value (-1.0 degC -> 65526), sailed past 2000, and was rejected as RANGE.
+# Modbus registers are 16-bit with no signedness of their own; both ends must
+# agree on the interpretation, and here it is signed.
+SP_MIN_X10 = -400   # -40.0 degC
+SP_MAX_X10 = 2000   # 200.0 degC
+
+
+def u16_to_i16(value):
+    """Reinterpret a raw holding-register word as a signed 16-bit integer."""
+    return value - 65536 if value >= 32768 else value
+
+
+def i16_to_u16(value):
+    """Pack a signed 16-bit integer into the raw word placed on the wire."""
+    return value + 65536 if value < 0 else value
+
 # --- RTU link supervision ---------------------------------------------------
 # The USB-RS232 adapter re-enumerates occasionally (kernel moves it between
 # /dev/ttyUSBx nodes) while the service keeps running. The old file descriptor
@@ -266,14 +286,14 @@ class F4SGateway:
                 if temp is not None:
                     with hr_lock:
                         device.setValues(FC_HOLDING, REG_TEMP, [temp])
-                    logger.debug(f"Temp: {temp/10.0}°C")
+                    logger.debug(f"Temp: {u16_to_i16(temp)/10.0}°C")
 
                 # Read current setpoint from F4S
                 sp_read = self.read_rtu_reg(F4S_REG_SP)
                 if sp_read is not None:
                     with hr_lock:
                         device.setValues(FC_HOLDING, REG_SP_READ, [sp_read])
-                    logger.debug(f"SP: {sp_read/10.0}°C")
+                    logger.debug(f"SP: {u16_to_i16(sp_read)/10.0}°C")
 
                 # Check for write trigger (set by CODESYS/TCP client over TCP)
                 with hr_lock:
@@ -282,19 +302,22 @@ class F4SGateway:
 
                 if trigger == 1 and not self.write_pending:
                     self.write_pending = True
-                    # Validate range (0–200°C = 0–2000 x10)
-                    if 0 <= sp_req <= 2000:
-                        # Write to F4S
+                    # Validate range (-40..200 degC = -400..2000 x10), signed.
+                    sp_signed = u16_to_i16(sp_req)
+                    if SP_MIN_X10 <= sp_signed <= SP_MAX_X10:
+                        # Write to F4S. sp_req is already the correct wire word
+                        # (the signed value packed by CODESYS); pass it through
+                        # unchanged so no round-trip can perturb the bit pattern.
                         if self.write_rtu_reg(F4S_REG_SP, sp_req):
                             # Confirm
                             if self.confirm_write(sp_req):
                                 with hr_lock:
                                     device.setValues(FC_HOLDING, REG_STATUS, [ST_OK])
-                                logger.info(f"Write SUCCESS: {sp_req/10.0}°C")
+                                logger.info(f"Write SUCCESS: {sp_signed/10.0}°C")
                             else:
                                 with hr_lock:
                                     device.setValues(FC_HOLDING, REG_STATUS, [ST_NOT_ACCEPTED])
-                                logger.warning(f"F4S rejected: {sp_req/10.0}°C")
+                                logger.warning(f"F4S rejected: {sp_signed/10.0}°C")
                         else:
                             with hr_lock:
                                 device.setValues(FC_HOLDING, REG_STATUS, [ST_WRITE_FAIL])
@@ -302,7 +325,7 @@ class F4SGateway:
                     else:
                         with hr_lock:
                             device.setValues(FC_HOLDING, REG_STATUS, [ST_RANGE])
-                        logger.warning(f"Out of range: {sp_req/10.0}°C")
+                        logger.warning(f"Out of range: {sp_signed/10.0}°C")
                     # Clear trigger
                     with hr_lock:
                         device.setValues(FC_HOLDING, REG_TRIGGER, [0])

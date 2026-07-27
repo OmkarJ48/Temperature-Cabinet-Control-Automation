@@ -1800,6 +1800,32 @@ Phase 4 Gate: ⏳ PENDING
 
 ---
 
+## Repository layout
+
+Reorganised 27 July 2026 so each folder owns one leg of the architecture.
+
+| Folder | Owns |
+|---|---|
+| [`codesys-python-gateway-modbus/`](codesys-python-gateway-modbus/) | **CODESYS side.** Device tree, Modbus TCP master/slave config, channel table, I/O mapping, ST source (`src/`), roadmap, test logs, range investigation. |
+| [`python-rtu-integration/`](python-rtu-integration/) | **Python / RTU side.** The gateway service, its serial link to the Watlow F4S, and the scripts that test that leg standalone. Formerly `codesys-python-tcp-integration/python-gateway/`. |
+| [`codesys-modbus-integration/`](codesys-modbus-integration/) | ⚠️ **Superseded.** The abandoned RS-232 serial-direct approach. Kept as the reference for the physical link investigation (parity, TX/RX wiring). |
+| [`linux-integration/`](linux-integration/) | Pi-side hardware bring-up: serial permissions, udev symlink, bench tests. |
+| [`remote-ssh-vscode/`](remote-ssh-vscode/) | VS Code Remote-SSH workflow for working on the Pi. |
+| `docs/` | Project-level documents (kickoff, import guide, photos). |
+
+```
+CODESYS (Windows IDE ──> Pi runtime)          Python gateway (Pi)        Cabinet
+Modbus TCP Master ──> Modbus TCP Slave ──TCP──> f4s_gateway.py ──RTU──> Watlow F4S
+        10.1.6.17:502, Unit ID 1              /dev serial, 19200        SP reg 300
+   └── codesys-python-gateway-modbus/         └── python-rtu-integration/
+```
+
+> **If you have an existing checkout on the Pi:** the gateway folder was
+> renamed, so the `f4s-gateway` systemd unit's `ExecStart` and
+> `WorkingDirectory` must be updated to `python-rtu-integration/` or the
+> service will fail to start after pulling. See
+> [`codesys-python-gateway-modbus/docs/RANGE_INVESTIGATION.md`](codesys-python-gateway-modbus/docs/RANGE_INVESTIGATION.md) §3 step 0.
+
 ## Repository contents
 
 - Kickoff document — objective, scope, definition of done
