@@ -27,6 +27,14 @@
       Reg 1: WriteTrigger        FC06 (write)  -> xWriteTrigger (apply pulse)
 
     Values carry one implied decimal place: raw 1300 == 130.0 degC.
+
+    SIGNEDNESS: these are declared WORD because that is what the Modbus
+    channels deliver, but the values are SIGNED 16-bit two's complement.
+    -1.0 degC arrives as 16#FFF6 (65526). PLC_PRG must therefore convert with
+    WORD_TO_INT on every read and INT_TO_WORD(REAL_TO_INT(..)) on every write.
+    Dividing these WORDs directly is what made the entire sub-zero half of the
+    -40..200 degC range unreachable -- see
+    codesys-tcp-modbus-integration/docs/RANGE_INVESTIGATION.md.
     Register 1 (trigger) is edge-triggered only (RISING_EDGE in I/O Mapping)
     so a write pulse fires the request once.
 
@@ -47,7 +55,16 @@ VAR_GLOBAL
     (* Reg 0: FC06 write -> requested setpoint raw (x10) *)
     wSetpoint1Write : WORD;
 
-    (* Reg 1: FC06 write (RISING_EDGE only) -> apply trigger pulse (0/1) *)
+    (* Constant 1 sent to reg 1 by the rising-edge trigger channel.
+       Map this to the Holding Registers[1] DATA WORD row (%QW3). A CODESYS
+       rising-edge FC06 channel sends the current value of its mapped data
+       word when the trigger bit goes 0->1; leaving that row unmapped sends 0,
+       and the gateway only fires on 1 -- so writes would appear to succeed
+       and do nothing at all. *)
+    wTriggerValue   : WORD := 1;
+
+    (* Reg 1: FC06 write (RISING_EDGE only) -> apply trigger pulse (0/1).
+       Map this to the Holding Registers[1] TRIGGER BIT row (%QX4.0). *)
     xWriteTrigger   : BOOL;
 
     (* Master/slave diagnostic bits from the device IEC objects *)

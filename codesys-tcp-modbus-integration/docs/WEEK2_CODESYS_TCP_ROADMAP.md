@@ -272,7 +272,7 @@ requests climb by thousands, errors stay frozen, no device flicker.
 ### Friday — requalify, document, demo
 
 1. Morning: full T1–T6 once more (post-drill requalification).
-2. Update `codesys-python-tcp-integration/python-gateway/README.md`
+2. Update `python-rtu-integration/README.md`
    CODESYS section with the final proven settings (Unit ID 1, channel
    table, trigger data-word mapping) — the doc must match reality.
 3. Write `docs/CODESYS_TCP_POC_RESULTS.md`: architecture diagram, final
