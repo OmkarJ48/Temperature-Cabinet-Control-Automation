@@ -35,6 +35,7 @@ Modbus TCP Master ──> Modbus TCP Slave ──TCP──> f4s_gateway.py ─�
 | `docs/WEEK2_CODESYS_TCP_ROADMAP.md` | The week's plan, test plan T1–T6, troubleshooting decision tree |
 | `docs/RANGE_INVESTIGATION.md` | Why −40…200 °C behaved as 0.1…100 °C, and how to verify the fix |
 | `docs/test-logs/` | Daily test logs |
+| `WebVisu/codesys_hmi.html`, `src/HTML/codesys_hmi.html` | Operator HMI page (setpoint tile + write dialog) — see below |
 
 ---
 
@@ -151,6 +152,30 @@ Cross-check on the Pi:
 sudo journalctl -u f4s-gateway -n 30
 # expect: RTU write: reg300 = 265   /   Setpoint write confirmed
 ```
+
+---
+
+## WebVisu operator page
+
+`WebVisu/codesys_hmi.html` (duplicated at `src/HTML/codesys_hmi.html`) is a
+standalone browser page for operators who need setpoint control by keyboard
+and mouse instead of the CODESYS watch window. It shows the setpoint as a
+tile with a write dialog, range-gates entries to −40…200 °C client-side, and
+mirrors the state machine (`IDLE` / `WRITING` / `CONFIRM` / `FAULTED`)
+described above.
+
+The page auto-selects a transport at load time (HTTP JSON, WebVisu
+`postMessage`, or a bench simulator with no backend) — it does not assume any
+one hosting setup. **Wiring it to this project's actual registers (reg0–4,
+`GVL_Modbus`) still needs a binding contract document** (e.g.
+`docs/HMI_BINDING.md`) that maps the page's expected fields to the Modbus
+register map above; that contract does not exist in this repo yet and is an
+open item, not something already wired up.
+
+To use it locally: open the file directly in a browser (it falls back to the
+bench simulator with no backend), or host it from the Pi alongside the
+gateway once a real transport (HTTP endpoint or CODESYS WebVisu) is wired to
+`f4s_gateway.py`.
 
 ---
 
