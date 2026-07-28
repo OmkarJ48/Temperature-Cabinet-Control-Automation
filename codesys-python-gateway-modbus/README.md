@@ -31,10 +31,8 @@ Modbus TCP Master ──> Modbus TCP Slave ──TCP──> f4s_gateway.py ─�
 |---|---|
 | `src/DUTs/` | `E_FaultCode`, `E_SetpointState` enumerations |
 | `src/GVLs/` | `GVL_Modbus` (channel-mapped raw registers), `GVL_HMI` |
-| `src/POUs/` | `PLC_PRG_TCP_Retargeted.st` — **the program actually running**; `PLC_PRG.st` + `FB_CabinetSetpointControl.st` are the FB-based variant from the serial era |
-| `docs/WEEK2_CODESYS_TCP_ROADMAP.md` | The week's plan, test plan T1–T6, troubleshooting decision tree |
-| `docs/RANGE_INVESTIGATION.md` | Why −40…200 °C behaved as 0.1…100 °C, and how to verify the fix |
-| `docs/test-logs/` | Daily test logs |
+| `src/POUs/` | `PLC_PRG_TCP.st` — **the program actually running**; `PLC_PRG.st` is also present |
+| `docs/test-logs/` | Daily hardware test logs |
 | `WebVisu/codesys_hmi.html`, `src/HTML/codesys_hmi.html` | Operator HMI page (setpoint tile + write dialog) — see below |
 
 ---
@@ -56,7 +54,7 @@ Device (CODESYS Control for Linux ARM64 SL)
 **Unit ID must be 1.** The CODESYS default is 255, and the gateway serves only
 device id 1 — leaving it at 255 produces a *connected* socket where every single
 transaction fails with `GATEWAY TARGET FAILED TO RESPOND` and an Error Counter
-of exactly 2× the Request Counter. This cost a full day; see roadmap §2 Bug 1.
+of exactly 2× the Request Counter.
 
 The EtherCAT branch (EK1100 + EL modules) is unrelated to this integration.
 
@@ -100,7 +98,7 @@ state machine is blind to every gateway-side failure.
 > **Signed, not unsigned.** `WORD` is unsigned in IEC 61131-3, so PLC_PRG must
 > use `WORD_TO_INT` on reads and `INT_TO_WORD(REAL_TO_INT(...))` on writes.
 > Treating these as unsigned is what made the whole sub-zero half of the range
-> unreachable — see [`docs/RANGE_INVESTIGATION.md`](docs/RANGE_INVESTIGATION.md).
+> unreachable. The fix is documented in the root README.
 
 ---
 
@@ -144,7 +142,8 @@ CODESYS uses **prepare-then-write** — typing in the Value column does nothing.
 | **F4S front panel SP1** | equals the request, within 1–2 s |
 
 The front panel check is not optional. Status 0 with a matching read-back has
-been observed while the panel did **not** follow — see the range investigation.
+been observed while the panel did **not** follow — this is why the confirmation
+path exists.
 
 Cross-check on the Pi:
 
@@ -315,7 +314,7 @@ END_VAR
 **Critical notes:**
 - **Variable names are case-sensitive.** `wInput1Value` (not `wReadTempValue`),
   `wStatus` (not omitted), `wSetpoint1Read`, `wSetpoint1Write`, `xWriteTrigger`.
-- **`wStatus` is essential:** `PLC_PRG_TCP_Retargeted.st` checks this register
+- **`wStatus` is essential:** `PLC_PRG_TCP.st` checks this register
   to detect faults (COMMS_TIMEOUT, WRITE_FAILED, NOT_ACCEPTED, RANGE). If
   `wStatus` is missing, the program will not compile.
 - The **`{attribute 'qualified_only'}`** line at the top enforces qualified
@@ -504,14 +503,9 @@ Once all 5 registers are mapped, proceed to Step 5.
 
 In your sandbox CODESYS project, replace or create the **PLC_PRG** program:
 
-**Option A (Recommended for Phase 1):** Use the standalone retargeted state machine
-- Copy the full contents of `src/POUs/PLC_PRG_TCP_Retargeted.st` into your `PLC_PRG`
-- This is self-contained: reads/writes GVL_Modbus only, no HMI dependencies
-
-**Option B:** Use the FB-based version (if you need HMI integration later)
-- Copy `src/POUs/FB_CabinetSetpointControl.st` as a function block
-- Copy `src/GVLs/GVL_HMI.gvl` for operator-facing variables
-- Wire the FB calls in `PLC_PRG`
+**Use the state machine from `src/POUs/PLC_PRG_TCP.st`:**
+- Copy the full contents into your `PLC_PRG`
+- This is self-contained: reads/writes GVL_Modbus only, no dependencies
 
 The state machine handles:
 - Edge-triggered write (one pulse per user request via `rReqSetpoint` + `xStartWrite`)
