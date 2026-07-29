@@ -84,18 +84,19 @@ The cabinet-on-off sequencer cannot read back actual run status from Modbus. It 
 
 ---
 
-## 5. ⚠️ Remaining open question: button type
+## 5. ✅ CONFIRMED: Momentary buttons
 
-**Do the green and red buttons spring back when released, or do they stay pressed in?**
+**Finding (29 July 2026):** Both green (I/start) and red (O/stop) buttons spring back immediately when released.
 
-A 30-second check at the panel. Determines the wiring topology.
+**This confirms §3 topology:** The front station drives a latching relay via momentary start/stop contacts:
+- Green NO button (3-4) energizes the latch coil on closure
+- Red NC button (1-2) de-energizes the latch on opening
+- Auxiliary contact holds the coil energized until the NC contact breaks
 
-| Answer | What it means | Wiring |
-|---|---|---|
-| **Spring back (momentary)** | Start/stop latch as drawn in §3 | §7 design: parallel start (NO 3-4), series stop (NC 1-2). **Two output channels.** |
-| **Stay pressed (maintained)** | Simple gate, no latch | Single series contact in coil circuit. **One output channel.** |
-
-Also worth capturing while panel is open: **where do wires 102 and 103 terminate?** Tracing to the latching relay confirms §3 topology outright.
+**Wiring design consequence:** Use §7 hybrid topology:
+- **EL2869 CH1** → parallel tap across green NO contact (start pulse)
+- **EL2869 CH2** → series in the red NC stop string (stop permission)
+- Both channels required for full remote control with local authority preserved
 
 ---
 
@@ -144,7 +145,48 @@ Why interposing relays rather than wiring the EL2869 straight into the circuit: 
 
 ---
 
-## 8. Path 1 — CODESYS-native (recommended first)
+## 7a. Wiring diagram and terminal assignments
+
+**Cabinet control enclosure — existing JTS circuit:**
+
+```
+    24 V supply (rail 100)
+         │
+         ├──────────────────────────┬─────────────────────────┐
+         │                          │                         │
+    [Green button]            [K_REM_START coil]        [Red button NC]
+    NO contact 3-4            (interposing relay)        contact 1-2
+         │                    ×1 (24V DC)                    │
+         ├─── wire 102 ──────────►K_REM_START:1              │
+         │                                                   │
+         └─────────────────────────┬──────────────────────────┘
+                                   │
+                          [K_REM_STOP coil]
+                          (interposing relay)
+                          ×1 (24V DC)
+                                   │
+                          ├─── wire 103 ──────────────► stop circuit
+
+    Return: wire 101 to 24 V common (0 V reference)
+```
+
+**Remote tap points (from EL2869 output relays):**
+
+| Function | Local element | Remote (EL2869) | Wiring |
+|---|---|---|---|
+| **START** | Green NO 3-4 | K_REM_START NO contact | Parallel across local 102 |
+| **STOP** | Red NC 1-2 | K_REM_STOP NC contact | Series in local 103 line |
+
+**EL2869 channel assignment (confirm actual terminal numbers from DLS008 label):**
+
+- **CH_START** (e.g. term XX.1) → drives K_REM_START coil → maps to `GVL_HMI.xStartPulse` in CODESYS
+- **CH_STOP** (e.g. term YY.1) → drives K_REM_STOP coil → maps to `GVL_HMI.xStopPermit` in CODESYS
+
+Both relays share the 24 V supply (DLS008 power rail) and 0 V common. No separate 24 V circuit required.
+
+---
+
+## 9. Path 1 — CODESYS-native (recommended first)
 
 CODESYS owns the EtherCAT master, so it drives the EL2869 directly. Command source is the watch window now, WebVisu later.
 
@@ -170,7 +212,7 @@ In the EL2869's **I/O Mapping** tab, map two spare channels:
 - `xStartPulse` → channel A
 - `xStopPermit` → channel B
 
-Record the actual terminal points from the terminal label and add them to §7 of this document. Set **Always update variables = Enabled 1** and bus cycle task = **MainTask**, matching the Modbus configuration already proven in this project.
+Record the actual terminal points from the terminal label and add them to §7a of this document. Set **Always update variables = Enabled 1** and bus cycle task = **MainTask**, matching the Modbus configuration already proven in this project.
 
 ### Step 3 — Decide the stop-state behaviour
 
@@ -226,7 +268,7 @@ Same prepare-then-write workflow as the setpoint work: set `GVL_HMI.xCabinetOnCm
 
 ---
 
-## 9. Path 2 — Python-originated command through the gateway
+## 10. Path 2 — Python-originated command through the gateway
 
 Extends the existing register map so a command can originate from Python (script, cron, test sequencer) while CODESYS still does the actuating. This is the path that eventually lets a test script run the cabinet unattended.
 
@@ -280,7 +322,7 @@ A request is not a confirmation. Register 6 echoes what was *asked for*; proof t
 
 ---
 
-## 10. Test plan
+## 11. Test plan
 
 Run with the cabinet empty — no valve under test — until T8 passes.
 
@@ -293,11 +335,11 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 | T5 | Local stop overrides remote | Remote commanding run, press red | Cabinet stops and **stays** stopped |
 | T6 | Anti-short-cycle | Stop, then immediately command start | Start refused; `tOffLockRemain` counts down; start occurs only after it expires |
 | T7 | Fail-safe | Pull the EL2869 / power down DLS008 while running | Local buttons still work; cabinet controllable manually |
-| T8 | CODESYS restart | Download new code while cabinet running | Cabinet keeps running (per §8 step 3) |
+| T8 | CODESYS restart | Download new code while cabinet running | Cabinet keeps running (per §9 step 3) |
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Likely cause | Check |
 |---|---|---|
@@ -312,7 +354,7 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 
 ---
 
-## 12. Open items
+## 13. Open items
 
 1. **Momentary or maintained buttons?** (§5) — blocks the wiring design
 2. **Where do wires `102` and `103` terminate?** — confirms the latch circuit
@@ -322,7 +364,7 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 
 ---
 
-## 13. Reference
+## 14. Reference
 
 | Item | Value |
 |---|---|
