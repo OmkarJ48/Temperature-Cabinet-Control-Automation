@@ -1,225 +1,323 @@
-# Cabinet On/Off Automation: Investigation & Integration Guide
+# Cabinet On/Off Automation — Investigation & Integration Guide
 
-**Status:** Investigation complete, integration design ready, awaiting hardware confirmation  
-**Author:** Omkar Joshi — Oliver Mechatronics  
-**Date:** 28 July 2026  
-**Objective:** Enable remote control of the Watlow F4S cabinet on/off switch via EL2869 digital output
-
----
-
-## Discovery & Findings
-
-### What the front switch actually does
-
-The **front-panel on/off selector switch** (3-position: green I / white / red O) does NOT cut mains power to the cabinet or the F4S controller itself. Instead, it controls a **24V DC relay coil** that gates the compressor/fan contactor outputs.
-
-**Evidence:**
-- CODESYS Modbus TCP link to the gateway **stays active** when switch is flipped OFF
-- F4S display remains lit, controller stays powered and responsive
-- All 150 Modbus registers read identically before and after the switch flip
-- Compressor/fan physically stops when switch goes OFF, but F4S remains online
-
-**Conclusion:** The switch implements a **soft off** — outputs are disabled at the relay level, not at the mains level. This is the ideal scenario for remote automation.
+**Author:** Omkar Joshi — Oliver Mechatronics
+**Date:** 28 July 2026
+**Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
+**Status:** Investigation complete. Coil voltage confirmed 24 V / 0 V. Topology decided. **One open question blocks wiring** — see §4.
 
 ---
 
-## Architecture: The Relay Control Block
+## 1. Investigation log — how the conclusion was reached
 
-Inside the cabinet, a **3-relay control block** (DIN-rail mounted) gates the outputs:
+| # | Step | Command / action | Result | What it ruled in or out |
+|---|---|---|---|---|
+| 1 | Baseline the gateway | `journalctl -u f4s-gateway -n 10` | Active, polling cleanly | Control condition established — any later change is attributable to the switch |
+| 2 | Poll RTU while switching | `mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -0 /dev/ttyWatlowF4S` | Reads OK, then I/O errors after OFF | **Inconclusive** — gateway still held the port, so errors were contention noise |
+| 3 | Observe the CODESYS link | Watch Modbus TCP master while switching | **TCP never dropped** | Ruled out mains disconnect. If the F4S lost supply, RTU would die and status would go to 5 (COMMS) |
+| 4 | Differential register scan | Gateway stopped; read 100–149, 150–199, 200–249 ON vs OFF; `diff` | **Zero difference** | Switch state is not reflected anywhere in the reachable register map |
+| 5 | Physical observation | Flip switch, watch cabinet | Fan/compressor stop; F4S display stays lit | Switch acts downstream of the F4S, not on its supply |
+| 6 | Wiring trace (photos) | Open panel, trace from button to F4S | Contact-block stack behind the button; F4S Out 1A/1B on terminals 39–44 | Located the actual control element |
+| 7 | Coil voltage | Multimeter, switch ON vs OFF | **24 V DC / 0 V — confirmed** | Extra-low-voltage control circuit; safe to interface with a DLS008 output |
 
-| Relay | Label | Function | Control |
+**Conclusion:** the front station is a **24 V DC control-circuit device**. It gates the compressor/fan path downstream of the F4S. The F4S controller, its Modbus interface and its register map are untouched by it — proven independently by steps 3 and 4.
+
+---
+
+## 2. Corrections to the first draft of this document
+
+The first pass got three things wrong. Recorded here so the error doesn't propagate into the build.
+
+### 2.1 It is not a "3-relay block" — it is the contact stack behind the pushbutton
+
+The three modules photographed are the **contact blocks clipped to the rear of the illuminated twin pushbutton**, not DIN-rail relays:
+
+| Block | Marking | What it is | Wires seen |
 |---|---|---|---|
-| Left | NO 3 | Compressor/fan contactor output | Always energized (from F4S output) |
-| **Middle** | **X** | **ON/OFF gate relay** | **Controlled by the front switch** |
-| Right | NC 1 | Safety/interlock | Static or condition-based |
+| Left | `NO 3` / `4` | Normally-open contact — the **green I (start)** button | 100 in, 102 out |
+| Middle | `X1` / `X2` | **Lamp / LED block** — the white illuminated centre section | 069, 105 |
+| Right | `NC 1` / `2` | Normally-closed contact — the **red O (stop)** button | 100 in, 103 out |
 
-**Middle relay coil circuit:**
-- **Coil wires:** Blue (common) and yellow (switched)
-- **Protection:** 100Ω resistor in series (load/protection resistor)
-- **Voltage:** Expected 24V DC (to be confirmed with multimeter)
-- **Current:** ~20–50 mA (based on resistor value)
+`X1`/`X2` is the universal terminal designation for a pilot lamp, not a coil. **The middle block is an indicator, not the control element** — tapping it would achieve nothing. The control elements are the NO block (start) and the NC block (stop).
 
-**Control logic:**
-```
-Switch ON → Relay coil energized → Relay contacts close → Compressor gate enabled → Cabinet cools/heats
-Switch OFF → Relay coil de-energized → Relay contacts open → Compressor gate disabled → Cabinet drifts
-```
+Wire `100` feeds both blocks — a common 24 V supply rail. `102` leaves the start contact, `103` leaves the stop contact.
 
----
+### 2.2 The EL2869 cannot be driven from Python
 
-## Integration Approach: Three Options
+The earlier draft showed `RPi.GPIO.output(EL2869_PIN, ...)`. That is not possible. The EL2869 is a **Beckhoff EtherCAT terminal** on the EK1100 coupler — it is not Raspberry Pi GPIO and has no GPIO pin number. It is reachable only through an EtherCAT master, and **CODESYS is already the EtherCAT master on this system**. A second master cannot share the bus.
 
-### **Option A: Parallel Tap (Recommended — lowest invasiveness)**
+**Consequence: the output must be commanded by CODESYS.** Python can *request* a state, but CODESYS *actuates* it. Both integration paths in §6 and §7 respect this.
 
-Wire the EL2869 output in **parallel** to the relay coil alongside the physical switch.
+### 2.3 Terminal numbers 48–50 are the F4S, not the EL2869
 
-**Architecture:**
-```
-┌─ Front switch ────────┐
-│                       ├─→ Relay coil (24V, 20–50mA) → Compressor ON/OFF
-└─ EL2869 OUT (remote) ─┘
-
-Logic: Relay energizes if EITHER switch OR remote commands ON (OR gate)
-```
-
-**Pros:**
-- No disconnections — existing switch stays fully functional
-- Hardware fallback: if remote fails, manual switch still works
-- Cleanest wiring (2-wire parallel tap)
-- Non-invasive to cabinet certification/FGAS record
-
-**Cons:**
-- Switch and remote can "fight" if they disagree (e.g., switch ON but remote OFF)
-  - Mitigation: implement software interlocks in Python/CODESYS (e.g., if manual switch disagrees with remote state for >10s, log a warning)
-
-**Implementation complexity:** ~20 lines Python or CODESYS
+`48/49/50` came from the F4S nameplate (`Rxmit1`, the 10 V / 20 mA retransmit output). They have nothing to do with the EL2869. Real EL2869 terminal points must be read off the terminal's own label and the CODESYS I/O mapping — they are not assumed anywhere in this document.
 
 ---
 
-### **Option B: Series Interposition (Medium invasiveness)**
+## 3. What the front station actually is
 
-De-wire the switch completely, interpose the EL2869 in series with it as the sole authority.
-
-**Architecture:**
-```
-EL2869 is the PRIMARY authority. Physical switch is optional feedback/override.
-Remote commands ON/OFF; local switch can request manual override via a separate input channel.
-```
-
-**Pros:**
-- Remote has sole authority; no conflicts
-- Can implement sophisticated logic (anti-short-cycle delay, maintenance interlocks, etc.)
-- Cleaner state machine (one clear command source)
-
-**Cons:**
-- Requires breaking and re-routing the switch wires (higher risk of mistakes)
-- If remote fails, cabinet cannot be turned on without re-wiring the switch back in
-- More invasive testing required before deployment
-
-**Implementation complexity:** ~40 lines Python/CODESYS + state machine logic
-
----
-
-### **Option C: Hybrid with 24V Relay (Medium-high invasiveness)**
-
-Add a small 24V intermediate relay that both switch and remote can energize independently (OR logic at the relay level, not in wiring).
-
-**Pros:**
-- Both inputs can turn ON independently; at least one getting to ON = cabinet ON
-- Clean separation of concerns
-- Relay provides electrical isolation
-
-**Cons:**
-- Extra DIN-rail component
-- More wiring complexity
-- Overkill for a binary signal
-
-**Recommendation:** Skip this unless you need isolation for other reasons.
-
----
-
-## Hardware Specification (to confirm)
-
-**Critical — must measure before integration:**
+Wire numbering (`100` common in, `102` out of NO, `103` out of NC) is the textbook signature of a **start/stop station driving a latch (seal-in) circuit**:
 
 ```
-Multimeter reading checklist (mains OFF, isolated):
-- [ ] Relay coil voltage, switch ON: ______ V DC
-- [ ] Relay coil voltage, switch OFF: ______ V DC
-- [ ] Expected: 24V ON, 0V OFF
-- [ ] Relay model/part number (visible on relay case): ____________
-- [ ] Coil current rating: ______ mA (from datasheet)
+        ┌──── 102 ────┐
+ 24 V   │  green I    │
+ (100) ─┼── [NO 3-4] ─┴──► latch coil ──┐   (seal-in contact holds it)
+        │                               │
+        └── [NC 1-2] ── 103 ────────────┘
+           red O  (breaking 103 drops the latch)
 ```
 
-**DLS008 EL2869 Available Output:**
-- **Channel:** OUT 1, 2, 3, 4 (pick one spare, e.g., OUT 3)
-- **Terminal block:** Pins 48–50 (DC+, DC−, Output)
-- **Voltage:** 24V DC (DLS008 standard)
-- **Current capability:** 2 A per channel (relay coil needs ~20–50 mA — well within spec)
-- **Max frequency:** 100 kHz (relay response is slow, ~20 ms — no issue)
+The latching relay or contactor itself is **elsewhere in the panel** — it was not in the photographed area. Its coil is energised by a momentary pulse on `102` and held by its own auxiliary contact; breaking `103` drops it out.
+
+This matters because it determines the whole wiring design, which is why §4 is the blocker.
 
 ---
 
-## Integration Paths
+## 4. ⚠️ Open question that blocks wiring
 
-### **Path 1: Standalone Python + Systemd (fastest to MVP)**
+**Do the green and red buttons spring back when released, or do they stay pressed in?**
 
-Create `cabinet_on_off.py` as a systemd service that:
-- Listens on a TCP socket or reads a config file
-- Commands the EL2869 output via Beckhoff TwinCAT API or GPIO mapping
-- Logs all state changes
+A 30-second check at the panel. Everything downstream depends on it.
 
-**Pros:** Decoupled from CODESYS; independent operation; fast iteration  
-**Cons:** Requires EL2869→Pi GPIO bridging logic (may not be straightforward)
+| Answer | What it means | Wiring |
+|---|---|---|
+| **Spring back (momentary)** | Start/stop latch as drawn in §3 — expected, and consistent with the wire numbering | §5 design: parallel the start contact, series-break the stop string. **Two output channels.** |
+| **Stay pressed (maintained)** | Simple gate, no latch | Single series contact in the coil circuit. **One output channel.** |
 
-### **Path 2: Integrate into CODESYS Gateway (recommended)**
-
-Add a new Modbus register to the f4s_gateway.py:
-- **Register 5:** ON/OFF command (read/write, 0 = OFF, 1 = ON)
-- Wire this register to GVL_Modbus in CODESYS
-- Map GVL_Modbus.xOnOff to the EL2869 output in I/O Mapping
-
-**Pros:** Unified control with setpoint logic; single Modbus interface; matches existing architecture  
-**Cons:** Requires CODESYS project modification; testing requires full runtime
-
-### **Path 3: Both (recommended long-term)**
-
-- Python handles low-level on/off via EL2869 (hardware interface)
-- CODESYS interfaces through gateway Modbus (application logic)
-- Python exposes a `/health` endpoint so CODESYS can confirm state
+Also worth capturing while the panel is open: **where do wires `102` and `103` go?** Finding the latching relay/contactor they land on confirms §3 outright.
 
 ---
 
-## Next Steps (Blocking)
+## 5. Topology — and why pure "Option A" cannot switch the cabinet off
 
-1. **Voltage confirmation** (5 min):
-   - Measure relay coil voltage with switch ON and OFF
-   - Post multimeter readings
+You selected Option A (parallel tap). Taken literally it does not meet the objective, and the reason is worth stating plainly:
 
-2. **Option choice** (decision):
-   - Option A (parallel, recommended) or Option B (series)?
-   - Any constraints on local vs. remote authority?
+> A contact wired **in parallel** produces OR logic. Either source can close the circuit, so either source can turn the cabinet **on** — but neither can turn it **off** while the other is holding it on. A pure parallel tap gives you **remote start only**. Remote stop is impossible by construction.
 
-3. **Integration path** (architecture):
-   - Python systemd + direct EL2869 command?
-   - CODESYS gateway Modbus register (register 5)?
-   - Both?
+The fix is not to abandon Option A — it is to recognise that a start/stop station has **two** control elements, and each needs the opposite treatment:
 
-4. **Once approved:** Wiring diagram, pinout, and 15-line implementation code
+| Function | Local element | Remote element | Logic |
+|---|---|---|---|
+| **Start** | Green NO `3-4` | Contact **in parallel** | OR — either can start |
+| **Stop** | Red NC `1-2` (wire `103`) | Contact **in series** | AND — either can stop |
 
----
+This is standard motor-starter practice and it gives exactly the behaviour you want:
 
-## Reference Files
+- Local operator keeps **full** authority — the red button always stops the cabinet, regardless of what CODESYS is doing.
+- Remote gets **full** authority — it can start and stop independently.
+- Nothing is disconnected. Both taps are additive and reversible: remove two wires and the panel is exactly as it was.
 
-| File | Purpose |
-|---|---|
-| `on-off-control.py` (to be created) | Standalone Python service or CODESYS integration wrapper |
-| `wiring-diagram.md` (to be created) | Exact terminal pinouts and cable routing |
-| `testing-checklist.md` (to be created) | Step-by-step hardware verification before deployment |
+```
+ 24 V (100) ─┬─ [green NO 3-4] ─┬─── 102 ──► latch coil
+             │                  │
+             └─ [K_REM_START] ──┘        (parallel — remote start)
 
----
+ latch string ── [red NC 1-2] ── [K_REM_STOP] ── 103 ──►
+                                 (series — remote stop, NC contact)
+```
 
-## Safety Notes
-
-- **Mains isolation required** for all wiring work (cabinet main breaker OFF)
-- **24V DC is low-voltage, safe to work live** — but confirm with multimeter before assuming
-- **Relay coil inrush current:** Beckhoff EL2869 solid-state relay can handle 20–50 mA comfortably
-- **Compressor short-cycle protection:** If implementing remote command, **software must enforce a 5-minute minimum off-time** before allowing next ON command (refrigeration compressor damage risk)
-- **Fallback mode:** Option A keeps manual switch active — ensures operator can always toggle locally if remote fails
+**Fail-safe consequence:** `K_REM_STOP` uses a **normally-closed** contact, so if the interposing relay loses its coil supply — DLS008 powered down, EL2869 pulled, wire broken — the contact **closes** and the local circuit works normally. A dead automation system degrades to a manual cabinet, not a stuck one. This is the correct failure direction.
 
 ---
 
-## Cabinet Specifications (Reference)
+## 6. Bill of materials
+
+| Item | Spec | Notes |
+|---|---|---|
+| Interposing relay ×2 | 24 V DC coil, DIN rail, **integral freewheel diode**, volt-free changeover contact | e.g. Phoenix Contact PLC-RSC-24DC/21 or Finder 38-series. One provides the NO for start, one the NC for stop |
+| EL2869 channels ×2 | Spare digital outputs on the existing DLS008 terminal | **Verify per-channel current rating against the relay coil draw before ordering** — do not assume |
+| Cable | 2-core, screened, 0.5–0.75 mm², ELV rated | DLS008 → cabinet control enclosure |
+| Ferrules + wire numbers | Continue the existing JTS numbering scheme | Label as e.g. `102A`, `103A` so the tap is obvious to the next engineer |
+
+Why interposing relays rather than wiring the EL2869 straight into the circuit: galvanic isolation between the DLS008 24 V rail and the JTS control circuit, no loading of a circuit that isn't ours, and a volt-free contact that behaves identically to the button it parallels. It also keeps the modification entirely reversible.
+
+---
+
+## 7. Path 1 — CODESYS-native (recommended first)
+
+CODESYS owns the EtherCAT master, so it drives the EL2869 directly. Command source is the watch window now, WebVisu later.
+
+### Step 1 — Declare the interface
+
+Add to `GVL_HMI` (operator-facing, kept separate from `GVL_Modbus` so the driver boundary stays clean):
+
+```iec61131
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    xCabinetOnCmd    : BOOL;   (* operator/remote request: TRUE = run *)
+    xCabinetRunning  : BOOL;   (* feedback, if a DI is fitted *)
+    xStartPulse      : BOOL;   (* -> EL2869 ch A, parallels green button *)
+    xStopPermit      : BOOL;   (* -> EL2869 ch B, TRUE = allow run      *)
+    tOffLockRemain   : TIME;   (* anti-short-cycle countdown           *)
+END_VAR
+```
+
+### Step 2 — Map the outputs
+
+In the EL2869's **I/O Mapping** tab, map two spare channels:
+
+- `xStartPulse` → channel A
+- `xStopPermit` → channel B
+
+Record the actual terminal points from the terminal label and add them to §6 of this document. Set **Always update variables = Enabled 1** and bus cycle task = **MainTask**, matching the Modbus configuration already proven in this project.
+
+### Step 3 — Decide the stop-state behaviour
+
+PLC Settings currently has **Behavior for outputs in stop = Keep current values**.
+
+**Recommendation: leave it as "Keep current values."** A CODESYS download or runtime restart then does *not* trip a cabinet that is mid-test — which matters directly for ISO 15848-1 runs that take hours. The red button remains the operator's guaranteed stop. Changing this to "Set to default" would make every code download an unplanned cabinet shutdown.
+
+### Step 4 — Sequencer with anti-short-cycle interlock
+
+**This interlock is mandatory, not optional.** Software can command off→on far faster than a hand can, and a refrigeration compressor restarted against head pressure will fail. The interlock lives in CODESYS because CODESYS is the last element before the coil.
+
+```iec61131
+VAR
+    tonStartPulse : TON;              (* start pulse width          *)
+    tonOffLock    : TON;              (* minimum off time           *)
+    xCmdPrev      : BOOL;
+    xRunLatch     : BOOL;             (* our view of latch state    *)
+END_VAR
+VAR CONSTANT
+    tPULSE   : TIME := T#1S;          (* comfortably longer than latch pickup *)
+    tOFFLOCK : TIME := T#5M;          (* compressor anti-short-cycle          *)
+END_VAR
+
+(* --- minimum off-time timer: runs whenever we are not running --- *)
+tonOffLock(IN := NOT xRunLatch, PT := tOFFLOCK);
+GVL_HMI.tOffLockRemain := tOFFLOCK - tonOffLock.ET;
+
+(* --- STOP: break the series contact immediately, no interlock --- *)
+(* Stopping is always allowed. Only starting is ever delayed.       *)
+GVL_HMI.xStopPermit := GVL_HMI.xCabinetOnCmd;
+
+IF NOT GVL_HMI.xCabinetOnCmd THEN
+    xRunLatch := FALSE;
+END_IF
+
+(* --- START: rising edge, but only once the off-lock has expired --- *)
+IF GVL_HMI.xCabinetOnCmd AND NOT xCmdPrev AND tonOffLock.Q THEN
+    tonStartPulse(IN := FALSE); (* reset *)
+    tonStartPulse(IN := TRUE, PT := tPULSE);
+    xRunLatch := TRUE;
+END_IF
+xCmdPrev := GVL_HMI.xCabinetOnCmd;
+
+tonStartPulse(IN := xRunLatch AND GVL_HMI.xCabinetOnCmd, PT := tPULSE);
+GVL_HMI.xStartPulse := tonStartPulse.IN AND NOT tonStartPulse.Q;
+```
+
+Note the asymmetry: **stop is instant, start is gated.** Never delay a stop.
+
+### Step 5 — Operate from the watch window
+
+Same prepare-then-write workflow as the setpoint work: set `GVL_HMI.xCabinetOnCmd` in the **Prepared value** column, `Ctrl+F7` to commit. Watch `xStartPulse` produce a 1 s pulse, and the cabinet fan start.
+
+---
+
+## 8. Path 2 — Python-originated command through the gateway
+
+Extends the existing register map so a command can originate from Python (script, cron, test sequencer) while CODESYS still does the actuating. This is the path that eventually lets a test script run the cabinet unattended.
+
+### Step 1 — Extend the gateway register map
+
+Two new registers in `f4s_gateway.py`, following the existing pattern exactly:
+
+| TCP reg | Direction | Meaning |
+|---|---|---|
+| 5 | write | On/off command: 0 = stop, 1 = run |
+| 6 | read | On/off state echo: what the gateway currently believes was requested |
+
+Register 5 is a plain holding register, **not** a self-clearing trigger like register 1 — it is a level, not an event. CODESYS reads it cyclically and treats it as the requested state.
+
+### Step 2 — Add the CODESYS read channel
+
+New channel on the Modbus TCP Slave:
+
+| # | Access | Trigger | READ off | Maps to |
+|---|---|---|---|---|
+| 5 | Read Holding Registers (FC03) | Cyclic 1000 ms | `16#0005` | `GVL_Modbus.wOnOffCmd` |
+
+Map the **element row**, type WORD, as with every other channel in this project.
+
+### Step 3 — Feed it into the same sequencer
+
+```iec61131
+(* Python request OR local CODESYS request; the sequencer in Path 1
+   still owns the interlock, so this adds a source, not a bypass. *)
+GVL_HMI.xCabinetOnCmd := (GVL_Modbus.wOnOffCmd = 1) OR xLocalHmiRequest;
+```
+
+Path 2 deliberately does **not** get its own actuation route. Every command, wherever it comes from, funnels through the one sequencer that holds the anti-short-cycle interlock. One interlock, one place, no way around it.
+
+### Step 4 — Command it from Python
+
+```python
+from pymodbus.client import ModbusTcpClient
+
+def set_cabinet(run: bool, host="10.1.6.17"):
+    """Request cabinet run/stop. CODESYS performs the actuation."""
+    with ModbusTcpClient(host, port=502) as c:
+        c.write_register(5, 1 if run else 0, device_id=1)
+
+def cabinet_state(host="10.1.6.17") -> bool:
+    with ModbusTcpClient(host, port=502) as c:
+        return c.read_holding_registers(6, count=1, device_id=1).registers[0] == 1
+```
+
+A request is not a confirmation. Register 6 echoes what was *asked for*; proof that the cabinet actually started is the fan, or a DI fitted to the latch auxiliary contact.
+
+---
+
+## 9. Test plan
+
+Run with the cabinet empty — no valve under test — until T8 passes.
+
+| # | Test | Method | Pass criterion |
+|---|---|---|---|
+| T1 | Local start unaffected | Green button, automation powered but idle | Cabinet starts as before |
+| T2 | Local stop unaffected | Red button while running | Cabinet stops immediately |
+| T3 | Remote start | `xCabinetOnCmd := TRUE` | Fan starts within ~1 s; pulse is one-shot |
+| T4 | Remote stop | `xCabinetOnCmd := FALSE` | Fan stops immediately |
+| T5 | Local stop overrides remote | Remote commanding run, press red | Cabinet stops and **stays** stopped |
+| T6 | Anti-short-cycle | Stop, then immediately command start | Start refused; `tOffLockRemain` counts down; start occurs only after it expires |
+| T7 | Fail-safe | Pull the EL2869 / power down DLS008 while running | Local buttons still work; cabinet controllable manually |
+| T8 | CODESYS restart | Download new code while cabinet running | Cabinet keeps running (per §7 step 3) |
+
+---
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| Remote start does nothing | Pulse too short for the latch to pick up | Increase `tPULSE` to 2 s; confirm relay actually closes with a meter |
+| Cabinet starts then immediately stops | Latch not sealing in, or the stop string is open | Verify `xStopPermit` is TRUE *before* the start pulse, not after |
+| Remote stop does nothing | Stop relay wired parallel instead of series, or an NO contact used where NC is required | Meter across the relay contact — must be **closed** when permitted, **open** to stop |
+| Cabinet cannot be started at all after wiring | `K_REM_STOP` sitting open because CODESYS is stopped or the channel is unmapped | Confirm the NC contact closes with the coil de-energised — this is the fail-safe check from §5 |
+| Start command accepted but nothing happens for minutes | Anti-short-cycle interlock active — working as designed | Watch `tOffLockRemain` |
+| Everything green in CODESYS, output never changes | Bus cycle task "unspecified", or *Always update variables* disabled | Same failure mode as the Modbus work — set task = MainTask |
+| Register 5 writes accepted, CODESYS never sees them | Channel 5 not added, or element row not mapped | Compare against the working channels 0–4 |
+| Relay chatters | DO channel current below relay coil inrush, or missing freewheel diode | Check the EL2869 rating against the coil; use a relay with an integral diode |
+
+---
+
+## 11. Open items
+
+1. **Momentary or maintained buttons?** (§4) — blocks the wiring design
+2. **Where do wires `102` and `103` terminate?** — confirms the latch circuit
+3. **EL2869 per-channel current rating** vs chosen relay coil — verify against the Beckhoff datasheet before ordering
+4. **Is a run-feedback DI wanted?** A spare EL1409 channel on the latch auxiliary contact would turn `xCabinetRunning` from an assumption into a measurement. Recommended — without it, the system commands but never confirms, which is the exact weakness the setpoint work fixed with read-back
+5. **JTS/DLS008 schematic** still not in the repo — would confirm §3 without a physical trace
+
+---
+
+## 12. Reference
 
 | Item | Value |
 |---|---|
-| Cabinet | Left Hand Small Temperature Cabinet (JTS Ltd, Wales) |
+| Cabinet | Left Hand Small Temperature Cabinet, JTS Ltd |
 | Controller | Watlow F4S, F4SH-CCA0-01RG, SN 038983 |
-| Control voltage | 24V DC (DLS008 standard) |
-| Compressor | Driven by F4S Out 1 relay, gated by middle relay (X) |
-| Modbus | RTU over RS-232 @ 19200 8N1, gateway @ TCP:502 |
-| Runtime | CODESYS Control for Linux ARM64 SL on Raspberry Pi 10.1.6.17 |
-
----
-
-**Status:** Awaiting hardware confirmation. Once relay coil voltage and integration path are decided, proceed to wiring and code implementation.
+| Control circuit | 24 V DC, confirmed by measurement 28 July 2026 |
+| Front station | Illuminated twin pushbutton — NO `3-4` (start), lamp `X1-X2`, NC `1-2` (stop) |
+| Wire numbers | `100` common feed, `102` start out, `103` stop out, `069`/`105` lamp |
+| Output module | Beckhoff EL2869 on EK1100, EtherCAT — **driven by CODESYS only** |
+| Runtime | CODESYS Control for Linux ARM64 SL, Raspberry Pi 10.1.6.17 |
