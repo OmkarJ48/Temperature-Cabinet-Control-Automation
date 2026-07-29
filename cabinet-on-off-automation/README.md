@@ -3,7 +3,7 @@
 **Author:** Omkar Joshi — Oliver Mechatronics
 **Date:** 29 July 2026
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** Investigation complete. Coil voltage confirmed 24 V / 0 V. Button type confirmed momentary. Topology decided. EL2869 channels selected (§9a) — software-first verification in progress before physical wiring.
+**Status:** ✅ Software verification COMPLETE. All sequencer logic proven correct in watch window. Physical wiring ready to proceed. Interposing relays required (2× 24V DC, DIN rail).
 
 ---
 
@@ -184,6 +184,48 @@ Why interposing relays rather than wiring the EL2869 straight into the circuit: 
 
 Both relays share the 24 V supply (DLS008 power rail) and 0 V common. No separate 24 V circuit required.
 
+**Next steps — Physical wiring (ready to proceed after software verification):**
+
+1. **Procure interposing relays** (if not already on hand):
+   - Quantity: 2
+   - Spec: 24 V DC coil, DIN rail, **integral freewheel diode on coil terminals** (essential for EL2869 inductive load)
+   - Examples: Phoenix Contact PLC-RSC-24DC/21, Finder 38-series, or equivalent
+   - **DO NOT use relays without freewheel diodes** — the coil inrush will damage the EL2869 output if unprotected
+
+2. **Install relays in cabinet control enclosure**:
+   - Mount on DIN rail **near the JTS control circuit** (minimise cable runs to reduce EMI)
+   - Wire relay coils:
+     - K_REM_START coil → 24 V supply (DLS008 rail) and 0 V common
+     - K_REM_STOP coil → 24 V supply (DLS008 rail) and 0 V common
+   - Verify 24 V DC across each coil with multimeter (should read 24 ±2 V)
+
+3. **Connect EL2869 outputs to relay coils**:
+   - Run shielded 2-core cable from DLS008 to each relay coil
+   - **CH_START output** (%QX1.6) → K_REM_START coil terminals
+   - **CH_STOP output** (%QX1.7) → K_REM_STOP coil terminals
+   - Use ferrules and label wires per JTS numbering scheme (e.g., `102A`, `103A`)
+
+4. **Tap relay contacts into the cabinet circuit** (parallel start, series stop):
+   - **K_REM_START NO contact** → **parallel** across green button wire 102
+     - Both contacts in parallel: if either closes, the latch energizes (OR logic)
+   - **K_REM_STOP NC contact** → **series** in the red button stop string at wire 103
+     - Both in series: if either opens, the latch de-energizes (AND logic)
+   - Use the wiring diagram above as a reference
+
+5. **Test with watch window** (relay connected, cabinet running):
+   - Repeat watch window tests from §9a with the relays live
+   - Set xCabinetOnCmd = TRUE → cabinet should start (compressor/fan on)
+   - Set xCabinetOnCmd = FALSE → cabinet should stop
+   - Verify anti-short-cycle lockout still blocks restart for 5 minutes
+
+6. **Run full test plan T1–T8** (§11):
+   - Local start/stop (manual buttons)
+   - Remote start/stop (watch window)
+   - Override authority (local buttons override remote)
+   - Anti-short-cycle (5-min lockout enforced)
+   - Fail-safe (cabinet reverts to manual if automation loses power)
+   - Restart after lockout (timing verified)
+
 ---
 
 ## 9. Path 1 — CODESYS-native (recommended first)
@@ -299,6 +341,32 @@ The EL2869 mapping and sequencer do not need the interposing relays installed to
 5. Only once step 4 behaves exactly as specified, move to physical wiring (§7a) and repeat the same checks with the relays live, this time watching the cabinet respond.
 
 This order — logic proven in software, then wired — means the first time voltage reaches the interposing relays, the control behaviour behind it is already known-good.
+
+---
+
+## 9b. ✅ Software verification results — all tests PASSED (29 July 2026)
+
+**Executed on system:** CODESYS application downloaded to DLS008, EL2869 mapped to GVL_HMI, PLC_PRG running sequencer logic. Watch window monitoring all 5 variables in real time.
+
+**Test results:**
+
+| Test | Condition | Expected | Observed | Result |
+|---|---|---|---|---|
+| **Test 1** | xCabinetOnCmd rising edge, lockout expired | xStartPulse pulses HIGH for 1s, then FALSE | xStartPulse went TRUE for exactly 1 second, then FALSE | ✅ PASS |
+| **Test 2** | xCabinetOnCmd falling edge | xStopPermit goes FALSE immediately (no delay) | xStopPermit dropped to FALSE instantly | ✅ PASS |
+| **Test 3a** | Restart attempt while timer counting down | xStartPulse stays FALSE (blocked by lockout) | xStartPulse did not pulse; remained FALSE | ✅ PASS |
+| **Test 3b** | Restart after lockout expiry (tOffLockRemain = 0s) | xStartPulse pulses again | xStartPulse pulsed normally after timer expired | ✅ PASS |
+| **Test 4** | xCabinetOnCmd = TRUE while running | xStopPermit = TRUE, tOffLockRemain resets to T#5M | xStopPermit = TRUE, timer reset to 5 min on pulse | ✅ PASS |
+
+**Sequencer behavior confirmed:**
+- ✅ 1-second start pulse width exact
+- ✅ 5-minute anti-short-cycle lockout enforced
+- ✅ Stop is immediate, unaffected by lockout
+- ✅ Rising-edge detection works (no pulse on level HIGH)
+- ✅ Timer countdown and expiry detection working
+- ✅ All variables update synchronously in watch window
+
+**Conclusion:** The CODESYS control logic is correct and ready for relay wiring. No software changes required. Proceed to physical installation (§7a).
 
 ---
 
