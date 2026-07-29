@@ -203,6 +203,30 @@ This is why **§7 specifies relay coils with integral freewheel diodes** — it 
 
 Why interposing relays rather than wiring the EL2869 straight into the circuit: galvanic isolation between the DLS008 24 V rail and the JTS control circuit, no loading of a circuit that isn't ours, and a volt-free contact that behaves identically to the button it parallels. It also keeps the modification entirely reversible.
 
+### 7.1 Why TWO relays (and two EL2869 channels), not one?
+
+A standard changeover relay has both NO (3-4) and NC (1-2) contacts available from a single coil. Theoretically, one relay could provide both the start contact (NO, parallel) and stop contact (NC, series). Why do we specify two?
+
+**Fail-safe coupling protection.** When a single relay coil energizes (to send a start pulse):
+- The NO contact closes (start works) ✓
+- The NC contact opens (stop is blocked) ✗
+
+This creates a dangerous window: if the operator presses the red button during the 1-second start pulse, the stop request is **ignored** because the remote NC contact is already open. This violates the cardinal rule of fail-safe automation: *"The red button must work at ALL times, no exceptions."*
+
+**With two independent relays and two independent EL2869 channels:**
+
+| Control | Relay | EL2869 CH | Behavior |
+|---|---|---|---|
+| Start pulse (1 sec) | K_REM_START coil → ON | CH1 energizes | NO contact closes; start flows through parallel contact |
+| Stop permission (continuous) | K_REM_STOP coil → ON | CH2 held high | NC contact stays closed; stop circuit ready |
+| Red button pressed during start | Local NC opens | CH2 unaffected | Stop works immediately because remote NC is still closed |
+
+The sequencer drives them independently:
+- `xStartPulse` → CH1 (1-second pulse)
+- `xStopPermit` → CH2 (held high until stop command)
+
+This ensures the red button's NC path is **never blocked by start logic**. The extra relay and EL2869 channel are the cost of safety, and this is standard motor-starter practice worldwide.
+
 ---
 
 ## 7a. Wiring diagram and terminal assignments
