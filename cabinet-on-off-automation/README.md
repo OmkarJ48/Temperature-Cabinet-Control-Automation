@@ -3,7 +3,17 @@
 **Author:** Omkar Joshi — Oliver Mechatronics
 **Date:** 29 July 2026
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** ✅ Software verification COMPLETE. All sequencer logic proven correct in watch window. Physical wiring ready to proceed. Interposing relays required (2× 24V DC, DIN rail).
+**Status:** ✅ Software verification COMPLETE. All sequencer logic proven correct in watch window. Hardware route FROZEN — see §15.
+
+> ### ⚠️ READ §15 FIRST — it supersedes the wiring design in §6–§9a
+>
+> The **as-designed route is now §15**: EL2869 CH15/CH16 → `-202X3` DI/DO 37-way connector →
+> thermocouple junction box (pass-through only) → cabinet on/off switch station, implementing
+> **Option C** (remote start *and* remote stop, no interposing relays).
+>
+> Sections 6, 7, 7a and 9a describe the earlier interposing-relay / analogue-port designs. They
+> are retained as design history and **must not be built**. The software (§9, §9b) is unchanged
+> and remains fully valid — only the wiring route changed.
 
 ---
 
@@ -561,3 +571,324 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 | Wire numbers | `100` common feed, `102` start out, `103` stop out, `069`/`105` lamp |
 | Output module | Beckhoff EL2869 on EK1100, EtherCAT — **driven by CODESYS only** |
 | Runtime | CODESYS Control for Linux ARM64 SL, Raspberry Pi 10.1.6.17 |
+
+---
+
+# 15. AS-DESIGNED ARCHITECTURE — DI/DO route, Option C
+
+**Frozen 29 July 2026. This section supersedes §6, §7, §7a and §9a.**
+Software (§9, §9b) is unchanged and remains valid.
+
+## 15.1 What changed and why
+
+| | Superseded design | **As-designed (this section)** |
+|---|---|---|
+| Field route | Analogue XLR port (LVDT / flow meter) | **`-202X3` DI/DO 37-way connector** |
+| Interposing relays | 2 × 24 V DC required | **None — direct from EL2869** |
+| Stop function | Local only (Option A) | **Remote + local (Option C)** |
+| Junction box role | Signal break point | **Pass-through only** |
+
+Three reasons the DI/DO connector is correct and the analogue ports were not:
+
+1. **It is the designed route.** Drawing 7168-DWG-100 pages 217–218 already allocate every
+   EL2869 output to a `-202X3` pin. Outputs O9–O16 (pins 30–37) are marked SPARE. We are
+   using the panel as its designer intended, not repurposing an instrument port.
+2. **No analogue channel is sacrificed.** The earlier plan released an ELM3148 input. This
+   plan releases nothing — the pins are already spare.
+3. **Correct signal class.** `-202X3` is the panel's digital I/O boundary, already carrying
+   24 V switched signals. The XLR ports are instrumentation-grade analogue.
+
+## 15.2 End-to-end architecture
+
+```
+  COMMAND SOURCES
+    CODESYS watch window  ──┐
+    Python via Modbus TCP ──┤   (cabinet_onoff.py -> gateway reg 5 -> GVL_Modbus.wOnOffCmd)
+                            ▼
+                   PLC_PRG sequencer          <-- owns the 5-minute anti-short-cycle interlock
+                            │                     (single interlock, no bypass — §9 step 4)
+              xStartPulse ──┤──► EL2869 CH15
+              xStopPermit ──┘──► EL2869 CH16
+                            ▼
+ ┌──────────────────────────────────────────────────────────────┐
+ │ DLS008 ENCLOSURE                                             │
+ │   EL2869  (-217K1, EtherCAT slave 1006)                      │
+ │     O15 ── wire 21807 ──┐                                    │
+ │     O16 ── wire 21808 ──┤                                    │
+ │     0 V  (-202X2) ──────┤                                    │
+ │                         ▼                                    │
+ │        -202X3   DI/DO 37-way, gland plate                    │
+ │           pin 36 = CH15   (start pulse)                      │
+ │           pin 37 = CH16   (station supply / stop permit)     │
+ │           pin 20 + 29 = 0 V                                  │
+ └────────────────────────────┬─────────────────────────────────┘
+                              │  37-way mating plug
+                              │  4-core screened cable, 0.5–0.75 mm²
+                              ▼
+ ┌──────────────────────────────────────────────────────────────┐
+ │ THERMOCOUPLE JUNCTION BOX          *** PASS-THROUGH ONLY *** │
+ │   BODY / MONITOR / CHAMBER TC terminals — DO NOT TOUCH       │
+ │   Cable enters a SPARE gland, exits a SPARE gland, unbroken  │
+ │   Screen continuous through the box, bonded to nothing here  │
+ └────────────────────────────┬─────────────────────────────────┘
+                              │  screened cable
+                              ▼
+ ┌──────────────────────────────────────────────────────────────┐
+ │ CABINET ON/OFF SWITCH STATION (Watlow F4S cabinet)           │
+ │   CH16  ─────────────────►  wire 100   (station 24 V supply) │
+ │   CH15  ──►|── diode ────►  wire 102   (parallel, green NO)  │
+ │   0 V   ─────────────────►  wire 101   (0 V common)          │
+ │   Cabinet's ORIGINAL 24 V feed to wire 100: LIFTED + PARKED  │
+ │   Local green + red buttons: physically unmodified           │
+ └──────────────────────────────────────────────────────────────┘
+```
+
+## 15.3 Pin map — DLS008 side
+
+From drawing 7168-DWG-100 page 218 (Digital Output Channels 8-15) and page 203
+(Beckhoff CPU / 24 V distribution):
+
+| CODESYS | EL2869 output | Wire no. | `-202X3` pin | Function |
+|---|---|---|---|---|
+| `GVL_HMI.xStartPulse` — CH15 (`16#70E0:16#01`) | O15 | `21807` | **36** | Start pulse, 1 s |
+| `GVL_HMI.xStopPermit` — CH16 (`16#70F0:16#01`) | O16 | `21808` | **37** | Station supply / stop permit |
+| — | — | from `-202X2` | **20**, **29** | 0 V return |
+| — | — | from `-202X1` | 1, 10, 19 | Fused 24 V (not used by this design) |
+
+⚠️ **Verify by continuity before committing.** These pin numbers are read from the drawing.
+Buzz EL2869 terminal 15 → `-202X3` pin 36 and terminal 16 → pin 37 and record what you
+measure. The as-measured values become the record and supersede this table.
+
+## 15.4 Option C — how remote stop works without a relay
+
+An EL2869 output can *source* 24 V; it cannot *break* someone else's circuit. Option C solves
+remote stop by making the DLS the **supply** for the button station rather than trying to
+interrupt it:
+
+```
+  BEFORE (as-built)                     AFTER (Option C)
+
+  cabinet 24 V                          EL2869 CH16 ──► wire 100
+        │                                                  │
+        └──► wire 100 ─┬─ [green NO 3-4] ─┬─ 102 ─► latch  ├─ [green NO] ─┬─ 102 ─► latch
+                       │                  │         coil    │             │        coil
+                       └─ [red NC 1-2] ── 103 ──────┘       └─ [red NC] ─ 103 ─────┘
+                                                     ▲
+                                          EL2869 CH15 ──►|── (parallel with green NO)
+```
+
+| Action | Mechanism | Works? |
+|---|---|---|
+| **Remote start** | CH16 HIGH (station live) + CH15 pulses 1 s onto wire 102 → latch picks up, seals in | ✅ |
+| **Remote stop** | CH16 → LOW → station loses its supply → latch cannot hold → drops out | ✅ |
+| **Local start** | Green button, station powered by CH16 | ✅ *(requires DLS healthy)* |
+| **Local stop** | Red NC breaks wire 103 — a physical series break, independent of CH15/CH16 | ✅ **always** |
+
+### The accepted trade-off — state this to operators
+
+**Option C inverts the fail-safe direction, deliberately and with management approval.**
+
+If the DLS008 is powered down, unplugged, faulted, or CODESYS is stopped, CH16 goes LOW and:
+
+- the cabinet **stops**, and
+- it **cannot be started from the local buttons** until the DLS is healthy again.
+
+This is the known cost of relayless remote stop and it **will fail test T7 as originally
+written** (§11). T7 must be re-scoped for Option C: the pass criterion becomes *"cabinet stops
+safely and predictably; local restart is unavailable until DLS returns"* — not *"local buttons
+still work."*
+
+The red button remains a guaranteed stop under all conditions, because it is a physical
+series break in the latch string. Local *stop* authority is never lost; local *start*
+authority depends on the DLS.
+
+> **Operator notice to post at the cabinet:**
+> *"Cabinet start is enabled by the DLS008 control system. If the cabinet will not start from
+> the green button, check the DLS008 is powered and CODESYS is running. The red STOP button
+> always works."*
+
+## 15.5 Bill of materials
+
+| Item | Qty | Status |
+|---|---|---|
+| EL2869 channels 15 & 16 | 2 | ✅ Already installed and CODESYS-mapped, verified spare |
+| `-202X3` pins 36, 37, 20/29 | 4 | ✅ Already installed, marked SPARE on drawing |
+| 37-way mating plug for `-202X3` | 1 | ⚠️ **VERIFY** — see §15.8 Q1 |
+| 4-core screened cable, 0.5–0.75 mm², ELV | ~5–10 m | On site (site-measure the run) |
+| Diode 1N4007 / 1N5408 | 1 | See note below |
+| Ferrules + wire-number sleeves | as req. | On site |
+| **Interposing relays** | **0** | **Not required by this design** |
+
+**Diode note.** The diode on the CH15 branch prevents wire 102 (at 24 V while the cabinet runs,
+via the seal-in) back-feeding the switched-off CH15 output. In Option C both channels share the
+same DLS 24 V rail, so a back-fed output sees only its own rail voltage — tolerable, but out of
+spec. **Fit the diode if one is available**; if not, record the omission as a deviation and fit
+it at the next opportunity. Anode toward the junction box, cathode toward wire 102.
+
+## 15.6 Step-by-step installation
+
+Work in order. Do not skip the measurements — three of them are go/no-go gates.
+
+### Stage 0 — Pre-work measurements (cabinet running normally, nothing disconnected)
+
+| # | Measure | Expected | Why it matters |
+|---|---|---|---|
+| 0.1 | Wire 100 → cabinet 0 V, cabinet running | ≈ 24 V DC | Confirms station supply voltage and polarity |
+| 0.2 | Wire 102 → cabinet 0 V, running / stopped | ≈ 24 V / 0 V | Confirms the seal-in behaviour assumed in §15.4 |
+| 0.3 | **Latch coil current** — clamp or in-line meter on wire 100, cabinet running | **must be < 500 mA** | **GO/NO-GO.** This is the load CH16 will carry. EL2869 is 0.5 A/channel |
+| 0.4 | Trace where wire 100 gets its 24 V | identified terminal | This is the connection Stage D lifts |
+| 0.5 | Continuity: DLS 0 V ↔ cabinet 0 V (both isolated) | record open or closed | If already common via earth, note it — affects §15.7 loop check |
+
+If 0.3 exceeds 500 mA, **stop.** Option C is not viable as drawn and needs an interposing
+relay after all — raise it before proceeding.
+
+### Stage A — DLS008 enclosure (panel isolated, EtherCAT down)
+
+1. Confirm EL2869 terminals **15** and **16** — empty, or already carrying wires `21807`/`21808`.
+2. **Continuity-map** EL2869 t15 → `-202X3` pin 36, and t16 → pin 37. Record. Correct §15.3 if
+   the panel disagrees with the drawing — **the panel wins**.
+3. If `21807`/`21808` are absent, run them: EL2869 t15 → `-202X3` pin 36, t16 → pin 37, sleeved
+   `21807` / `21808` per the drawing's own numbering.
+4. Confirm `-202X3` pins **20** and **29** land on the `-202X2` 0 V distribution block.
+5. Log it: *"EL2869 O15/O16 committed to cabinet on/off control via -202X3 pins 36/37,
+   [date] [initials]."*
+
+### Stage B — DLS008 → thermocouple junction box
+
+6. Make up the 37-way mating plug: **pin 36 → core 1 (CH15)**, **pin 37 → core 2 (CH16)**,
+   **pins 20 and 29 → cores 3 and 4 (0 V)**, screen → backshell.
+7. If the plug is already fitted and harnessed for other circuits, add the four cores to the
+   spare pins — do **not** disturb existing cores. Photograph before and after.
+8. Route the cable to the junction box. Enter through a **spare gland**.
+
+### Stage C — Through the junction box (pass-through only)
+
+9. **Do not land any core on the BODY / MONITOR / CHAMBER terminals.** They are thermocouple
+   terminals feeding the EL3314 — 24 V will destroy the module and corrupt every temperature
+   reading on the rig.
+10. Pass the cable **straight through**, unbroken, entering one spare gland and exiting another.
+    No terminals, no splice, nothing added inside the box.
+11. Screen passes through **continuous and bonded to nothing** inside the box.
+12. Label both sides of the box: `DO CH15/16 — DLS -202X3 → cabinet on/off. PASS-THROUGH. Do
+    not terminate.`
+
+### Stage D — Cabinet on/off switch station (cabinet isolated)
+
+13. **Lift the cabinet's own 24 V feed from wire 100** (identified at step 0.4). Park it on a
+    spare insulated terminal, sleeved `100-ORIG — original supply, reconnect to revert`.
+    **This single connection is the whole reversibility story** — restoring it returns the
+    cabinet to as-built.
+14. **CH16 core → wire 100.** The station is now supplied by the DLS.
+15. **CH15 core → diode (anode toward junction box) → wire 102**, at the green button's
+    outgoing terminal 4. Heat-shrink the diode, inside the enclosure.
+16. **Both 0 V cores → wire 101** (cabinet 0 V common). This bonds the two 0 V references and
+    provides the return path for the latch coil current now sourced from CH16.
+17. **Screen: cut back and insulate.** No bond at the cabinet end. Meter-verify: **no
+    continuity between screen and cabinet metalwork.**
+18. Ferrule and sleeve every core: `102A` (CH15), `100A` (CH16), `101A` ×2 (0 V).
+
+## 15.7 Commissioning
+
+### C1 — Static checks (before energising)
+
+- [ ] No continuity screen ↔ cabinet metalwork (step 17)
+- [ ] No continuity CH15 core ↔ CH16 core
+- [ ] Diode orientation correct — conducts junction-box→102, blocks 102→junction-box
+- [ ] Wire 100 no longer connected to the cabinet's own 24 V; `100-ORIG` parked and insulated
+- [ ] Ground-loop check: with everything connected but unpowered, confirm the 0 V bond is the
+      intended single path (compare against measurement 0.5)
+
+### C2 — EtherCAT leg (DLS powered, CODESYS online, cabinet isolated)
+
+- [ ] EL2869 `xSetOperational` = TRUE, no new watchdog entries against slave 1006
+- [ ] `GVL_HMI.xStopPermit := TRUE` → CH16 LED on; meter wire 100 → 0 V = **24 V**
+- [ ] `GVL_HMI.xCabinetOnCmd := TRUE` → CH15 LED pulses ~1 s; meter wire 102 shows a 24 V pulse
+- [ ] `tOffLockRemain` counts down after a stop and blocks restart until zero
+
+### C3 — Live functional tests (cabinet energised, chamber empty)
+
+Re-scoped from §11 for Option C. **T7 is deliberately changed.**
+
+| # | Test | Method | Pass criterion |
+|---|---|---|---|
+| T1 | Local start | Green button, DLS healthy | Cabinet starts |
+| T2 | Local stop | Red button while running | Cabinet stops immediately |
+| T3 | Remote start | `xCabinetOnCmd := TRUE` | Fan starts ≈1 s; pulse is one-shot |
+| T4 | **Remote stop** | `xCabinetOnCmd := FALSE` | **Cabinet stops immediately** |
+| T5 | Local stop overrides remote | Remote commanding run, press red | Stops and **stays** stopped |
+| T6 | Anti-short-cycle | Stop, immediately command start | Refused; `tOffLockRemain` counts down; starts only after expiry |
+| T7 | **Fail-safe (re-scoped)** | Power down DLS008 while running | Cabinet **stops**. Local start unavailable until DLS returns. Red button still breaks the circuit. **This is expected behaviour for Option C, not a failure** |
+| T8 | CODESYS restart | Download new code while running | Cabinet keeps running (outputs hold — §9 step 3) |
+
+**Declare qualified only after two clean T1–T8 runs on different days**, matching the rule used
+for the setpoint PoC. Record raw values, not tick boxes.
+
+### C4 — Modbus TCP leg (optional, after C3 passes)
+
+1. Extend `f4s_gateway.py` to 7 registers (reg 5 command, reg 6 echo) — commit to the branch
+   and `git pull` on the Pi. Never hand-edit on the Pi.
+2. Add CODESYS channel 5: FC03, cyclic 1000 ms, READ offset `16#0005` → `GVL_Modbus.wOnOffCmd`
+   (element row, `Always update = Enabled 1`, bus cycle task = `MainTask`).
+3. In `PLC_PRG`: `GVL_HMI.xCabinetOnCmd := (GVL_Modbus.wOnOffCmd = 1) OR xLocalHmiRequest;`
+4. Test with `cabinet_onoff.py on` / `off` / `status` — same physical result as the watch window.
+
+## 15.8 Open verifications — answer before Stage B
+
+| # | Question | Impact if unresolved |
+|---|---|---|
+| **Q1** | **Is a 37-way mating plug for `-202X3` available?** One appears fitted in the site photograph with red/black/grey cores. If it exists — which pins are already occupied? If not — this is the one purchase this design cannot avoid | **Blocks Stage B entirely** |
+| **Q2** | Spare gland or knockout available on the thermocouple junction box for pass-through? (M20 knockouts observed on a similar box) | Blocks Stage C; may need a gland |
+| **Q3** | Do wires `21807`/`21808` physically exist at EL2869 t15/t16? Drawing says yes, earlier photo suggested the connector was unpopulated | Determines whether Stage A step 3 is needed |
+| **Q4** | Latch coil current (step 0.3) | **GO/NO-GO for Option C** |
+| **Q5** | Where does wire 100 get its 24 V (step 0.4) | Blocks Stage D step 13 |
+
+## 15.9 Reversibility
+
+To return the cabinet to as-built condition:
+
+1. Reconnect `100-ORIG` to wire 100; remove the CH16 core.
+2. Remove the CH15 core and diode from wire 102.
+3. Remove the 0 V cores from wire 101.
+4. Withdraw the cable; remove the four cores from the `-202X3` plug.
+
+The local button station is never modified — no contact block is cut, drilled or rewired.
+Total revert time: under 30 minutes.
+
+## 15.10 Troubleshooting — trace the path in order
+
+Meter checkpoints, DLS end to cabinet end. **The first checkpoint that goes quiet names the
+broken stage.**
+
+| # | Checkpoint | Expect (cabinet commanded ON) |
+|---|---|---|
+| 1 | EL2869 CH15/CH16 LEDs | CH16 steady on; CH15 pulses ~1 s |
+| 2 | EL2869 terminal 15 / 16 → 0 V | CH16 24 V; CH15 pulse |
+| 3 | `-202X3` pin 37 / 36 → pin 20 | same as (2) |
+| 4 | Junction box, cable in transit | same as (3) |
+| 5 | Cabinet tail `100A` / `102A` → `101A` | same as (4) |
+| 6 | After the diode, wire 102 → wire 101 | 24 V during pulse |
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| Nothing at all; cabinet dead | CH16 LOW, or wire 100 not connected to CH16 | `xStopPermit` state; step 14 |
+| Station has 24 V but won't start remotely | Pulse too short for latch pickup | Raise `tPULSE` to 2 s; scope wire 102 |
+| Starts then drops out immediately | Seal-in not holding, or CH16 dipping under coil inrush | Re-check measurement 0.3; meter wire 100 during pickup |
+| Remote stop does nothing | Wire 100 still fed from the cabinet's own 24 V | Step 13 — `100-ORIG` must be lifted |
+| Start refused for minutes | Anti-short-cycle interlock — working as designed | Watch `tOffLockRemain` |
+| Temperature readings wrong/erratic after install | **Something landed on the TC terminals** | Stop. Verify Stage C step 9. Inspect EL3314 |
+| Everything green in CODESYS, output never changes | Bus cycle task unspecified, or `Always update variables` off | Set task = `MainTask` — same failure mode as the Modbus work |
+
+## 15.11 Handover checklist
+
+- [ ] §15.8 Q1–Q5 answered and recorded
+- [ ] Stage 0 measurements recorded, coil current < 500 mA confirmed
+- [ ] Continuity map EL2869 t15/t16 → `-202X3` pins 36/37 recorded (supersedes §15.3)
+- [ ] Cable passes through the junction box unbroken; TC terminals untouched and verified
+- [ ] `100-ORIG` lifted, parked, labelled
+- [ ] Screen bonded at DLS end only; cabinet-end isolation meter-verified
+- [ ] C1 static checks complete
+- [ ] C2 EtherCAT leg verified
+- [ ] C3 T1–T8 passed, two clean runs on different days, raw values recorded
+- [ ] **Operator notice posted at the cabinet** (§15.4) — Option C start dependency
+- [ ] T7 re-scoping communicated to and accepted by the project lead
+- [ ] As-wired photographs filed; this section updated with as-measured values
