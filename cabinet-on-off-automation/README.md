@@ -45,7 +45,7 @@ Wire `100` feeds both blocks — a common 24 V supply rail. `102` leaves the sta
 
 The earlier draft showed `RPi.GPIO.output(EL2869_PIN, ...)`. That is not possible. The EL2869 is a **Beckhoff EtherCAT terminal** on the EK1100 coupler — it is not Raspberry Pi GPIO and has no GPIO pin number. It is reachable only through an EtherCAT master, and **CODESYS is already the EtherCAT master on this system**. A second master cannot share the bus.
 
-**Consequence: the output must be commanded by CODESYS.** Python can *request* a state, but CODESYS *actuates* it. Both integration paths in §6 and §7 respect this.
+**Consequence: the output must be commanded by CODESYS.** Python can *request* a state, but CODESYS *actuates* it. Both integration paths in §8 and §9 respect this.
 
 ### 2.3 Terminal numbers 48–50 are the F4S, not the EL2869
 
@@ -68,26 +68,38 @@ Wire numbering (`100` common in, `102` out of NO, `103` out of NC) is the textbo
 
 The latching relay or contactor itself is **elsewhere in the panel** — it was not in the photographed area. Its coil is energised by a momentary pulse on `102` and held by its own auxiliary contact; breaking `103` drops it out.
 
-This matters because it determines the whole wiring design, which is why §4 is the blocker.
+This matters because it determines the whole wiring design, which is why §5 is the blocker.
 
 ---
 
-## 4. ⚠️ Open question that blocks wiring
+## 4. Register scan: switch state is NOT in the F4S map
+
+**Finding (28 July 2026):** Differential scan of registers 100–249 ON vs OFF shows **no state-dependent changes**. Only register [101] drifts by 2–3 counts (timer/counter noise). Registers 150–249 are all `33536 (-32000)` sentinel (unread/unused).
+
+**Consequence:** The auxiliary contact of the latching relay is not wired to an F4S input terminal. Remote feedback of actual run state requires physical wiring:
+- Option 1: Wire auxiliary contact → spare EL1409 DI channel (recommended, proven)
+- Option 2: Trust commanded state (simple, but no proof)
+
+The cabinet-on-off sequencer cannot read back actual run status from Modbus. It relies on commanded state until a dedicated feedback channel is installed.
+
+---
+
+## 5. ⚠️ Remaining open question: button type
 
 **Do the green and red buttons spring back when released, or do they stay pressed in?**
 
-A 30-second check at the panel. Everything downstream depends on it.
+A 30-second check at the panel. Determines the wiring topology.
 
 | Answer | What it means | Wiring |
 |---|---|---|
-| **Spring back (momentary)** | Start/stop latch as drawn in §3 — expected, and consistent with the wire numbering | §5 design: parallel the start contact, series-break the stop string. **Two output channels.** |
-| **Stay pressed (maintained)** | Simple gate, no latch | Single series contact in the coil circuit. **One output channel.** |
+| **Spring back (momentary)** | Start/stop latch as drawn in §3 | §7 design: parallel start (NO 3-4), series stop (NC 1-2). **Two output channels.** |
+| **Stay pressed (maintained)** | Simple gate, no latch | Single series contact in coil circuit. **One output channel.** |
 
-Also worth capturing while the panel is open: **where do wires `102` and `103` go?** Finding the latching relay/contactor they land on confirms §3 outright.
+Also worth capturing while panel is open: **where do wires 102 and 103 terminate?** Tracing to the latching relay confirms §3 topology outright.
 
 ---
 
-## 5. Topology — and why pure "Option A" cannot switch the cabinet off
+## 6. Topology — and why pure "Option A" cannot switch the cabinet off
 
 You selected Option A (parallel tap). Taken literally it does not meet the objective, and the reason is worth stating plainly:
 
@@ -119,7 +131,7 @@ This is standard motor-starter practice and it gives exactly the behaviour you w
 
 ---
 
-## 6. Bill of materials
+## 7. Bill of materials
 
 | Item | Spec | Notes |
 |---|---|---|
@@ -132,7 +144,7 @@ Why interposing relays rather than wiring the EL2869 straight into the circuit: 
 
 ---
 
-## 7. Path 1 — CODESYS-native (recommended first)
+## 8. Path 1 — CODESYS-native (recommended first)
 
 CODESYS owns the EtherCAT master, so it drives the EL2869 directly. Command source is the watch window now, WebVisu later.
 
@@ -158,7 +170,7 @@ In the EL2869's **I/O Mapping** tab, map two spare channels:
 - `xStartPulse` → channel A
 - `xStopPermit` → channel B
 
-Record the actual terminal points from the terminal label and add them to §6 of this document. Set **Always update variables = Enabled 1** and bus cycle task = **MainTask**, matching the Modbus configuration already proven in this project.
+Record the actual terminal points from the terminal label and add them to §7 of this document. Set **Always update variables = Enabled 1** and bus cycle task = **MainTask**, matching the Modbus configuration already proven in this project.
 
 ### Step 3 — Decide the stop-state behaviour
 
@@ -214,7 +226,7 @@ Same prepare-then-write workflow as the setpoint work: set `GVL_HMI.xCabinetOnCm
 
 ---
 
-## 8. Path 2 — Python-originated command through the gateway
+## 9. Path 2 — Python-originated command through the gateway
 
 Extends the existing register map so a command can originate from Python (script, cron, test sequencer) while CODESYS still does the actuating. This is the path that eventually lets a test script run the cabinet unattended.
 
@@ -268,7 +280,7 @@ A request is not a confirmation. Register 6 echoes what was *asked for*; proof t
 
 ---
 
-## 9. Test plan
+## 10. Test plan
 
 Run with the cabinet empty — no valve under test — until T8 passes.
 
@@ -281,18 +293,18 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 | T5 | Local stop overrides remote | Remote commanding run, press red | Cabinet stops and **stays** stopped |
 | T6 | Anti-short-cycle | Stop, then immediately command start | Start refused; `tOffLockRemain` counts down; start occurs only after it expires |
 | T7 | Fail-safe | Pull the EL2869 / power down DLS008 while running | Local buttons still work; cabinet controllable manually |
-| T8 | CODESYS restart | Download new code while cabinet running | Cabinet keeps running (per §7 step 3) |
+| T8 | CODESYS restart | Download new code while cabinet running | Cabinet keeps running (per §8 step 3) |
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely cause | Check |
 |---|---|---|
 | Remote start does nothing | Pulse too short for the latch to pick up | Increase `tPULSE` to 2 s; confirm relay actually closes with a meter |
 | Cabinet starts then immediately stops | Latch not sealing in, or the stop string is open | Verify `xStopPermit` is TRUE *before* the start pulse, not after |
 | Remote stop does nothing | Stop relay wired parallel instead of series, or an NO contact used where NC is required | Meter across the relay contact — must be **closed** when permitted, **open** to stop |
-| Cabinet cannot be started at all after wiring | `K_REM_STOP` sitting open because CODESYS is stopped or the channel is unmapped | Confirm the NC contact closes with the coil de-energised — this is the fail-safe check from §5 |
+| Cabinet cannot be started at all after wiring | `K_REM_STOP` sitting open because CODESYS is stopped or the channel is unmapped | Confirm the NC contact closes with the coil de-energised — this is the fail-safe check from §6 |
 | Start command accepted but nothing happens for minutes | Anti-short-cycle interlock active — working as designed | Watch `tOffLockRemain` |
 | Everything green in CODESYS, output never changes | Bus cycle task "unspecified", or *Always update variables* disabled | Same failure mode as the Modbus work — set task = MainTask |
 | Register 5 writes accepted, CODESYS never sees them | Channel 5 not added, or element row not mapped | Compare against the working channels 0–4 |
@@ -300,9 +312,9 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 
 ---
 
-## 11. Open items
+## 12. Open items
 
-1. **Momentary or maintained buttons?** (§4) — blocks the wiring design
+1. **Momentary or maintained buttons?** (§5) — blocks the wiring design
 2. **Where do wires `102` and `103` terminate?** — confirms the latch circuit
 3. **EL2869 per-channel current rating** vs chosen relay coil — verify against the Beckhoff datasheet before ordering
 4. **Is a run-feedback DI wanted?** A spare EL1409 channel on the latch auxiliary contact would turn `xCabinetRunning` from an assumption into a measurement. Recommended — without it, the system commands but never confirms, which is the exact weakness the setpoint work fixed with read-back
@@ -310,7 +322,7 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 
 ---
 
-## 12. Reference
+## 13. Reference
 
 | Item | Value |
 |---|---|
