@@ -1,9 +1,9 @@
 # Cabinet On/Off Automation — Investigation & Integration Guide
 
 **Author:** Omkar Joshi — Oliver Mechatronics
-**Date:** 28 July 2026
+**Date:** 29 July 2026
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** Investigation complete. Coil voltage confirmed 24 V / 0 V. Topology decided. **One open question blocks wiring** — see §4.
+**Status:** Investigation complete. Coil voltage confirmed 24 V / 0 V. Button type confirmed momentary. Topology decided. EL2869 channels selected (§9a) — software-first verification in progress before physical wiring.
 
 ---
 
@@ -265,6 +265,40 @@ Note the asymmetry: **stop is instant, start is gated.** Never delay a stop.
 ### Step 5 — Operate from the watch window
 
 Same prepare-then-write workflow as the setpoint work: set `GVL_HMI.xCabinetOnCmd` in the **Prepared value** column, `Ctrl+F7` to commit. Watch `xStartPulse` produce a 1 s pulse, and the cabinet fan start.
+
+---
+
+## 9a. Software-first verification — map and test before any wiring exists
+
+The EL2869 mapping and sequencer do not need the interposing relays installed to be built and proven. Mapping a variable to an EtherCAT output is a software declaration; with nothing connected to the terminal, the channel just switches into an open circuit — no current, no load, no risk. This lets the entire control-logic layer be verified in isolation from the hardware modification, so any mistake is a compile error or a watch-window observation, not a wiring rework.
+
+**Confirmed on this system (29 July 2026):**
+
+- EL2869 EtherCAT slave address: **1006** (`PhysSlaveAddr` / `SlaveAddr`, confirmed in the IEC Objects tab)
+- `xSetOperational`: FALSE until the application is downloaded and run — expected, not a fault
+- All 16 DOS output channels (`16#1600`–`16#16F0`, addresses `16#7000:16#01`–`16#70F0:16#01`) enumerate correctly and are currently **unmapped** — none are claimed by another function
+- Log shows historical `sync manager watchdog` / `watchdog for opmode expired` entries against address 1006 (24–28 July) — these are stale, tied to prior downloads/logouts, not evidence of a wiring fault. Re-check the log after the next download; if entries stop appearing, the link is healthy.
+
+**Channel assignment (selected — last two channels, avoids any future collision with other DOS use):**
+
+| Function | Channel | Address | Variable |
+|---|---|---|---|
+| START pulse | 15 | `16#70E0:16#01` | `GVL_HMI.xStartPulse` |
+| STOP permit | 16 | `16#70F0:16#01` | `GVL_HMI.xStopPermit` |
+
+**Verification sequence — software only, no relays fitted:**
+
+1. Declare the interface (Step 1) and compile — confirms syntax and scope, catches typos before anything is downloaded.
+2. Map the two channels above in I/O Mapping (Step 2).
+3. Add the sequencer (Step 4), download, and go online. `xSetOperational` should flip to TRUE and the watchdog log entries should stop recurring.
+4. Drive `xCabinetOnCmd` from the watch window and confirm, with **no relay connected**:
+   - `xStartPulse` pulses HIGH for exactly 1 s on a rising edge of `xCabinetOnCmd`, then drops
+   - `xStopPermit` tracks `xCabinetOnCmd` directly with no delay
+   - `tOffLockRemain` counts down from 5 min after a stop and blocks a restart pulse until it reaches zero
+   - A second `xCabinetOnCmd` rising edge before the lockout expires produces **no** new `xStartPulse` pulse
+5. Only once step 4 behaves exactly as specified, move to physical wiring (§7a) and repeat the same checks with the relays live, this time watching the cabinet respond.
+
+This order — logic proven in software, then wired — means the first time voltage reaches the interposing relays, the control behaviour behind it is already known-good.
 
 ---
 
