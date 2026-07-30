@@ -3,7 +3,7 @@
 **Author:** Omkar Joshi — Oliver Mechatronics
 **Date:** 29 July 2026
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** ✅ Software verification COMPLETE. All sequencer logic proven correct in watch window. Hardware route FROZEN — see §15.
+**Status:** ✅ Software verification COMPLETE. All sequencer logic proven correct in watch window. Hardware route FROZEN — see §15. ✅ Coil current gate PASSED (<500 mA, 30 July 2026) — Option C is GO. ✅ `-202X3` pin map CONFIRMED against as-built drawing 7168-DWG-100 Rev B. **Wiring begins 31 July 2026.**
 
 > ### ⚠️ READ §15 FIRST — it supersedes the wiring design in §6–§9a
 >
@@ -643,21 +643,29 @@ Three reasons the DI/DO connector is correct and the analogue ports were not:
  └──────────────────────────────────────────────────────────────┘
 ```
 
-## 15.3 Pin map — DLS008 side
+## 15.3 Pin map — DLS008 side ✅ CONFIRMED
 
-From drawing 7168-DWG-100 page 218 (Digital Output Channels 8-15) and page 203
-(Beckhoff CPU / 24 V distribution):
+**Status (30 July 2026): confirmed from the AS-BUILT drawing set, not provisional.**
+Source: `7168-DWG-100`, **Revision B**, change note *"AS BUILTS"*, drawn by R. Watts,
+17/10/2025 — i.e. this revision was issued specifically to capture what was actually built,
+not what was designed. Read directly off:
+
+- Page `=CS1+CP1&EFS1/218` — **Digital Output Channels 8-15** (O9–O16 → `-202X3` pins 30–37,
+  wires `21801`–`21808`, all eight labelled SPARE on the panel legend)
+- Page `=CS1+CP1&EFS1/202` — **Beckhoff CPU/24V Distribution** (`-202X1`/`-202X2`/`-202X3`
+  routing, confirms the 0 V and fused-24 V pin assignments)
 
 | CODESYS | EL2869 output | Wire no. | `-202X3` pin | Function |
 |---|---|---|---|---|
 | `GVL_HMI.xStartPulse` — CH15 (`16#70E0:16#01`) | O15 | `21807` | **36** | Start pulse, 1 s |
 | `GVL_HMI.xStopPermit` — CH16 (`16#70F0:16#01`) | O16 | `21808` | **37** | Station supply / stop permit |
-| — | — | from `-202X2` | **20**, **29** | 0 V return |
-| — | — | from `-202X1` | 1, 10, 19 | Fused 24 V (not used by this design) |
+| — | — | `20202A/C/E` from `-202X2` | **20**, **29** | 0 V return |
+| — | — | `20201A/C/E` from `-202X1` | 1, 10, 19 | Fused 24 V (not used by this design) |
 
-⚠️ **Verify by continuity before committing.** These pin numbers are read from the drawing.
-Buzz EL2869 terminal 15 → `-202X3` pin 36 and terminal 16 → pin 37 and record what you
-measure. The as-measured values become the record and supersede this table.
+This is an exact match to the drawing-based table this section used to carry — the as-built
+revision independently confirms it. **Still buzz it out at Stage A step 2** as a sanity check
+(as-built drawings occasionally lag the panel by one late change), but this is now a
+confirmation check, not a discovery exercise.
 
 ## 15.4 Option C — how remote stop works without a relay
 
@@ -731,16 +739,17 @@ Work in order. Do not skip the measurements — three of them are go/no-go gates
 
 ### Stage 0 — Pre-work measurements (cabinet running normally, nothing disconnected)
 
-| # | Measure | Expected | Why it matters |
-|---|---|---|---|
-| 0.1 | Wire 100 → cabinet 0 V, cabinet running | ≈ 24 V DC | Confirms station supply voltage and polarity |
-| 0.2 | Wire 102 → cabinet 0 V, running / stopped | ≈ 24 V / 0 V | Confirms the seal-in behaviour assumed in §15.4 |
-| 0.3 | **Latch coil current** — clamp or in-line meter on wire 100, cabinet running | **must be < 500 mA** | **GO/NO-GO.** This is the load CH16 will carry. EL2869 is 0.5 A/channel |
-| 0.4 | Trace where wire 100 gets its 24 V | identified terminal | This is the connection Stage D lifts |
-| 0.5 | Continuity: DLS 0 V ↔ cabinet 0 V (both isolated) | record open or closed | If already common via earth, note it — affects §15.7 loop check |
+| # | Measure | Expected | Why it matters | Status |
+|---|---|---|---|---|
+| 0.1 | Wire 100 → cabinet 0 V, cabinet running | ≈ 24 V DC | Confirms station supply voltage and polarity | — |
+| 0.2 | Wire 102 → cabinet 0 V, running / stopped | ≈ 24 V / 0 V | Confirms the seal-in behaviour assumed in §15.4 | — |
+| 0.3 | **Latch coil current** — clamp or in-line meter on wire 100, cabinet running | **must be < 500 mA** | **GO/NO-GO.** This is the load CH16 will carry. EL2869 is 0.5 A/channel | ✅ **CONFIRMED < 500 mA by multimeter, 30 July 2026 — GO** |
+| 0.4 | Trace where wire 100 gets its 24 V | identified terminal | This is the connection Stage D lifts | — |
+| 0.5 | Continuity: DLS 0 V ↔ cabinet 0 V (both isolated) | record open or closed | If already common via earth, note it — affects §15.7 loop check | — |
 
-If 0.3 exceeds 500 mA, **stop.** Option C is not viable as drawn and needs an interposing
-relay after all — raise it before proceeding.
+**0.3 is passed — Option C is confirmed viable.** Proceed to Stage A. (0.1, 0.2, 0.4, 0.5 are
+not go/no-go gates; take them on the same visit for the record but they don't block starting
+Stage A.)
 
 ### Stage A — DLS008 enclosure (panel isolated, EtherCAT down)
 
@@ -834,13 +843,21 @@ for the setpoint PoC. Record raw values, not tick boxes.
 
 ## 15.8 Open verifications — answer before Stage B
 
-| # | Question | Impact if unresolved |
-|---|---|---|
-| **Q1** | **Is a 37-way mating plug for `-202X3` available?** One appears fitted in the site photograph with red/black/grey cores. If it exists — which pins are already occupied? If not — this is the one purchase this design cannot avoid | **Blocks Stage B entirely** |
-| **Q2** | Spare gland or knockout available on the thermocouple junction box for pass-through? (M20 knockouts observed on a similar box) | Blocks Stage C; may need a gland |
-| **Q3** | Do wires `21807`/`21808` physically exist at EL2869 t15/t16? Drawing says yes, earlier photo suggested the connector was unpopulated | Determines whether Stage A step 3 is needed |
-| **Q4** | Latch coil current (step 0.3) | **GO/NO-GO for Option C** |
-| **Q5** | Where does wire 100 get its 24 V (step 0.4) | Blocks Stage D step 13 |
+| # | Question | Impact if unresolved | Status |
+|---|---|---|---|
+| **Q1** | **Is a 37-way mating plug for `-202X3` available?** One appears fitted in the site photograph with red/black/grey cores. If it exists — which pins are already occupied? If not — this is the one purchase this design cannot avoid | **Blocks Stage B entirely** | Confirm on site tomorrow |
+| **Q2** | Junction box DI/DO pass-through point: the cabinet-side confirmation (30 July) is that the junction box has its **own dedicated DI port connector** for this circuit — not just a spare gland as originally assumed. Confirm connector type/gender on site | Blocks Stage C wiring detail — see note below | Confirm on site tomorrow |
+| **Q3** | Do wires `21807`/`21808` physically exist at EL2869 t15/t16? | Determines whether Stage A step 3 is needed | ✅ **Resolved** — drawing revision B is the *as-built* record (change note "AS BUILTS"), so the wires are recorded as fitted. Confirm visually at Stage A step 1 |
+| **Q4** | Latch coil current (step 0.3) | **GO/NO-GO for Option C** | ✅ **PASSED** — measured < 500 mA, 30 July 2026 |
+| **Q5** | Where does wire 100 get its 24 V (step 0.4) | Blocks Stage D step 13 | Confirm on site tomorrow |
+
+**Note on Q2 / the junction box DI port:** the routing confirmed 30 July is: EL2869 CH15/16 →
+`-202X3` (DLS DI/DO connector) → cable → **junction box's dedicated DI port connector** →
+cable continues → cabinet DI/DO connector → internal cabinet wiring → switch station (wires
+100/102/101). This refines §15.2/§15.6 Stage B–C: the junction box is still pass-through in
+spirit (no core lands on a TC terminal), but the physical entry/exit is a **dedicated DI/DO
+connector on the box**, not necessarily a bare gland-to-gland cable run. Confirm the connector's
+pinout on site before Stage C so the two mating cable ends can be made up correctly.
 
 ## 15.9 Reversibility
 
