@@ -38,6 +38,31 @@ F4S_REG_SP = 300
 POLL_PERIOD = 1.0
 READ_TIMEOUT = 0.5
 
+# --- F4 registers used by the Modbus-only on/off route (Route A) -------------
+# All addresses are from the Watlow Series F4 user manual, chapter 7
+# ("Series F4 Modbus Registers"). docs/WatlowF4_UserManual.pdf.
+#
+# The controller has no "run/stop" register. What it has instead is a
+# documented sentinel on the setpoint itself (manual chapter 3, Static Set
+# Point Control):
+#
+#   "Setting the set point to Set Point Low Limit minus 1 (-1) will turn
+#    control Output 1 off and display the set point as off."
+#
+# So OFF is reg 300 := (reg 602) - 1, and ON is reg 300 := the wanted
+# setpoint. That reuses the exact write path this gateway already proves on
+# every setpoint change — no new F4 behaviour, no new failure mode.
+F4S_REG_SP_LOW_LIMIT = 602    # Set Point Low Limit, Analog Input 1 (r/w)
+F4S_REG_OP_MODE = 200         # Operation Mode, Status (r)
+F4S_REG_PROFILE_NOW = 4100    # Profile Number, Current Status (r) — 0 = none
+F4S_REG_TERMINATE = 1217      # Terminate a Profile, Key Press Simulation (w, 1)
+
+# A profile overrides the static setpoint, so writing the OFF sentinel while
+# one is running would be ignored. Terminating first is what the manual says
+# ends it: "the profile ends with all outputs off. The set point on the Main
+# Page reads off." (chapter 3, To Terminate a Running/Holding Profile.)
+F4S_TERMINATE_PROFILE = 1
+
 # --- Setpoint range (x10, SIGNED) -------------------------------------------
 # The cabinet range is -40..200 degC and PLC_PRG validates against exactly
 # that. The gateway previously checked `0 <= sp_req <= 2000` against the RAW
@@ -74,6 +99,10 @@ REG_TRIGGER = 1      # Apply trigger (CODESYS → Python)
 REG_TEMP = 2         # Current temperature (Python → CODESYS, read-only)
 REG_SP_READ = 3      # Confirmed setpoint (Python → CODESYS, read-only)
 REG_STATUS = 4       # Status code (Python → CODESYS, read-only)
+REG_ONOFF_CMD = 5    # On/off command (CODESYS → Python) — a level, not a trigger
+REG_ONOFF_STATE = 6  # On/off state (Python → CODESYS, read-only)
+REG_SP_LOW = 7       # F4 setpoint low limit, signed x10 (Python → CODESYS)
+REG_PROFILE = 8      # Running profile number, 0 = none (Python → CODESYS)
 
 # Status codes
 ST_OK = 0
@@ -81,6 +110,20 @@ ST_WRITE_FAIL = 2
 ST_NOT_ACCEPTED = 3
 ST_RANGE = 4
 ST_COMMS = 5
+ST_OFF_STAGED = 6    # Setpoint accepted but held back — cabinet is commanded OFF
+
+# On/off command and state codes.
+#
+# 0 is deliberately "no command", not "off". The holding registers initialise
+# to 0 at start-up, so an off==0 encoding would have every gateway restart
+# silently command the cabinet to stop before CODESYS had said anything.
+CMD_NONE = 0
+CMD_OFF = 1
+CMD_ON = 2
+
+STATE_UNKNOWN = 0    # not yet determined (no successful read since start-up)
+STATE_OFF = 1        # F4 setpoint sits on the OFF sentinel
+STATE_ON = 2         # F4 setpoint is a real setpoint; control output is live
 
 # Modbus function code for holding registers (used by device.getValues/setValues)
 FC_HOLDING = 3
@@ -117,6 +160,9 @@ class F4SGateway:
         self.reconnect_backoff = RECONNECT_BACKOFF_START
         self.next_reconnect_at = 0.0
         self.comms_healthy = None       # tri-state, so transitions log once
+        # On/off (Route A) state
+        self.off_sentinel = None        # (SP low limit - 1), x10; None until read
+        self.onoff_state = STATE_UNKNOWN
 
     def connect_rtu(self):
         """(Re)open the serial port.
@@ -272,6 +318,129 @@ class F4SGateway:
         logger.warning(f"Setpoint write NOT confirmed (timeout): expected {written_val}")
         return False
 
+    def ensure_off_sentinel(self):
+        """Learn the OFF setpoint from the controller itself.
+
+        Read once and cached. Hard-coding it would be wrong: the low limit
+        follows the configured sensor and can be changed on the Setup Page,
+        and a stale sentinel would either fail to switch the output off or
+        land inside the usable range and quietly become a real setpoint.
+        Re-read is cheap; getting it wrong is not.
+        """
+        if self.off_sentinel is not None:
+            return True
+
+        raw = self.read_rtu_reg(F4S_REG_SP_LOW_LIMIT)
+        if raw is None:
+            return False
+
+        low_limit = u16_to_i16(raw)
+        self.off_sentinel = low_limit - 1
+        with hr_lock:
+            device.setValues(FC_HOLDING, REG_SP_LOW, [i16_to_u16(low_limit)])
+        logger.info(
+            f"F4 setpoint low limit = {low_limit/10.0}°C -> "
+            f"OFF sentinel = {self.off_sentinel/10.0}°C (reg {F4S_REG_SP} := "
+            f"{self.off_sentinel})"
+        )
+        return True
+
+    def apply_off(self):
+        """Command the F4 to switch its control output off.
+
+        A running profile owns the setpoint, so it has to be terminated first
+        or the sentinel write lands on a value the profile immediately
+        overwrites. Terminating already leaves all outputs off, so the
+        sentinel write after it is what makes the state *stick* once the
+        profile is gone.
+        """
+        profile = self.read_rtu_reg(F4S_REG_PROFILE_NOW)
+        if profile is not None:
+            with hr_lock:
+                device.setValues(FC_HOLDING, REG_PROFILE, [profile])
+            if profile != 0:
+                logger.info(f"Profile {profile} running — terminating before OFF")
+                self.write_rtu_reg(F4S_REG_TERMINATE, F4S_TERMINATE_PROFILE)
+
+        return self.write_rtu_reg(F4S_REG_SP, i16_to_u16(self.off_sentinel))
+
+    def apply_on(self, sp_req_raw):
+        """Restore a real setpoint, which is what turns the control output on.
+
+        The setpoint used is whatever CODESYS currently has staged in
+        REG_REQ_SP. If that is out of range — or is itself the OFF sentinel,
+        which would make ON a no-op — the command is refused rather than
+        guessed at.
+        """
+        sp_signed = u16_to_i16(sp_req_raw)
+        if not (SP_MIN_X10 <= sp_signed <= SP_MAX_X10):
+            logger.warning(
+                f"ON refused: staged setpoint {sp_signed/10.0}°C is out of range"
+            )
+            with hr_lock:
+                device.setValues(FC_HOLDING, REG_STATUS, [ST_RANGE])
+            return False
+        if sp_signed == self.off_sentinel:
+            logger.warning("ON refused: staged setpoint is the OFF sentinel")
+            with hr_lock:
+                device.setValues(FC_HOLDING, REG_STATUS, [ST_RANGE])
+            return False
+
+        return self.write_rtu_reg(F4S_REG_SP, sp_req_raw)
+
+    def service_onoff(self, sp_read, sp_req_raw):
+        """Drive the cabinet on/off from REG_ONOFF_CMD.
+
+        `sp_read` is this pass's reading of F4 reg 300, so the state echo is
+        derived from what the controller actually holds rather than from what
+        was last commanded — a setpoint changed at the keypad shows up here
+        too. Writes happen only when the observed state disagrees with the
+        command, so a steady command costs nothing on the RTU link.
+        """
+        if not self.ensure_off_sentinel():
+            return
+
+        if sp_read is not None:
+            observed = (
+                STATE_OFF if u16_to_i16(sp_read) == self.off_sentinel else STATE_ON
+            )
+            if observed != self.onoff_state:
+                logger.info(
+                    f"Cabinet state -> {'OFF' if observed == STATE_OFF else 'ON'}"
+                )
+            self.onoff_state = observed
+            with hr_lock:
+                device.setValues(FC_HOLDING, REG_ONOFF_STATE, [self.onoff_state])
+
+        with hr_lock:
+            cmd = device.getValues(FC_HOLDING, REG_ONOFF_CMD, 1)[0]
+
+        if cmd == CMD_NONE or self.onoff_state == STATE_UNKNOWN:
+            return
+
+        # A successful write updates the cached state immediately. Waiting for
+        # the next poll to observe it would make this branch fire a second,
+        # identical write in the meantime.
+        if cmd == CMD_OFF and self.onoff_state != STATE_OFF:
+            logger.info("Command OFF — writing sentinel setpoint")
+            if self.apply_off():
+                self.onoff_state = STATE_OFF
+                with hr_lock:
+                    device.setValues(FC_HOLDING, REG_ONOFF_STATE, [STATE_OFF])
+                    device.setValues(FC_HOLDING, REG_STATUS, [ST_OK])
+            else:
+                with hr_lock:
+                    device.setValues(FC_HOLDING, REG_STATUS, [ST_WRITE_FAIL])
+        elif cmd == CMD_ON and self.onoff_state != STATE_ON:
+            logger.info("Command ON — restoring staged setpoint")
+            if self.apply_on(sp_req_raw):
+                self.onoff_state = STATE_ON
+                with hr_lock:
+                    device.setValues(FC_HOLDING, REG_ONOFF_STATE, [STATE_ON])
+                    device.setValues(FC_HOLDING, REG_STATUS, [ST_OK])
+        elif cmd not in (CMD_OFF, CMD_ON):
+            logger.warning(f"Unknown on/off command {cmd} — ignored")
+
     def cyclic(self):
         """Main polling loop. Reads/writes through the device context —
         the same accessor the TCP server uses to serve CODESYS requests."""
@@ -300,11 +469,26 @@ class F4SGateway:
                     trigger = device.getValues(FC_HOLDING, REG_TRIGGER, 1)[0]
                     sp_req = device.getValues(FC_HOLDING, REG_REQ_SP, 1)[0]
 
+                with hr_lock:
+                    onoff_cmd = device.getValues(FC_HOLDING, REG_ONOFF_CMD, 1)[0]
+
                 if trigger == 1 and not self.write_pending:
                     self.write_pending = True
                     # Validate range (-40..200 degC = -400..2000 x10), signed.
                     sp_signed = u16_to_i16(sp_req)
-                    if SP_MIN_X10 <= sp_signed <= SP_MAX_X10:
+                    if onoff_cmd == CMD_OFF:
+                        # The cabinet is commanded off, and off *is* a setpoint
+                        # value here. Pushing a normal setpoint through now
+                        # would silently restart the cabinet, so the request is
+                        # held in REG_REQ_SP and applied on the next ON instead.
+                        # ST_OFF_STAGED tells CODESYS the difference between
+                        # "written" and "will be written when you turn it on".
+                        with hr_lock:
+                            device.setValues(FC_HOLDING, REG_STATUS, [ST_OFF_STAGED])
+                        logger.info(
+                            f"Setpoint {sp_signed/10.0}°C staged — cabinet commanded OFF"
+                        )
+                    elif SP_MIN_X10 <= sp_signed <= SP_MAX_X10:
                         # Write to F4S. sp_req is already the correct wire word
                         # (the signed value packed by CODESYS); pass it through
                         # unchanged so no round-trip can perturb the bit pattern.
@@ -330,6 +514,13 @@ class F4SGateway:
                     with hr_lock:
                         device.setValues(FC_HOLDING, REG_TRIGGER, [0])
                     self.write_pending = False
+
+                # Run the on/off service after the setpoint path so the two
+                # never write reg 300 in the same pass. sp_read is this pass's
+                # reading, i.e. the state echo trails a write by one poll —
+                # acceptable, and it is why the echo is authoritative about
+                # the controller rather than about the last command.
+                self.service_onoff(sp_read, sp_req)
 
                 # Check comms health.
                 # COMMS is latched while the link is down AND cleared again on
