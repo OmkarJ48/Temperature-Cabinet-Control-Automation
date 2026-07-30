@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
-"""Cabinet on/off remote command via the F4S Modbus TCP gateway (Path 2).
+"""Cabinet on/off over Modbus only — Route A.
 
-FUTURE REFERENCE — do not expect this to work against the deployed gateway yet.
-The gateway currently serves registers 0-4 (setpoint control only). Registers
-5 and 6 are the designed extension documented in cabinet-on-off-automation/
-README.md section 10 and Part 7 of the handover document. Before first use:
+The Watlow F4 has no run/stop register. What it has is a documented sentinel
+on the setpoint itself (user manual, chapter 3, Static Set Point Control):
 
-  1. Extend f4s_gateway.py's register map from 5 to 7 registers:
-       reg 5 (write) : on/off command   -- 0 = stop, 1 = run (level, NOT a
-                                           self-clearing trigger like reg 1)
-       reg 6 (read)  : command echo     -- what the gateway believes was asked
-  2. Add CODESYS Modbus channel 5: Read Holding Registers (FC03), cyclic
-     1000 ms, READ offset 16#0005, mapped to GVL_Modbus.wOnOffCmd (element
-     row, type WORD -- same rules as channels 0-4).
-  3. In PLC_PRG, feed the sequencer:
-       GVL_HMI.xCabinetOnCmd := (GVL_Modbus.wOnOffCmd = 1) OR xLocalHmiRequest;
-  4. Complete the physical wiring per README.md section 7a.
+    "Setting the set point to Set Point Low Limit minus 1 (-1) will turn
+     control Output 1 off and display the set point as off."
 
-CODESYS remains the only actuator and owns the anti-short-cycle interlock
-(5-minute minimum off time). This script only REQUESTS a state; a start
-request inside the lockout window is deliberately delayed by the PLC.
+So OFF is F4 register 300 := (register 602) - 1, and ON is register 300 := the
+wanted setpoint. The gateway owns that translation; this script only asks for a
+state. See python-rtu-integration/f4s_gateway.py and README.md section 16.
 
-CAUTION: a request is not a confirmation. Register 6 echoes what was asked
-for. Proof that the cabinet is actually running is the fan, or the EL1409
-run-feedback DI once fitted (README.md section 13, open item 4) -- never
-this register.
+Command encoding is 0/1/2, not a boolean: holding registers come up as 0 after
+a gateway restart, and an off==0 encoding would make every restart command a
+stop before anyone had asked for one. 0 therefore means "no command".
+
+CAUTION: this switches the F4's *control output*. Whether that also drops the
+circulation fan depends on whether the fan hangs off the F4 output or off the
+front-station latch relay, which is downstream of the controller and invisible
+to Modbus (README.md sections 1 and 4). Confirm with test A1 before relying on
+this as a full cabinet stop.
 """
 
 import argparse
@@ -34,45 +29,69 @@ from pymodbus.client import ModbusTcpClient
 
 GATEWAY_HOST = "10.1.6.17"
 GATEWAY_PORT = 502
-DEVICE_ID = 1          # gateway serves device id 1 ONLY (never 255)
-REG_ONOFF_CMD = 5      # write: 0 = stop, 1 = run
-REG_ONOFF_ECHO = 6     # read: last requested state, echoed by the gateway
+DEVICE_ID = 1            # gateway serves device id 1 ONLY (never 255)
+
+REG_REQ_SP = 0           # write: setpoint applied when the cabinet is ON
+REG_ONOFF_CMD = 5        # write: 0 = no command, 1 = off, 2 = on
+REG_ONOFF_STATE = 6      # read:  0 = unknown, 1 = off, 2 = on
+REG_SP_LOW = 7           # read:  F4 setpoint low limit, signed x10
+
+CMD_NONE, CMD_OFF, CMD_ON = 0, 1, 2
+STATE_NAMES = {0: "UNKNOWN", 1: "OFF", 2: "ON"}
+
+
+def _u16_to_i16(value: int) -> int:
+    return value - 65536 if value >= 32768 else value
 
 
 def set_cabinet(run: bool, host: str = GATEWAY_HOST) -> None:
-    """Request cabinet run/stop. CODESYS performs the actuation."""
+    """Command the cabinet on or off."""
     with ModbusTcpClient(host, port=GATEWAY_PORT) as c:
-        c.write_register(REG_ONOFF_CMD, 1 if run else 0, device_id=DEVICE_ID)
+        c.write_register(REG_ONOFF_CMD, CMD_ON if run else CMD_OFF,
+                         device_id=DEVICE_ID)
 
 
-def cabinet_state(host: str = GATEWAY_HOST) -> bool:
-    """Return the last REQUESTED state (True = run). Not proof of running."""
+def cabinet_state(host: str = GATEWAY_HOST) -> int:
+    """Return the observed state (CMD_OFF/CMD_ON encoding).
+
+    Unlike a command echo this is derived from F4 register 300 as actually
+    read back, so a setpoint changed at the keypad shows up here too.
+    """
     with ModbusTcpClient(host, port=GATEWAY_PORT) as c:
-        rr = c.read_holding_registers(REG_ONOFF_ECHO, count=1, device_id=DEVICE_ID)
-        return rr.registers[0] == 1
+        rr = c.read_holding_registers(REG_ONOFF_STATE, count=1,
+                                      device_id=DEVICE_ID)
+        return rr.registers[0]
+
+
+def off_setpoint(host: str = GATEWAY_HOST) -> float:
+    """The setpoint value the gateway writes to switch the output off."""
+    with ModbusTcpClient(host, port=GATEWAY_PORT) as c:
+        rr = c.read_holding_registers(REG_SP_LOW, count=1, device_id=DEVICE_ID)
+        return (_u16_to_i16(rr.registers[0]) - 1) / 10.0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Request temperature-cabinet run/stop via the F4S gateway "
-                    "(registers 5/6 -- see module docstring before first use)."
+        description="Switch the temperature cabinet on or off over Modbus "
+                    "(Route A — no relays, no panel wiring)."
     )
-    parser.add_argument("action", choices=["on", "off", "status"],
-                        help="'on'/'off' write the request; 'status' reads the echo")
+    parser.add_argument("action", choices=["on", "off", "status"])
     parser.add_argument("--host", default=GATEWAY_HOST,
                         help=f"gateway IP (default {GATEWAY_HOST})")
     args = parser.parse_args()
 
     if args.action == "status":
         state = cabinet_state(args.host)
-        print(f"Requested state: {'RUN' if state else 'STOP'} "
-              "(echo only -- not proof the cabinet is running)")
+        print(f"Cabinet: {STATE_NAMES.get(state, state)}")
+        print(f"OFF setpoint sentinel: {off_setpoint(args.host)}°C")
     else:
         run = args.action == "on"
         set_cabinet(run, args.host)
-        print(f"Requested cabinet {'RUN' if run else 'STOP'}. "
-              "CODESYS actuates; starts may be held by the 5-minute "
-              "anti-short-cycle lockout (watch GVL_HMI.tOffLockRemain).")
+        print(f"Commanded cabinet {'ON' if run else 'OFF'}.")
+        if run:
+            print("ON restores the setpoint staged in register 0. If that "
+                  "setpoint is out of range the command is refused and "
+                  "register 4 reports status 4 (RANGE).")
     return 0
 
 

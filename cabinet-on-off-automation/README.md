@@ -909,3 +909,148 @@ broken stage.**
 - [ ] **Operator notice posted at the cabinet** (§15.4) — Option C start dependency
 - [ ] T7 re-scoping communicated to and accepted by the project lead
 - [ ] As-wired photographs filed; this section updated with as-measured values
+
+---
+
+# 16. Route A — on/off over Modbus only (no relays, no panel wiring)
+
+**Added 30 July 2026.** This section supersedes §15 as the *first* route to try.
+§15 (Option C, EL2869 → `-202X3` → front station) remains valid as the fallback and
+is unchanged. Route A costs nothing to attempt: it is a software change on the
+gateway and two extra Modbus channels in CODESYS. If test A1 below fails, §15 is
+still there.
+
+## 16.1 The mechanism
+
+The F4 has **no run/stop register**. Searching for one is what stalled this route
+before. What it does have is a documented sentinel on the setpoint, in the user
+manual chapter 3, *Static Set Point Control*:
+
+> "Setting the set point to Set Point Low Limit minus 1 (-1) will turn control
+> Output 1 off and display the set point as off."
+
+So:
+
+| | Action |
+|---|---|
+| **OFF** | write reg `300` := (value of reg `602`) − 1 |
+| **ON** | write reg `300` := the wanted setpoint |
+
+That is the **same register 300, over the same RTU link, through the same write
+path** this project already proves on every setpoint change. No new F4 behaviour
+and no new failure mode — the write is either confirmed by read-back or it is not,
+exactly as before.
+
+## 16.2 Registers used — all from the user manual, chapter 7
+
+| F4 reg | R/W | Name | Used for |
+|---|---|---|---|
+| `100` | r | Input 1 Value, Status | chamber temperature (already in use) |
+| `200` | r | Operation Mode, Status | diagnostic |
+| `300` | r/w | Set Point 1, value | **the on/off mechanism** (already in use) |
+| `602` | r/w | Set Point Low Limit, Analog Input 1 | source of the OFF sentinel |
+| `603` | r/w | Set Point High Limit, Analog Input 1 | range reference |
+| `1217` | w | Terminate a Profile, Key Press Simulation | write `1` — stops a running profile |
+| `1210` | w | Hold a Profile, Key Press Simulation | write `1` — not used by Route A |
+| `1209` | w | Resume a Profile, Key Press Simulation | write `1` — not used by Route A |
+| `4000` | r/w | Profile Number | profile start, if ever needed |
+| `4001` | r/w | Profile Step Number | profile start, if ever needed |
+| `4002` | w | Edit Profile Action | write `5` = **Start Profile** |
+| `4100` | r | Profile Number, Current Status | `0` = no profile running |
+| `4102` | r | Profile Step Type, Current Status | 1 Ramp Time · 2 Ramp Rate · 3 Soak · 4 Jump · 5 End |
+| `201` `213` `225` `237` | r | Digital Input 1–4, Status | `0` Low / `1` High |
+
+The low limit is **read from the controller, never hard-coded**. It follows the
+configured sensor and can be changed on the Setup Page; a stale sentinel would
+either fail to switch the output off or land inside the usable range and quietly
+become a real setpoint.
+
+A running profile owns the setpoint, so the sentinel write alone would be
+overwritten. The gateway checks reg `4100` first and writes `1217 := 1` when a
+profile is running — per the manual, "the profile ends with all outputs off. The
+set point on the Main Page reads off."
+
+## 16.3 Gateway register map (unit id 1) — extended
+
+| TCP reg | Direction | Meaning |
+|---|---|---|
+| 0 | CODESYS → | requested setpoint, signed x10 |
+| 1 | CODESYS → | apply trigger (self-clearing) |
+| 2 | → CODESYS | chamber temperature, signed x10 |
+| 3 | → CODESYS | confirmed setpoint, signed x10 |
+| 4 | → CODESYS | status code |
+| **5** | **CODESYS →** | **on/off command: 0 = none, 1 = off, 2 = on** |
+| **6** | **→ CODESYS** | **on/off state: 0 = unknown, 1 = off, 2 = on** |
+| **7** | **→ CODESYS** | **F4 setpoint low limit, signed x10** |
+| **8** | **→ CODESYS** | **running profile number, 0 = none** |
+
+**Why 0/1/2 and not a boolean.** Holding registers come up as `0` after a gateway
+restart. With an `off == 0` encoding, every restart would command a stop before
+anyone had asked for one. `0` therefore means *no command* and the gateway does
+nothing until CODESYS says something.
+
+**Register 6 is an observation, not an echo.** It is derived from register `300`
+as actually read back each poll, so a setpoint changed at the F4 keypad shows up
+here too. Under a standing ON command the gateway will notice such a stop and
+restore the setpoint.
+
+**Setpoint writes while OFF are staged, not applied.** Off *is* a setpoint value
+here, so pushing a normal setpoint through while the cabinet is commanded off
+would silently restart it. The request stays in register 0 and lands on the next
+ON. Status code `6` (`ST_OFF_STAGED`) reports this, so "written" and "will be
+written when you turn it on" stay distinguishable.
+
+## 16.4 CODESYS side
+
+See [`RouteA_CabinetOnOff.st`](RouteA_CabinetOnOff.st) — GVL additions, the four
+Modbus channels, and the sequencer. The 5-minute anti-short-cycle interlock is
+kept from the relay design: the actuation route changed, the mechanical
+constraint on the compressor did not.
+
+`GVL_HMI.xStartPulse` is not used by Route A. Route A commands a **level**, not a
+pulse — there is no latch coil to pick up.
+
+## 16.5 ⚠️ What Route A does and does not prove
+
+Route A switches the **F4's control output**. It is not the same lever as the
+front-panel button.
+
+§1 step 4 established that the button station is **not visible anywhere in the F4
+register map**, and §1 step 5 that flipping it stops the fan/compressor while the
+F4 display stays lit. The button drives a latch relay downstream of the
+controller. Modbus cannot reach that relay — that is precisely what §15 is for.
+
+So the open question is what hangs off which:
+
+- If the compressor and fan are driven **from the F4's control output**, Route A
+  is a complete cabinet on/off and §15 can be abandoned.
+- If they are driven **from the latch relay only**, Route A stops the *conditioning*
+  (no heat, no cool, chamber drifts to ambient) but the fan keeps turning, and
+  §15 is still needed for a true stop.
+
+**Test A1 settles it, in software, in two minutes, with no wiring.**
+
+## 16.6 Test plan
+
+| # | Test | Method | Pass criterion |
+|---|---|---|---|
+| A1 | **Does OFF actually stop the cabinet?** | `python3 cabinet_onoff.py off` | F4 display reads `off`; record what stops — compressor, fan, both, neither |
+| A2 | ON restores | `python3 cabinet_onoff.py on` | Setpoint returns to the staged value; conditioning resumes |
+| A3 | Local authority intact | Press the red button while Route A commands ON | Cabinet stops and stays stopped — Route A never touches this circuit |
+| A4 | Keypad stop is observed | Set the setpoint to `off` at the F4 keypad | Register 6 reads `1` within one poll |
+| A5 | Restart is safe | `systemctl restart f4s-gateway` while running | Cabinet keeps running; register 5 comes up `0` (no command) |
+| A6 | Setpoint staging | Command OFF, then write a new setpoint, then command ON | Status `6` while off; new setpoint applied on ON |
+| A7 | Profile terminate | Start a profile at the keypad, then command OFF | Profile ends, all outputs off, setpoint reads `off` |
+| A8 | Anti-short-cycle | Command OFF then immediately ON | Start held; `tOffLockRemain` counts down |
+
+Run A1 first. Everything else is only worth doing if A1 shows the F4 output is the
+right lever.
+
+Offline proof of the gateway logic (no hardware needed):
+
+```bash
+python3 python-rtu-integration/test_onoff_route_a.py
+```
+
+13 checks covering sentinel derivation, idle-when-steady, staging, range refusal,
+profile termination ordering, and keypad-stop correction.
