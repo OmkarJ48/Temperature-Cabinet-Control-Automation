@@ -50,14 +50,13 @@ VAR
     dwMaxTimeout        : DWORD := 1000;          (* ~10s at 10ms MainTask *)
 
     dtNow               : DT;                      (* current time for scheduled ramp gate *)
-    dwNowSec            : DWORD;                   (* current time in Unix seconds *)
 END_VAR
 
 (* --- STEP 0: Scheduled ramp gate - EL2869 CH15 -> F4 DI1 ---
-   TODO: Find correct CODESYS RTC time function. Once found, uncomment below.
    When scheduled start time is enabled and hasn't been reached yet, inhibit
    control outputs until the scheduled time arrives or scheduler is disabled. *)
-(*
+dtNow := SysTimeRtcHighResGet();
+
 IF GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart) THEN
     GVL_HMI.xRampInhibit := TRUE;
 ELSE
@@ -65,7 +64,6 @@ ELSE
 END_IF
 
 GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
-*)
 
 (* --- STEP 1: Scale raw TCP values -> engineering units ---
    TCP registers carry x10 integers; we work in real degrees.
