@@ -22,6 +22,7 @@
 PROGRAM PLC_PRG
 VAR
     fbSetpoint : FB_CabinetSetpointControl;
+    dtNow : DT;
 END_VAR
 
 (* ---- Drive the supervisory setpoint controller ---- *)
@@ -37,3 +38,14 @@ fbSetpoint(
 (* ---- Consume dialog button one-shots ---- *)
 GVL_HMI.xSetBtn   := FALSE;
 GVL_HMI.xResetBtn := FALSE;
+
+(* ---- Scheduled ramp gate: EL2869 CH15 -> F4 DI1 ---- *)
+dtNow := RtcGet();
+
+IF GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart) THEN
+    GVL_HMI.xRampInhibit := TRUE;
+ELSE
+    GVL_HMI.xRampInhibit := FALSE;
+END_IF
+
+GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
