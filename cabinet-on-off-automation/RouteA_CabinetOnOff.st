@@ -8,43 +8,24 @@
    Paste the VAR block and body into PLC_PRG (or keep it as its own POU and
    call it from PLC_PRG). Requires the GVL additions listed at the bottom and
    two new Modbus TCP channels.
+
+   No anti-short-cycle interlock here — removed 31 July 2026 by field
+   decision so the cabinet responds instantly to xCabinetOnCmd from CODESYS.
+   This trades away the compressor protection the mechanical/EL2869 path
+   (Path1_EL2869_StartStop.st) still keeps; Test 3 in that day's field
+   session rapid-cycled the real compressor five times with no minimum
+   off-time to confirm the change took effect. If Route A ever becomes the
+   only path commanding the compressor (i.e. Path 1 is not also wired), put
+   a minimum off-time back before relying on this for daily use.
    ========================================================================= *)
-
-VAR
-    tonOffLock  : TON;        (* anti-short-cycle: minimum time OFF *)
-    xStartOk    : BOOL;       (* lockout satisfied, or already running *)
-END_VAR
-
-VAR CONSTANT
-    (* Compressors do not tolerate rapid restarts. The interlock is kept from
-       the relay design — the actuation route changed, the mechanical
-       constraint did not. *)
-    tOFFLOCK : TIME := T#5M;
-END_VAR
-
-
-(* --- Minimum off-time timer -------------------------------------------- *)
-(* Runs whenever the cabinet is observed OFF, so the lockout is measured
-   against the controller's real state rather than against the command. A
-   stop from the F4 keypad therefore also starts the clock. *)
-tonOffLock(IN := (GVL_Modbus.wOnOffState = 1), PT := tOFFLOCK);
-GVL_HMI.tOffLockRemain := tOFFLOCK - tonOffLock.ET;
 
 
 (* --- Command arbitration ------------------------------------------------ *)
-(* A cabinet that is already running has served no off-time, so tonOffLock.Q
-   is FALSE there. Without the second term an ON command would never be
-   reasserted while running, and a stop made at the F4 keypad would stick. *)
-xStartOk := tonOffLock.Q OR (GVL_Modbus.wOnOffState = 2);
-
-(* STOP is immediate and unconditional. START waits for the lockout.
-   Anything that delays a stop is a defect, so the stop branch is first and
-   has no gate on it. Inside the lockout window neither branch runs and
-   wOnOffCmd holds its previous value; tOffLockRemain shows the operator why
-   nothing happened. *)
+(* STOP is immediate and unconditional. START is immediate too — no lockout,
+   no gate. See the header note above for the trade-off this makes. *)
 IF NOT GVL_HMI.xCabinetOnCmd THEN
     GVL_Modbus.wOnOffCmd := 1;                    (* 1 = OFF *)
-ELSIF xStartOk THEN
+ELSE
     GVL_Modbus.wOnOffCmd := 2;                    (* 2 = ON *)
 END_IF
 
@@ -55,7 +36,14 @@ END_IF
    still only proof that the *controller output* is enabled — see README
    section 16 on what it does and does not prove about the fan. *)
 GVL_HMI.xCabinetRunning := (GVL_Modbus.wOnOffState = 2);
-GVL_HMI.xStopPermit     := TRUE;   (* Route A has no stop-permit output *)
+
+(* xStopPermit is NOT written here. It belongs to
+   Path1_EL2869_StartStop.st, which drives EL2869 CH16 from it. If both
+   sections write it, whichever runs later in the scan wins every cycle —
+   if that happened to be this one, CH16 would be forced permanently HIGH
+   and Path 1's remote stop would silently stop working. If Path 1 is not
+   pasted into this PLC_PRG, xStopPermit is simply unused; do not "fix"
+   that by writing TRUE here again. *)
 
 
 (* =========================================================================
@@ -66,8 +54,11 @@ GVL_HMI.xStopPermit     := TRUE;   (* Route A has no stop-permit output *)
        wSpLowLimit   : WORD;   (* F4 setpoint low limit, signed x10        *)
        wProfileNow   : WORD;   (* running profile number, 0 = none         *)
 
-   GVL_HMI — xStartPulse is no longer used by Route A. Leave it declared if
-   the watch window references it; nothing writes it any more.
+   GVL_HMI — xStartPulse and xStopPermit are NOT Route A's. They belong to
+   Path1_EL2869_StartStop.st (EL2869 CH15/CH16, README §15). Route A only
+   ever touches wOnOffCmd, xCabinetRunning and xCabinetOnCmd (input). Do not
+   add writes to xStartPulse/xStopPermit here even if both POUs are pasted
+   into the same PLC_PRG — see the comment at the feedback block above.
 
    Modbus TCP Slave channels to add (element row, type WORD, as with every
    existing channel in this project):
