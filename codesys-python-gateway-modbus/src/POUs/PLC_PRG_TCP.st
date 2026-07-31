@@ -48,7 +48,22 @@ VAR
        failure trips it; the gateway's own status codes (2/3/5) still fault
        fast, so a real rejection is never delayed by this headroom. *)
     dwMaxTimeout        : DWORD := 1000;          (* ~10s at 10ms MainTask *)
+
+    dtNow               : DT;                      (* current time for scheduled ramp gate *)
 END_VAR
+
+(* --- STEP 0: Scheduled ramp gate - EL2869 CH15 -> F4 DI1 ---
+   When scheduled start time is enabled and hasn't been reached yet, inhibit
+   control outputs until the scheduled time arrives or scheduler is disabled. *)
+dtNow := RtcGet();
+
+IF GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart) THEN
+    GVL_HMI.xRampInhibit := TRUE;
+ELSE
+    GVL_HMI.xRampInhibit := FALSE;
+END_IF
+
+GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
 
 (* --- STEP 1: Scale raw TCP values -> engineering units ---
    TCP registers carry x10 integers; we work in real degrees.
