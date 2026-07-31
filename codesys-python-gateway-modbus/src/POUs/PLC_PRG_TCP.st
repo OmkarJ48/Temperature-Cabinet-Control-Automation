@@ -50,12 +50,14 @@ VAR
     dwMaxTimeout        : DWORD := 1000;          (* ~10s at 10ms MainTask *)
 
     dtNow               : DT;                      (* current time for scheduled ramp gate *)
+    udiHighRes          : UDINT;                   (* high-resolution time *)
 END_VAR
 
 (* --- STEP 0: Scheduled ramp gate - EL2869 CH15 -> F4 DI1 ---
    When scheduled start time is enabled and hasn't been reached yet, inhibit
    control outputs until the scheduled time arrives or scheduler is disabled. *)
-dtNow := SysTimeRtcHighResGet();
+SysTimeRtcHighResGet(ADR(udiHighRes));
+dtNow := UDINT_TO_DT(udiHighRes);
 
 IF GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart) THEN
     GVL_HMI.xRampInhibit := TRUE;
