@@ -3,7 +3,7 @@
 **Status: ✅ Proven working end-to-end on hardware.** Reads, writes-with-confirmation,
 and range-validation all verified over real Modbus TCP against a real Watlow F4S.
 CODESYS integration is proven too — see
-[`../codesys-python-gateway-modbus/`](../codesys-python-gateway-modbus/).
+[`../codesys-python-gateway-modbus-integration/`](../codesys-python-gateway-modbus-integration/).
 
 This folder owns **one leg only**: the gateway process, its RTU link to the F4S,
 and the scripts that exercise that leg standalone. It was previously named
@@ -20,7 +20,7 @@ folder in older clones or branches is stale — delete it.
 > arrives as `65526`) was rejected as out-of-range. It now converts to signed
 > before validating, against `SP_MIN_X10 = -400 .. SP_MAX_X10 = 2000`, which is
 > what this README always claimed. See
-> [Range investigation](../codesys-python-gateway-modbus/docs/RANGE_INVESTIGATION.md).
+> [Range investigation](../codesys-python-gateway-modbus-integration/docs/RANGE_INVESTIGATION.md).
 
 ## Daily Startup Runbook (Read This First)
 
@@ -805,7 +805,7 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 /dev/ttyWatlowF4S
 setup, channel table, I/O mapping, GVL definitions, watch-window procedure —
 now lives in its own package:
 
-> **[`../codesys-python-gateway-modbus/README.md`](../codesys-python-gateway-modbus/README.md)**
+> **[`../codesys-python-gateway-modbus-integration/README.md`](../codesys-python-gateway-modbus-integration/README.md)**
 
 This folder is now the **Python/RTU side only**: the gateway service, its RTU
 link to the Watlow F4S, and the scripts that test that leg in isolation. The
