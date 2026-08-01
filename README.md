@@ -85,7 +85,7 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`linux-integration/`](linux-integration/) | Pi-side serial bring-up: adapter, permissions, udev symlink, `mbpoll` bench tests | 2 |
 | [`codesys-modbus-integration/`](codesys-modbus-integration/) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
 | [`python-rtu-integration/`](python-rtu-integration/) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |
-| [`codesys-python-gateway-modbus/`](codesys-python-gateway-modbus/) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
+| [`codesys-python-gateway-modbus-integration/`](codesys-python-gateway-modbus-integration/) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
 | `docs/` | Project kick-off document | — |
 
 ---
@@ -313,7 +313,7 @@ accepts −40…200 °C, so the software limits match the hardware rather than g
 
 ### The setpoint state machine
 
-[`src/POUs/PLC_PRG_TCP.st`](codesys-python-gateway-modbus/src/POUs/PLC_PRG_TCP.st) is the program
+[`src/POUs/PLC_PRG_TCP.st`](codesys-python-gateway-modbus-integration/src/POUs/PLC_PRG_TCP.st) is the program
 actually running. It turns a raw register write into a supervised transaction:
 
 ```
@@ -344,7 +344,7 @@ prepare-then-write: type the value into *Prepared value*, then `Ctrl+F7` to comm
 `rReqSetpoint` and `xStartWrite` in the same cycle.
 
 Full build guide, watch list and procedure:
-[`codesys-python-gateway-modbus/README.md`](codesys-python-gateway-modbus/README.md).
+[`codesys-python-gateway-modbus-integration/README.md`](codesys-python-gateway-modbus-integration/README.md).
 
 ---
 
@@ -382,7 +382,7 @@ is not temperature-dependent.
 The important safety property in both drills: **the cabinet setpoint never changed during a fault.**
 A failed write is a failed write, not a partial one.
 
-Daily log: [`codesys-python-gateway-modbus/docs/test-logs/2026-07-27_monday.md`](codesys-python-gateway-modbus/docs/test-logs/2026-07-27_monday.md).
+Daily log: [`codesys-python-gateway-modbus-integration/docs/test-logs/2026-07-27_monday.md`](codesys-python-gateway-modbus-integration/docs/test-logs/2026-07-27_monday.md).
 
 ---
 
@@ -458,7 +458,7 @@ of it, and nothing underneath should need to change.
 - [ ] Operator test pass on the finished page, and capture Drill 3 (runtime restart) with evidence
 
 A first-pass operator page already exists at
-[`codesys-python-gateway-modbus/WebVisu/codesys_hmi.html`](codesys-python-gateway-modbus/WebVisu/codesys_hmi.html)
+[`codesys-python-gateway-modbus-integration/WebVisu/codesys_hmi.html`](codesys-python-gateway-modbus-integration/WebVisu/codesys_hmi.html)
 as a layout reference for that work.
 
 ---
@@ -467,8 +467,8 @@ as a layout reference for that work.
 
 | Document | What it covers |
 |---|---|
-| [`codesys-python-gateway-modbus/README.md`](codesys-python-gateway-modbus/README.md) | CODESYS build guide, proven configuration, watch-window procedure |
-| [`codesys-python-gateway-modbus/docs/test-logs/`](codesys-python-gateway-modbus/docs/test-logs/) | Daily hardware test logs |
+| [`codesys-python-gateway-modbus-integration/README.md`](codesys-python-gateway-modbus-integration/README.md) | CODESYS build guide, proven configuration, watch-window procedure |
+| [`codesys-python-gateway-modbus-integration/docs/test-logs/`](codesys-python-gateway-modbus-integration/docs/test-logs/) | Daily hardware test logs |
 | [`python-rtu-integration/README.md`](python-rtu-integration/README.md) | Gateway install, systemd, register map, RTU test plan, troubleshooting history |
 | [`linux-integration/README.md`](linux-integration/README.md) | Modbus RTU concepts, serial bring-up, `mbpoll` bench test |
 | [`codesys-modbus-integration/README.md`](codesys-modbus-integration/README.md) | Superseded serial-direct approach; network stabilisation and SysCom |
