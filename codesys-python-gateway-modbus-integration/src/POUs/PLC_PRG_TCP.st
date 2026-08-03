@@ -57,7 +57,7 @@ END_VAR
    When scheduled start time is enabled and hasn't been reached yet, inhibit
    control outputs until the scheduled time arrives or scheduler is disabled. *)
 SysTimeRtcHighResGet(uliHighRes);
-dtNow := ULINT_TO_DT(uliHighRes / 1000 + GVL_HMI.diUtcOffsetSec);
+dtNow := ULINT_TO_DT(uliHighRes / 1000 + DINT_TO_ULINT(GVL_HMI.diUtcOffsetSec));
 (* SysTimeRtcHighResGet returns milliseconds since epoch (UTC).
    Add diUtcOffsetSec to shift from UTC to local wall-clock time.
    Set diUtcOffsetSec to 3600 (BST, Mar-Oct) or 0 (GMT, Oct-Mar). *)
