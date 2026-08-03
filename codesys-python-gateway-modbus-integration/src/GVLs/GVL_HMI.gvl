@@ -38,11 +38,13 @@ VAR_GLOBAL
     eFaultCode            : E_FaultCode;
     sStatusText           : STRING(80);
 
-    (* ---- Scheduled ramp gate (logic -> hardware -> WebVisu feedback) ---- *)
+    (* ---- Scheduled cabinet power on/off (logic -> hardware -> WebVisu feedback) ----
+       Option C, README cabinet-on-off-automation §15: EL2869 CH15/CH16 no longer
+       drive the F4 DI1/DI2 ramp gate. They are rewired into the button station
+       (wire 100/102/101) so the schedule controls the cabinet's actual power,
+       not just its outputs. *)
     xSchedEnable         : BOOL;           (* scheduler enabled flag          *)
     dtSchedStart         : DT;             (* scheduled start date/time (local, wall-clock) *)
-    xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 DI1        *)
-    xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
 
     (* The Pi's hardware RTC is kept in UTC (Linux standard practice, confirmed
        via timedatectl: "RTC in local TZ: no"). SysTimeRtcHighResGet reads that
@@ -53,4 +55,10 @@ VAR_GLOBAL
          3600 = BST (British Summer Time, late Mar - late Oct)
          0    = GMT (winter, late Oct - late Mar) *)
     diUtcOffsetSec       : DINT := 3600;
+
+    xCabinetOnCmd        : BOOL;           (* desired state, derived from schedule *)
+    xStopPermit          : BOOL;           (* -> EL2869 CH16 -> wire 100 (station supply) *)
+    xStartPulse          : BOOL;           (* -> EL2869 CH15 -> wire 102 (green NO, ~1s pulse) *)
+    xCabinetRunning       : BOOL;           (* feedback: mirrors xStopPermit (no independent sense wired) *)
+    tOffLockRemain        : TIME;           (* anti-short-cycle: time left before restart is allowed *)
 END_VAR
