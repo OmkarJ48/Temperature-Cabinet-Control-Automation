@@ -61,4 +61,5 @@ VAR_GLOBAL
     xStartPulse          : BOOL;           (* -> EL2869 CH15 -> wire 102 (green NO, ~1s pulse) *)
     xCabinetRunning       : BOOL;           (* feedback: mirrors xStopPermit (no independent sense wired) *)
     tOffLockRemain        : TIME;           (* anti-short-cycle: time left before restart is allowed *)
+    tOffLockDuration      : TIME := T#10S;  (* compressor min off-time, adjustable from watch window for testing *)
 END_VAR
