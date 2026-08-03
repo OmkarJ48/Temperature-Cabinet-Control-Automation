@@ -57,7 +57,10 @@ END_VAR
    When scheduled start time is enabled and hasn't been reached yet, inhibit
    control outputs until the scheduled time arrives or scheduler is disabled. *)
 SysTimeRtcHighResGet(uliHighRes);
-dtNow := ULINT_TO_DT(uliHighRes / 1000000);  (* convert microseconds to seconds *)
+dtNow := ULINT_TO_DT(uliHighRes / 1000);  (* SysTimeRtcHighResGet returns MILLISECONDS
+   since epoch on this runtime (confirmed by field test: dividing by 1,000,000 produced
+   DT#1970-1-21, i.e. ~1.7862e6s -- exactly today's real epoch-ms/1e6, proving the raw
+   value is ms not us). Divide by 1000 to get seconds. *)
 
 IF GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart) THEN
     GVL_HMI.xRampInhibit := TRUE;
