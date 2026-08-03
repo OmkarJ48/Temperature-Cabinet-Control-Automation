@@ -1,19 +1,29 @@
 # Cabinet On/Off Automation — Investigation & Integration Guide
 
 **Author:** Omkar Joshi — Oliver Mechatronics
-**Date:** 29 July 2026
+**Date:** 29 July 2026 (original); **updated 3 August 2026**
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** ✅ Software verification COMPLETE. All sequencer logic proven correct in watch window. Hardware route FROZEN — see §15. ✅ Coil current gate PASSED (<500 mA, 30 July 2026) — Option C is GO. ✅ `-202X3` pin map CONFIRMED against as-built drawing 7168-DWG-100 Rev B. **Wiring begins 31 July 2026.**
+**Status:** ✅ **DEPLOYED AND PROVEN ON HARDWARE — see §17.** Both heating (1A) and cooling (1B)
+outputs are gated by a single EL2869 output wired straight into the F4S's own digital input.
+Bidirectional setpoint control (positive and negative, staged while gated, released on command)
+has been demonstrated repeatedly on the physical cabinet. §15 and §16 below were both
+investigated and **superseded** by the approach in §17 — kept here as design history and because
+the troubleshooting in them (button-station topology, low-side vs. sourcing outputs, coil
+current, F4 register behaviour) remains accurate and useful.
 
-> ### ⚠️ READ §15 FIRST — it supersedes the wiring design in §6–§9a
+> ### ⚠️ READ §17 FIRST — it is the as-built, working solution
 >
-> The **as-designed route is now §15**: EL2869 CH15/CH16 → `-202X3` DI/DO 37-way connector →
-> thermocouple junction box (pass-through only) → cabinet on/off switch station, implementing
-> **Option C** (remote start *and* remote stop, no interposing relays).
+> The deployed route does **not** touch the cabinet's switch station, the `-202X3` connector, or
+> the thermocouple junction box at all. It wires two spare EL2869 channels **directly to two
+> spare digital inputs on the Watlow F4S controller itself** and uses the F4S's own built-in
+> "Control Outputs Off" input function. No relays, no supply-lift, no pass-through cabling.
 >
-> Sections 6, 7, 7a and 9a describe the earlier interposing-relay / analogue-port designs. They
-> are retained as design history and **must not be built**. The software (§9, §9b) is unchanged
-> and remains fully valid — only the wiring route changed.
+> §15 (Option C, relayless supply-lift via `-202X3`) and §16 (Route A, Modbus setpoint sentinel)
+> were both built out on paper/software and are retained below as investigation record. §16's
+> own test A1 is what proved the sentinel approach was insufficient (it stopped the compressor
+> but not the fan), which is what motivated the F4-DI approach in §17. Sections 6, 7, 7a and 9a
+> (the two-relay Option A/B interposing-relay design) were superseded even earlier and **must not
+> be built**.
 
 ---
 
@@ -1054,3 +1064,201 @@ python3 python-rtu-integration/test_onoff_route_a.py
 
 13 checks covering sentinel derivation, idle-when-steady, staging, range refusal,
 profile termination ordering, and keypad-stop correction.
+
+### 16.7 Outcome — why Route A alone was not enough
+
+Test A1 was run on the physical cabinet. Result: commanding the F4 output off (register 300 =
+low-limit sentinel) **stopped the compressor but the fan kept running.** §1 step 5 of this
+document already predicted this shape of failure — the fan is downstream of the button station,
+not of the F4's control output — and A1 confirmed it directly rather than by inference.
+
+Conclusion: Route A is not a complete on/off. It stops *conditioning* but not *air movement*,
+and the objective (a cabinet an operator can leave fully idle until a scheduled time, then have
+it condition unattended) needs something that gates the F4's outputs *and* survives being wired
+without touching the button station. That is what §17 does.
+
+---
+
+# 17. AS-BUILT — Scheduled Ramp Gate via F4 Digital Inputs (working solution, deployed 3 Aug 2026)
+
+**This is the design actually installed, wired, and proven on hardware.** It supersedes §15
+(Option C, relayless supply-lift via `-202X3`) and §16 (Route A, Modbus setpoint sentinel) as
+the deployed solution. Both are retained above as investigation record — the topology findings
+in §1–§5 and the register behaviour in §16.1–16.2 remain accurate and were part of what led here.
+
+## 17.1 Why this route instead of §15 or §16
+
+| | §15 Option C | §16 Route A | **§17 (as-built)** |
+|---|---|---|---|
+| What it gates | Cabinet's own 24 V supply to the switch station | F4 control output 1 only (via setpoint sentinel) | **F4's own control outputs, both 1A and 1B, via the F4's built-in DI function** |
+| Proven to stop the fan? | Would work (cuts the station's supply entirely) | ❌ No — A1 showed fan keeps running | ✅ Not required — objective is *inhibit conditioning*, not kill the fan |
+| Touches switch station / `-202X3` / junction box? | Yes — full cable run, pass-through, supply lift | No | **No — EL2869 wired straight to the F4S terminal block** |
+| Relays required | 0 (Option C removed them) | 0 | **0** |
+| New failure mode introduced | Local start depends on DLS being powered (§15.4 trade-off) | None found before A1 failure | **None found in testing** |
+| Wiring complexity | 37-way connector, pass-through junction box, supply-lift at the switch station | None (software only) | **Two wires + common, direct to F4S terminal block, no other equipment touched** |
+
+The objective that actually mattered — "keep the cabinet powered and idle until a scheduled time,
+then let it start conditioning toward setpoint with no operator action" — does not require
+killing the fan or lifting the cabinet's own 24 V supply. It only requires that the F4's heating
+and cooling outputs be blocked until release. The F4 already has a digital input function built
+for exactly this ("Control Outputs Off"), so the simplest correct design is to drive that input
+directly from a spare EL2869 channel. No relay, no supply-lift, no junction-box run.
+
+## 17.2 What the F4's digital inputs actually do
+
+The F4S has (at minimum) two configurable digital inputs, confirmed in the field on this unit:
+
+| F4 terminal | Function assigned | Effect when active |
+|---|---|---|
+| **D/I 1** (terminal 28) | **"Control Outputs Off"** | Both control output 1A (heat) and 1B (cool) are held off. Confirmed by direct observation to gate **both directions symmetrically** — this was verified, not assumed (§17.6). |
+| **D/I 2** (terminal 29) | **"All Outputs Off"** | Superset of the above — also disables event outputs. Left mapped in CODESYS (`GVL_HMI.xAllOutputsOff`) for future use, but **must be inactive** during normal operation — see §17.7 troubleshooting. |
+| **D/I common** (terminal 27) | — | 0 V reference for both inputs |
+
+Neither function touches the cabinet's fan/supply circuit at the switch station — they act
+entirely inside the F4S controller, on its own output stage. This is why the fan-keeps-running
+problem from §16.7 does not apply here: the design goal was never to kill the fan, only to hold
+back heating/cooling until the scheduled release.
+
+## 17.3 Wiring — EL2869 to F4S, direct
+
+```
+ DLS008 ENCLOSURE                              WATLOW F4S TERMINAL BLOCK
+   EL2869 (EK1100 EtherCAT coupler)
+     CH15 (pin 36) ── Red wire   ──────────────►  Terminal 28  (D/I 1 — Control Outputs Off)
+     CH16 (pin 37) ── Green wire ──────────────►  Terminal 29  (D/I 2 — All Outputs Off)
+     0 V   (pin 20) ── Black wire ──────────────►  Terminal 27  (D/I common)
+```
+
+No junction box, no `-202X3` connector, no switch station wiring, no relay. The only equipment
+touched is the EL2869 terminal block (already installed, spare channels) and the F4S's own
+terminal block (spare digital input terminals).
+
+**Ground-loop check performed before landing the wires:** potential difference measured between
+DLS 0 V and F4 terminal 26 was **< 1 V**, confirmed safe to bond the two 0 V references together
+at terminal 27 (D/I common).
+
+**Topology note, carried over from the §6–§9a investigation:** the cabinet's *button station*
+was proven by multimeter to be **low-side switching** (ground-referenced), which is why an
+EL2869 sourcing output could never be wired directly in parallel with it (§6, §7) — that
+incompatibility is what forced the pivot away from touching the button station at all. It does
+**not** apply to this design, because §17 never wires into the button station. The F4S's digital
+inputs are optically/opto-isolated inputs expecting a sourced 24 V signal, which is exactly what
+the EL2869's sourcing output provides — this is a matched pairing, unlike the button station.
+
+## 17.4 CODESYS side
+
+### GVL_HMI additions
+
+`codesys-python-gateway-modbus-integration/src/GVLs/GVL_HMI.gvl`:
+
+```iec61131
+(* ---- Scheduled ramp gate (logic -> hardware -> WebVisu feedback) ---- *)
+xSchedEnable         : BOOL;           (* scheduler enabled flag          *)
+dtSchedStart         : DT;             (* scheduled start date/time       *)
+xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 DI1        *)
+xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
+```
+
+`xAllOutputsOff` (CH16 → F4 DI2) exists as a variable mapped in I/O Mapping but is **not** driven
+by any current PLC logic — it defaults FALSE and must stay FALSE for normal operation (§17.7).
+
+### PLC_PRG_TCP — STEP 0, scheduled ramp gate
+
+`codesys-python-gateway-modbus-integration/src/POUs/PLC_PRG_TCP.st`:
+
+```iec61131
+VAR
+    dtNow      : DT;    (* current time for scheduled ramp gate *)
+    uliHighRes : ULINT; (* high-resolution time *)
+END_VAR
+
+(* --- STEP 0: Scheduled ramp gate - EL2869 CH15 -> F4 DI1 ---
+   When scheduled start time is enabled and hasn't been reached yet, inhibit
+   control outputs until the scheduled time arrives or scheduler is disabled. *)
+SysTimeRtcHighResGet(uliHighRes);
+dtNow := ULINT_TO_DT(uliHighRes / 1000000);  (* convert microseconds to seconds *)
+
+IF GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart) THEN
+    GVL_HMI.xRampInhibit := TRUE;
+ELSE
+    GVL_HMI.xRampInhibit := FALSE;
+END_IF
+
+GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
+```
+
+The rest of the program (setpoint state machine, `xStartWrite` manual trigger for watch-window
+testing) is unchanged from the base setpoint-control work documented in the project root README.
+
+### I/O Mapping
+
+| Channel | Variable | Notes |
+|---|---|---|
+| EL2869 CH15 | `GVL_HMI.xRampInhibit` | Output, drives F4 D/I 1 |
+| EL2869 CH16 | `GVL_HMI.xAllOutputsOff` | Output, drives F4 D/I 2 — must stay FALSE (§17.7) |
+
+## 17.5 Troubleshooting encountered during commissioning (3 Aug 2026)
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| Build warning `C0139: the code 'GVL_HMI.xAllOutputsOff;' has no effect` | Variable mapped in I/O Mapping but not referenced by any PLC logic — CODESYS flags dead code | Cosmetic only; safe to ignore, or add explicit logic if CH16 gains a real function later |
+| Build error `C0004: 'xAllOutputsOff' is no component of 'GVL_HMI'` | I/O Mapping still pointed at a variable that had been deleted from GVL_HMI in an earlier cleanup pass | Re-added `xAllOutputsOff` to GVL_HMI so the existing I/O Mapping row resolved again |
+| Setpoint accepted, cooling never engaged (`wSetpoint1Read` correct, temperature would not fall below ambient, only decayed passively with door open) | **F4 D/I 2 ("All Outputs Off") was active**, which disables event outputs as well as control outputs — on this cabinet the refrigeration contactor sits on an event output, so cooling was silently blocked even though the setpoint state machine reported success | Confirmed on the F4 panel (front-panel DI status showed input 2 active). Cleared by ensuring `GVL_HMI.xAllOutputsOff` stays FALSE. **Root design conclusion: D/I 1 alone ("Control Outputs Off") is sufficient and correct** — confirmed in §17.6 to gate both 1A and 1B — so D/I 2 does not need an assigned function for this design and should be left inactive |
+| `dtNow` reads `DT#1970-01-01-00:00:00` in the watch window even after the Raspberry Pi's own clock was corrected | Pi system time (`date`, `timedatectl`) was correctly NTP-synced to 3 Aug 2026, but the PLC runtime had cached the old value; a `hwclock -w` sync was attempted to push it to the hardware RTC but **`hwclock` is not installed on this Pi image** | Not fully resolved as of 3 Aug 2026. PLC Stop/Run cycle did not pick up the corrected time either. **Scheduler is currently released manually** by toggling `xSchedEnable` FALSE at the intended time, rather than relying on the `dtNow < dtSchedStart` comparison to auto-release. See §17.8 open item |
+| Temperature briefly read below the F4's practical minimum during range testing (setpoint driven to −3.4 °C) | Deliberate test of the signed setpoint path, not a fault | Confirmed `WORD_TO_INT` / `INT_TO_WORD(REAL_TO_INT(...))` conversion correct at the negative end of the range; F4 accepted and tracked toward it normally |
+
+## 17.6 Proof that D/I 1 gates both heating and cooling (the key open question, now closed)
+
+Before this was confirmed, it was an open question whether "Control Outputs Off" on the F4
+gates only heat (1A) or both control outputs. This was settled by direct observation on the
+physical cabinet, repeated across multiple cycles on 3 August 2026:
+
+| Test | Setpoint direction | `xRampInhibit` | Observed |
+|---|---|---|---|
+| Heating gate | Setpoint above chamber temp (e.g. 25 → 45 °C) | Enabled mid-ramp | 1A stopped flickering; temperature held flat |
+| Heating release | Same | Disabled | 1A resumed flickering; temperature resumed climbing to target |
+| Cooling gate | Setpoint below chamber temp (e.g. 40 → −15 °C) | Enabled mid-ramp | 1B stopped flickering; temperature held flat |
+| Cooling release | Same | Disabled | 1B resumed flickering; temperature resumed falling to target |
+
+**Confirmed: a single digital input, D/I 1 = "Control Outputs Off," gates both 1A and 1B
+symmetrically.** No second input, second channel, or additional wiring is needed to cover both
+heating and cooling — the original concern that "one of the digital inputs is messing with
+control outputs 1A and 1B" traced back entirely to D/I 2 being active (§17.5), not to any
+limitation of D/I 1.
+
+The test sequence also proved the gate is **repeatable, not one-shot**: inhibit → stage a new
+setpoint while gated → release → ramp, run back-to-back for both a positive and a negative
+target in the same session, with the setpoint write always landing correctly even while gated
+(`wSetpoint1Read` updates immediately; only the physical outputs are held back).
+
+## 17.7 Current operating state — what must be true for normal operation
+
+- [ ] `GVL_HMI.xAllOutputsOff` = FALSE (F4 D/I 2 dark on the panel)
+- [ ] `GVL_HMI.xSchedEnable` = FALSE unless a scheduled/manual gate is intentionally active
+- [ ] `GVL_HMI.xRampInhibit` = FALSE, `xRampActive` = TRUE for normal, ungated operation
+- [ ] F4 D/I 1 panel indicator dark when `xRampInhibit` is FALSE, lit when TRUE — verify this
+      polarity after any redownload, since it is the one piece of hardware behaviour that isn't
+      software-verifiable from the watch window alone
+
+## 17.8 Open items
+
+1. **RTC / `dtNow` fix.** The Raspberry Pi's system clock is NTP-synced and correct, but
+   `SysTimeRtcHighResGet()` inside the PLC is not currently reflecting it — `dtNow` reads 1970.
+   `hwclock` is not present on this image (`sudo hwclock -w` → command not found). Until this is
+   resolved, the scheduler's *automatic* time-based release cannot be relied on; it has been
+   demonstrated and used operationally via **manual** `xSchedEnable` toggling instead. Candidate
+   fixes to try: install `fake-hwclock` or `util-linux`'s hwclock package, or investigate whether
+   CODESYS Control for Linux has its own time source setting independent of the OS RTC.
+2. **F4 D/I 2 function.** Currently assigned "All Outputs Off" and mapped to `xAllOutputsOff` in
+   CODESYS, but not used by any logic and confirmed to cause a silent cooling lockout if left
+   active (§17.5). Decide whether to leave it disabled permanently, or give it a defined role
+   (e.g. a hard emergency inhibit distinct from the scheduled ramp gate) and add corresponding
+   ST logic and a documented, deliberate active-state.
+3. **WebVisu integration.** The scheduler variables (`xSchedEnable`, `dtSchedStart`,
+   `xRampInhibit`, `xRampActive`) exist in GVL_HMI and are ready to bind to a WebVisu page once
+   the operator interface work (tracked in the project root README's "Next stage" section) picks
+   this up.
+4. **Test-log capture.** §17.6's proof was observed live but not yet captured with raw
+   timestamped values in a dedicated test log, unlike the setpoint-control qualification in the
+   project root (`codesys-python-gateway-modbus-integration/docs/test-logs/`). Recommended before
+   calling this section formally qualified.
