@@ -42,6 +42,5 @@ VAR_GLOBAL
     xSchedEnable         : BOOL;           (* scheduler enabled flag          *)
     dtSchedStart         : DT;             (* scheduled start date/time       *)
     xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 DI1        *)
-    xAllOutputsOff       : BOOL;           (* -> EL2869 CH16 -> F4 DI2 (spare)*)
     xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
 END_VAR
