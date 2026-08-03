@@ -40,7 +40,17 @@ VAR_GLOBAL
 
     (* ---- Scheduled ramp gate (logic -> hardware -> WebVisu feedback) ---- *)
     xSchedEnable         : BOOL;           (* scheduler enabled flag          *)
-    dtSchedStart         : DT;             (* scheduled start date/time       *)
+    dtSchedStart         : DT;             (* scheduled start date/time (local, wall-clock) *)
     xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 DI1        *)
     xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
+
+    (* The Pi's hardware RTC is kept in UTC (Linux standard practice, confirmed
+       via timedatectl: "RTC in local TZ: no"). SysTimeRtcHighResGet reads that
+       UTC clock directly with no DST conversion, so dtNow would sit 0-1h behind
+       the local wall clock the operator reads dtSchedStart against. This offset
+       corrects it. UK has no automatic DST library call available here, so this
+       must be toggled by hand twice a year:
+         3600 = BST (British Summer Time, late Mar - late Oct)
+         0    = GMT (winter, late Oct - late Mar) *)
+    diUtcOffsetSec       : DINT := 3600;
 END_VAR
