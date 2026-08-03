@@ -79,8 +79,8 @@ GVL_HMI.xCabinetOnCmd := NOT (GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedS
 
 (* Anti-short-cycle: measured against the station's real de-energised time, not the
    command, so a stop made at the local red button also starts the clock. *)
-tonOffLock(IN := NOT GVL_HMI.xStopPermit, PT := tOFFLOCK);
-GVL_HMI.tOffLockRemain := tOFFLOCK - tonOffLock.ET;
+tonOffLock(IN := NOT GVL_HMI.xStopPermit, PT := GVL_HMI.tOffLockDuration);
+GVL_HMI.tOffLockRemain := GVL_HMI.tOffLockDuration - tonOffLock.ET;
 
 (* Stop is immediate and unconditional. Start waits for the lockout to clear.
    Inside the lockout window neither branch runs and xStopPermit holds its
