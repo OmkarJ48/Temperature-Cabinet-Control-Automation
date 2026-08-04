@@ -1240,7 +1240,83 @@ target in the same session, with the setpoint write always landing correctly eve
       polarity after any redownload, since it is the one piece of hardware behaviour that isn't
       software-verifiable from the watch window alone
 
-## 17.8 Open items
+## 17.8 Button station wiring commission — short-circuit diagnosis and fix (4 Aug 2026)
+
+### 17.8.1 Problem: "Digital out 8" error and cabinet unresponsive to remote stop
+
+**Symptoms:**
+- F4S display showed persistent "digital out 8" error
+- Remote stop command (xStopPermit = FALSE) did not stop the cabinet
+- Cabinet restarted immediately after manual stop, ignoring anti-short-cycle lockout
+
+**Root cause diagnosis:**
+
+EL2869 CH16 (GREEN, stop permit) was shorted across its 24V output and 0V return:
+- GREEN connected to NC1 terminal (24V output side of CH16)
+- BLACK and WHITE (both from EL2869 DO GND terminal) connected to NO3 terminal
+- NO3 tied to NC1 via external wire-100 jumper
+- **Result: 24V (from GREEN via wire-100) → 0V (from BLACK/WHITE) = direct short across CH16**
+
+This short starved the output driver and triggered the overcurrent alarm on terminal 8.
+
+### 17.8.2 Button station internal topology — confirmed by continuity mapping (4 Aug 2026)
+
+To rule in/out possible fixes, a full continuity map was taken with cabinet off:
+
+| From (RED) | To (BLACK) | Reading | Interpretation |
+|---|---|---|---|
+| 1 (NC input) | 2 (NC output) | 0.4 Ω | NC contact closed at rest (normally closed) |
+| 3 (NO input) | 4 (NO output) | OL | NO contact open at rest (normally open) |
+| 1 | 3 | 0.5 Ω | Closed only because external wire-100 jumper was physically present |
+| 2 | 3 | 0.4 Ω | Transitively closed (2→1 via NC + 1→3 via wire-100) |
+| 1 | 4 | OL | Isolated |
+| 2 | 4 | OL | Isolated |
+| X1 (lamp) | X2 (lamp) | 6 Ω | Plain resistive filament (lamp circuit, isolated from switches) |
+| X1 | 1, 2, 3, 4 | OL | Lamp fully isolated from control contacts |
+
+**Conclusion:** The button station has **two fully isolated dry-contact blocks** (NO 3-4 and NC 1-2) internally. The only connection between terminal 1 (NC input) and terminal 3 (NO input) is the **external wire-100 jumper**, not internal to the device. **There is no internal ground/common terminal anywhere on this button station.** The X1/X2 lamp circuit is electrically separate from the switch logic.
+
+This confirmed that BLACK/WHITE should never land on any button station terminal — it must return only to the F4S's own 0V rail (Out 1B GND / DO GND), where the rest of the control circuit returns.
+
+### 17.8.3 Fix applied and verified (4 Aug 2026)
+
+**Wiring change:**
+- Moved BLACK from NO3 → F4S Out 1B GND
+- Moved WHITE from NO3 → F4S DO GND
+- Confirmed Out 1B GND and DO GND continuity: 0.5 Ω (same 0V rail)
+
+**Electrical verification after rewiring:**
+
+| Check | Expected | Measured | Status |
+|---|---|---|---|
+| **Continuity: NO3 to Out 1B GND** (cabinet off) | OL (open) | OL | ✅ Short cleared |
+| **Voltage: NC1 to 0V, xStopPermit = TRUE** (cabinet on) | ~24 V | ~24 V | ✅ GREEN supplying wire-100 correctly |
+| **Voltage: NC1 to 0V, xStopPermit = FALSE** (cabinet on) | ~0 V | ~0 V | ✅ GREEN dropping to 0V as commanded |
+| **F4S "Digital out 8" error** | Gone | Pending | — |
+
+**Final circuit topology (post-fix):**
+```
+EL2869 CH16 (+) ─→ GREEN wire ─→ NC1 terminal ─→ wire-100 jumper ─→ NO3 terminal
+                                     ↓                                    ↓
+                              (supplies 24V)                      (shares 24V supply)
+                                     ↓                                    ↓
+                              [NC button input]                   [NO button input]
+                                     │                                    │
+                                     └────────────────────────────────────┘
+                                                  ↓
+                                      [latch coil & outputs]
+                                                  ↓
+                                      (internal cabinet wiring)
+                                                  ↓
+                                      F4S Out 1B GND (0V)
+                                      │            ↑
+                                      └← BLACK ────┘
+                                      
+```
+
+The EL2869 GND (BLACK/WHITE) is now bonded only to the F4S's own 0V common, not touching the button station directly. The 24V supply loop (GREEN → wire-100 → latch coil) is clean.
+
+## 17.9 Open items
 
 1. **RTC / `dtNow` fix.** The Raspberry Pi's system clock is NTP-synced and correct, but
    `SysTimeRtcHighResGet()` inside the PLC is not currently reflecting it — `dtNow` reads 1970.
@@ -1262,3 +1338,6 @@ target in the same session, with the setpoint write always landing correctly eve
    timestamped values in a dedicated test log, unlike the setpoint-control qualification in the
    project root (`codesys-python-gateway-modbus-integration/docs/test-logs/`). Recommended before
    calling this section formally qualified.
+5. **Functional test suite T1–T5.** After "Digital out 8" error clears on 4 Aug, run full manual
+   + remote control tests (manual green button, manual red button, remote start pulse, remote
+   stop, anti-short-cycle lockout) to confirm the wiring fix restores all expected behaviour.
