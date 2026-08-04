@@ -53,50 +53,48 @@ VAR
     uliHighRes          : ULINT;                   (* high-resolution time, raw ms since epoch, UTC *)
 
     (* --- Cabinet power on/off (Option C, EL2869 CH15/CH16 -> button station) --- *)
-    rtrigStopPermit     : R_TRIG;                  (* edge on xStopPermit rising -> fire start pulse *)
-    tpStartPulse        : TP;                      (* ~1s one-shot pulse generator for CH15 *)
-    tonOffLock          : TON;                     (* anti-short-cycle: min time OFF before restart *)
+    rtrigStartCmd       : R_TRIG;                  (* detect xCabinetOnCmd rising edge -> fire start pulse *)
+    rtrigStopCmd        : R_TRIG;                  (* detect xCabinetOnCmd falling edge -> fire stop pulse *)
+    tpStartPulse        : TP;                      (* ~5s one-shot pulse generator for CH15 (green button) *)
+    tpStopPulse         : TP;                      (* ~1s one-shot pulse generator for CH16 (red button) *)
+    tonOffLock          : TON;                     (* anti-short-cycle: min time OFF before restart allowed *)
+    xStartAllowed       : BOOL;                    (* START pulse inhibited during lockout window *)
 END_VAR
 
 VAR CONSTANT
-    tSTART_PULSE        : TIME := T#1S;            (* CH15 pulse width -- long enough for the
-                                                        latch relay to pick up, per README §15.10
-                                                        troubleshooting (raise to 2s if it won't catch) *)
-    tOFFLOCK             : TIME := T#5M;            (* compressor minimum off-time, README §15 BOM *)
+    tSTART_PULSE        : TIME := T#5S;            (* CH15 pulse width for green button, per README §15.10 *)
+    tSTOP_PULSE         : TIME := T#1S;            (* CH16 pulse width for red button *)
+    tOFFLOCK            : TIME := T#5M;            (* compressor minimum off-time, README §15 BOM *)
 END_VAR
 
 (* --- STEP 0: Scheduled cabinet power on/off - EL2869 CH15/CH16 -> button station ---
-   CH16 (xStopPermit) is the button station's own 24V supply: HIGH = cabinet can run,
-   LOW = station loses power and drops out (remote stop, no relay needed -- README §15.4).
-   CH15 (xStartPulse) parallels the green NO contact with a diode: a rising edge on
-   xStopPermit fires a one-shot pulse that "presses" the green button electronically.
-   The red button remains a physical series break -- local stop always works regardless
-   of DLS/CODESYS state (README §15.4 accepted trade-off). *)
+   Symmetric pulse design: both CH15 (start) and CH16 (stop) fire momentary pulses.
+   CH15 (RED, ~5s pulse) electronically "presses" the green START button (NO contact).
+   CH16 (GREEN, ~1s pulse) electronically "presses" the red STOP button (NC contact).
+   The latch relay holds state between pulses. Anti-short-cycle lockout prevents
+   START pulses for N minutes after STOP (either remote or local red button). *)
 SysTimeRtcHighResGet(uliHighRes);
 dtNow := ULINT_TO_DT(uliHighRes / 1000 + DINT_TO_ULINT(GVL_HMI.diUtcOffsetSec));  (* ms -> s, then UTC -> local *)
 
 GVL_HMI.xCabinetOnCmd := NOT (GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart));
 
-(* Anti-short-cycle: measured against the station's real de-energised time, not the
-   command, so a stop made at the local red button also starts the clock. *)
-tonOffLock(IN := NOT GVL_HMI.xStopPermit, PT := GVL_HMI.tOffLockDuration);
+(* Anti-short-cycle: lockout timer starts when xCabinetOnCmd goes FALSE (STOP command).
+   Prevents START pulse from firing until lockout clears, protecting compressor. *)
+tonOffLock(IN := NOT GVL_HMI.xCabinetOnCmd, PT := GVL_HMI.tOffLockDuration);
 GVL_HMI.tOffLockRemain := GVL_HMI.tOffLockDuration - tonOffLock.ET;
 
-(* Stop is immediate and unconditional. Start waits for the lockout to clear.
-   Inside the lockout window neither branch runs and xStopPermit holds its
-   previous value; tOffLockRemain shows the operator why nothing happened. *)
-IF NOT GVL_HMI.xCabinetOnCmd THEN
-    GVL_HMI.xStopPermit := FALSE;
-ELSIF tonOffLock.Q THEN
-    GVL_HMI.xStopPermit := TRUE;
-END_IF
-
-(* One-shot ~1s pulse on CH15 every time xStopPermit transitions LOW -> HIGH. *)
-rtrigStopPermit(CLK := GVL_HMI.xStopPermit);
-tpStartPulse(IN := rtrigStopPermit.Q, PT := tSTART_PULSE);
+(* START: fire pulse when xCabinetOnCmd transitions FALSE -> TRUE AND lockout is done *)
+xStartAllowed := GVL_HMI.xCabinetOnCmd AND tonOffLock.Q;
+rtrigStartCmd(CLK := xStartAllowed);
+tpStartPulse(IN := rtrigStartCmd.Q, PT := tSTART_PULSE);
 GVL_HMI.xStartPulse := tpStartPulse.Q;
 
-GVL_HMI.xCabinetRunning := GVL_HMI.xStopPermit;  (* no independent run-feedback wired yet *)
+(* STOP: fire pulse when xCabinetOnCmd transitions TRUE -> FALSE (immediate, unconditional) *)
+rtrigStopCmd(CLK := NOT GVL_HMI.xCabinetOnCmd);
+tpStopPulse(IN := rtrigStopCmd.Q, PT := tSTOP_PULSE);
+GVL_HMI.xStopPulse := tpStopPulse.Q;
+
+GVL_HMI.xCabinetRunning := FALSE;  (* TODO: wire independent run-feedback from auxiliary contact *)
 
 (* --- STEP 1: Scale raw TCP values -> engineering units ---
    TCP registers carry x10 integers; we work in real degrees.

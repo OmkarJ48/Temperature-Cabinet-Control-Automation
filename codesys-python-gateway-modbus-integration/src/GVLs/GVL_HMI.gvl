@@ -57,9 +57,9 @@ VAR_GLOBAL
     diUtcOffsetSec       : DINT := 3600;
 
     xCabinetOnCmd        : BOOL;           (* desired state, derived from schedule *)
-    xStopPermit          : BOOL;           (* -> EL2869 CH16 -> wire 100 (station supply) *)
-    xStartPulse          : BOOL;           (* -> EL2869 CH15 -> wire 102 (green NO, ~1s pulse) *)
-    xCabinetRunning       : BOOL;           (* feedback: mirrors xStopPermit (no independent sense wired) *)
+    xStartPulse          : BOOL;           (* -> EL2869 CH15 -> wire 102 (green button, ~5s pulse) *)
+    xStopPulse           : BOOL;           (* -> EL2869 CH16 -> wire 103 (red button, ~1s pulse) *)
+    xCabinetRunning       : BOOL;           (* feedback: independent run status (no sense wired yet) *)
     tOffLockRemain        : TIME;           (* anti-short-cycle: time left before restart is allowed *)
     tOffLockDuration      : TIME := T#10S;  (* compressor min off-time, adjustable from watch window for testing *)
 END_VAR
