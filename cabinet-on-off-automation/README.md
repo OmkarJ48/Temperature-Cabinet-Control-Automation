@@ -1,10 +1,16 @@
 # Cabinet On/Off Automation — Investigation & Integration Guide
 
 **Author:** Omkar Joshi — Oliver Mechatronics
-**Date:** 29 July 2026 (original); **updated 3 August 2026**
+**Date:** 29 July 2026 (original); **updated 5 August 2026**
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** ✅ **DEPLOYED AND PROVEN ON HARDWARE — see §17.** Both heating (1A) and cooling (1B)
+**Status:** ✅ **DESIGN PROVEN ON HARDWARE — see §17.** Both heating (1A) and cooling (1B)
 outputs are gated by a single EL2869 output wired straight into the F4S's own digital input.
+
+> ⚠️ **Currently awaiting re-commissioning (§17.9 item 5).** CH15/CH16 were temporarily
+> re-purposed to the button station during the §15 Option C attempt of 4–5 Aug, which was
+> **abandoned** — see **§17.8.4** for the root cause (a sourcing output cannot drive a low-side
+> switched circuit, at any terminal arrangement). Restore the wiring per §17.3 and run R1–R8 to
+> return to the proven state.
 Bidirectional setpoint control (positive and negative, staged while gated, released on command)
 has been demonstrated repeatedly on the physical cabinet. §15 and §16 below were both
 investigated and **superseded** by the approach in §17 — kept here as design history and because
@@ -19,11 +25,16 @@ current, F4 register behaviour) remains accurate and useful.
 > "Control Outputs Off" input function. No relays, no supply-lift, no pass-through cabling.
 >
 > §15 (Option C, relayless supply-lift via `-202X3`) and §16 (Route A, Modbus setpoint sentinel)
-> were both built out on paper/software and are retained below as investigation record. §16's
-> own test A1 is what proved the sentinel approach was insufficient (it stopped the compressor
-> but not the fan), which is what motivated the F4-DI approach in §17. Sections 6, 7, 7a and 9a
-> (the two-relay Option A/B interposing-relay design) were superseded even earlier and **must not
-> be built**.
+> are retained below as investigation record. §16's own test A1 is what proved the sentinel
+> approach was insufficient (it stopped the compressor but not the fan), which is what motivated
+> the F4-DI approach in §17.
+>
+> **§15 Option C was additionally attempted on hardware 4–5 Aug 2026 and abandoned — see §17.8.4.**
+> The button station is low-side (ground) switched and the EL2869 is a sourcing output; the two
+> cannot interface at any terminal arrangement. **Do not re-attempt it.** Gating the fan, the one
+> capability §17 lacks, requires the interposing relay of §6/§7 — the very component Option C
+> removed. Its dry contact is voltage-agnostic, which is exactly why it works where Option C
+> cannot.
 
 ---
 
@@ -1316,15 +1327,59 @@ EL2869 CH16 (+) ─→ GREEN wire ─→ NC1 terminal ─→ wire-100 jumper ─
 
 The EL2869 GND (BLACK/WHITE) is now bonded only to the F4S's own 0V common, not touching the button station directly. The 24V supply loop (GREEN → wire-100 → latch coil) is clean.
 
+### 17.8.4 ⛔ ROUTE ABANDONED (5 Aug 2026) — root cause, and why no wiring arrangement can fix it
+
+**The §15 Option C button-station route was abandoned on 5 Aug 2026 after further hardware
+attempts. CH15/CH16 have been returned to the §17 F4-digital-input design.** Do not re-attempt
+this route without first reading this subsection.
+
+**Root cause — a device-type mismatch, not a wiring mistake:**
+
+> The button station is **low-side switching** (ground-referenced): its contacts make and break
+> the **0 V** side of the latch circuit. The EL2869 is a **sourcing** output: it can only *push*
+> 24 V out, never pull a node down to 0 V.
+>
+> A sourcing output can therefore never substitute for, or parallel, a low-side contact — **at
+> any terminal arrangement whatsoever.** This is a fundamental incompatibility between the two
+> device types, not a matter of finding the right terminal.
+
+This was already established in §6/§7 during the original investigation, and is restated in the
+§17.3 topology note. It is the reason the project pivoted away from the button station in the
+first place. The 4–5 Aug work rediscovered it empirically, at the cost of several days.
+
+**Every symptom seen during the attempt traces to this single cause:**
+
+| Symptom | Explanation |
+|---|---|
+| "Digital out 8" overcurrent error | BLACK/WHITE (0 V) landed on a node the GREEN (24 V) output was also feeding — a direct short across CH16 |
+| Spark on inserting RED into NO3 | NO3 was live at 24 V (fed from NC1 via the wire-100 jumper); inserting a second source shorted it |
+| `xStartPulse` fires correctly in the watch window but the cabinet never starts | The pulse is a *sourced* 24 V push into a circuit that needs its **ground** pulled down. Electrically inert — no current path, so the latch coil never sees anything. The watch window is telling the truth; the output really is firing. It simply cannot do the job asked of it. |
+| No click from the latch relay under any pulse width (1 s → 2 s → 5 s) | Same cause. Pulse *duration* was never the limiting factor — the pulse polarity was wrong from the start. Widening it could not have helped. |
+| Manual buttons stopped working after rewiring | Moving wire-100 off NC1 removed the station's factory 24 V common feed, leaving both button circuits unpowered |
+
+**Wiring restored to factory** on the button station: wire-100 back to its original NC1↔NO3
+common, `102` back to NO4, `103` back to NC2, and **no EL2869 conductor landing on any button
+station terminal**. The local operator's manual start/stop authority is restored in full.
+
+**What would be required to gate the fan (the one thing §17 does not do):** an interposing relay
+with a **dry contact** in the latch circuit. A relay contact is voltage-agnostic — it does not
+care which side of the load is being switched — so the low-side/sourcing mismatch stops applying.
+This is precisely the §6/§7 two-relay design that Option C removed in an attempt to save the
+relay cost; removing it is what created this incompatibility. Estimated cost €40–70 (Phoenix
+PLC-RSC-24DC/21 or Finder 38-series, **must** have an integral freewheel diode — §6b).
+
+**Decision (5 Aug 2026):** the fan does not need to stop. The objective — "cabinet sits idle,
+conditioning nothing, until its scheduled start" — is fully met by §17 as already deployed and
+proven. No relay purchase, no button-station modification. Route closed.
+
 ## 17.9 Open items
 
-1. **RTC / `dtNow` fix.** The Raspberry Pi's system clock is NTP-synced and correct, but
-   `SysTimeRtcHighResGet()` inside the PLC is not currently reflecting it — `dtNow` reads 1970.
-   `hwclock` is not present on this image (`sudo hwclock -w` → command not found). Until this is
-   resolved, the scheduler's *automatic* time-based release cannot be relied on; it has been
-   demonstrated and used operationally via **manual** `xSchedEnable` toggling instead. Candidate
-   fixes to try: install `fake-hwclock` or `util-linux`'s hwclock package, or investigate whether
-   CODESYS Control for Linux has its own time source setting independent of the OS RTC.
+1. ~~**RTC / `dtNow` fix.**~~ ✅ **RESOLVED 4 Aug 2026.** `dtNow` was reading
+   `DT#1970-01-01-00:00:00` because the Pi's *hardware* RTC had never been written from the
+   (correctly NTP-synced) system clock, and `hwclock` was absent from the image. Fix:
+   `sudo apt install util-linux` → `sudo hwclock -w` → `sudo systemctl restart codesyscontrol`.
+   Verified: `dtNow` now reads correct local wall-clock time. The scheduler's automatic
+   time-based release no longer needs the manual `xSchedEnable` workaround.
 2. **F4 D/I 2 function.** Currently assigned "All Outputs Off" and mapped to `xAllOutputsOff` in
    CODESYS, but not used by any logic and confirmed to cause a silent cooling lockout if left
    active (§17.5). Decide whether to leave it disabled permanently, or give it a defined role
@@ -1338,6 +1393,21 @@ The EL2869 GND (BLACK/WHITE) is now bonded only to the F4S's own 0V common, not 
    timestamped values in a dedicated test log, unlike the setpoint-control qualification in the
    project root (`codesys-python-gateway-modbus-integration/docs/test-logs/`). Recommended before
    calling this section formally qualified.
-5. **Functional test suite T1–T5.** After "Digital out 8" error clears on 4 Aug, run full manual
-   + remote control tests (manual green button, manual red button, remote start pulse, remote
-   stop, anti-short-cycle lockout) to confirm the wiring fix restores all expected behaviour.
+5. **Re-commission §17 after the Option C revert (5 Aug 2026).** CH15/CH16 were re-purposed to
+   the button station during the abandoned §17.8 attempt and must be returned to the F4S
+   terminal block per §17.3 before the ramp gate works again:
+
+   | Step | Action | Pass criterion |
+   |---|---|---|
+   | R1 | Restore button station to factory (wire-100 → NC1↔NO3, `102` → NO4, `103` → NC2, no EL2869 conductor on any station terminal) | Manual green starts, manual red stops — **do this first, it restores operator authority** |
+   | R2 | Land CH15 → F4 terminal 28, CH16 → F4 terminal 29, 0 V → F4 terminal 27 | Ground-loop check < 1 V before bonding (§17.3) |
+   | R3 | Rebuild + download PLC; confirm I/O mapping CH15 → `xRampInhibit`, CH16 → `xAllOutputsOff` | `xAllOutputsOff` reads FALSE and stays FALSE (§17.7) |
+   | R4 | `xRampInhibit := TRUE` from watch window, setpoint well above ambient | Heating does not start; 1A indicator stays dark |
+   | R5 | `xRampInhibit := FALSE` | Heating starts, 1A flickers with PWM, temperature ramps |
+   | R6 | Repeat R4/R5 with setpoint well **below** ambient | Cooling gated and released symmetrically (re-proof of §17.6) |
+   | R7 | Set `dtSchedStart` a few minutes ahead, `xSchedEnable := TRUE` | Gate holds shut; `dtNow` advances correctly; gate releases at the scheduled time with no operator action |
+   | R8 | Force an inhibit, then release immediately | `tOffLockRemain` counts down and release is deferred until it reaches zero |
+
+6. **Capture R1–R8 as a timestamped test log** in
+   `codesys-python-gateway-modbus-integration/docs/test-logs/`, closing open item 4 above for
+   this section as well.

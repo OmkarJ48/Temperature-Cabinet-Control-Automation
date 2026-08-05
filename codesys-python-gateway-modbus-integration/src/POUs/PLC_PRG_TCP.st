@@ -52,49 +52,43 @@ VAR
     dtNow               : DT;                      (* current local time for schedule *)
     uliHighRes          : ULINT;                   (* high-resolution time, raw ms since epoch, UTC *)
 
-    (* --- Cabinet power on/off (Option C, EL2869 CH15/CH16 -> button station) --- *)
-    rtrigStartCmd       : R_TRIG;                  (* detect xCabinetOnCmd rising edge -> fire start pulse *)
-    rtrigStopCmd        : R_TRIG;                  (* detect xCabinetOnCmd falling edge -> fire stop pulse *)
-    tpStartPulse        : TP;                      (* ~5s one-shot pulse generator for CH15 (green button) *)
-    tpStopPulse         : TP;                      (* ~1s one-shot pulse generator for CH16 (red button) *)
-    tonOffLock          : TON;                     (* anti-short-cycle: min time OFF before restart allowed *)
-    xStartAllowed       : BOOL;                    (* START pulse inhibited during lockout window *)
+    (* --- Scheduled ramp gate (§17 as-built, EL2869 CH15 -> F4 D/I 1) --- *)
+    tonOffLock          : TON;                     (* anti-short-cycle: min inhibit time before release *)
 END_VAR
 
-VAR CONSTANT
-    tSTART_PULSE        : TIME := T#5S;            (* CH15 pulse width for green button, per README §15.10 *)
-    tSTOP_PULSE         : TIME := T#1S;            (* CH16 pulse width for red button *)
-    tOFFLOCK            : TIME := T#5M;            (* compressor minimum off-time, README §15 BOM *)
-END_VAR
+(* --- STEP 0: Scheduled ramp gate - EL2869 CH15 -> F4 terminal 28 (D/I 1) ---
+   Reverted to the §17 as-built design after the §15 Option C button-station route
+   was attempted on hardware and abandoned. The station switches the LOW side
+   (ground-referenced) and the EL2869 is a SOURCING output, so no terminal
+   arrangement can make them interface -- see README §17.3 topology note. Driving
+   the F4S's own opto-isolated digital input with a sourced 24 V signal is the
+   matched pairing, and it is already proven on hardware (§17.6).
 
-(* --- STEP 0: Scheduled cabinet power on/off - EL2869 CH15/CH16 -> button station ---
-   Symmetric pulse design: both CH15 (start) and CH16 (stop) fire momentary pulses.
-   CH15 (RED, ~5s pulse) electronically "presses" the green START button (NO contact).
-   CH16 (GREEN, ~1s pulse) electronically "presses" the red STOP button (NC contact).
-   The latch relay holds state between pulses. Anti-short-cycle lockout prevents
-   START pulses for N minutes after STOP (either remote or local red button). *)
+   xRampInhibit HIGH holds both control outputs off -- 1A (heat) and 1B (cool),
+   verified symmetric in §17.6. The fan is NOT gated by this and keeps running;
+   that is accepted scope (§16.7, §17.1). The button station is left entirely
+   untouched, so the local operator keeps full manual authority at all times. *)
 SysTimeRtcHighResGet(uliHighRes);
 dtNow := ULINT_TO_DT(uliHighRes / 1000 + DINT_TO_ULINT(GVL_HMI.diUtcOffsetSec));  (* ms -> s, then UTC -> local *)
 
 GVL_HMI.xCabinetOnCmd := NOT (GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart));
 
-(* Anti-short-cycle: lockout timer starts when xCabinetOnCmd goes FALSE (STOP command).
-   Prevents START pulse from firing until lockout clears, protecting compressor. *)
-tonOffLock(IN := NOT GVL_HMI.xCabinetOnCmd, PT := GVL_HMI.tOffLockDuration);
+(* Anti-short-cycle: hold the gate shut for a minimum time after every inhibit, so a
+   schedule edit or an RTC step cannot chatter the compressor. Timed against the real
+   inhibited duration rather than the command, so it survives a mid-window edit. *)
+tonOffLock(IN := GVL_HMI.xRampInhibit, PT := GVL_HMI.tOffLockDuration);
 GVL_HMI.tOffLockRemain := GVL_HMI.tOffLockDuration - tonOffLock.ET;
 
-(* START: fire pulse when xCabinetOnCmd transitions FALSE -> TRUE AND lockout is done *)
-xStartAllowed := GVL_HMI.xCabinetOnCmd AND tonOffLock.Q;
-rtrigStartCmd(CLK := xStartAllowed);
-tpStartPulse(IN := rtrigStartCmd.Q, PT := tSTART_PULSE);
-GVL_HMI.xStartPulse := tpStartPulse.Q;
+(* Inhibit is immediate and unconditional; release waits for the lockout to expire.
+   Inside the lockout window neither branch runs and xRampInhibit holds its previous
+   value -- tOffLockRemain shows the operator why nothing has happened yet. *)
+IF NOT GVL_HMI.xCabinetOnCmd THEN
+    GVL_HMI.xRampInhibit := TRUE;
+ELSIF tonOffLock.Q THEN
+    GVL_HMI.xRampInhibit := FALSE;
+END_IF
 
-(* STOP: fire pulse when xCabinetOnCmd transitions TRUE -> FALSE (immediate, unconditional) *)
-rtrigStopCmd(CLK := NOT GVL_HMI.xCabinetOnCmd);
-tpStopPulse(IN := rtrigStopCmd.Q, PT := tSTOP_PULSE);
-GVL_HMI.xStopPulse := tpStopPulse.Q;
-
-GVL_HMI.xCabinetRunning := FALSE;  (* TODO: wire independent run-feedback from auxiliary contact *)
+GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
 
 (* --- STEP 1: Scale raw TCP values -> engineering units ---
    TCP registers carry x10 integers; we work in real degrees.

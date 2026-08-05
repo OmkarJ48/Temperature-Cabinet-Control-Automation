@@ -38,11 +38,13 @@ VAR_GLOBAL
     eFaultCode            : E_FaultCode;
     sStatusText           : STRING(80);
 
-    (* ---- Scheduled cabinet power on/off (logic -> hardware -> WebVisu feedback) ----
-       Option C, README cabinet-on-off-automation §15: EL2869 CH15/CH16 no longer
-       drive the F4 DI1/DI2 ramp gate. They are rewired into the button station
-       (wire 100/102/101) so the schedule controls the cabinet's actual power,
-       not just its outputs. *)
+    (* ---- Scheduled ramp gate (logic -> hardware -> WebVisu feedback) ----
+       README cabinet-on-off-automation §17 (as-built): EL2869 CH15/CH16 drive the
+       F4S's own digital inputs 1/2 directly. The §15 Option C route into the button
+       station was attempted and abandoned -- the station is low-side (ground)
+       switching and the EL2869 is a sourcing output, so the two cannot interface
+       directly at any terminal arrangement (§17.3 topology note). The F4S digital
+       inputs are opto-isolated and expect a sourced 24 V signal: a matched pairing. *)
     xSchedEnable         : BOOL;           (* scheduler enabled flag          *)
     dtSchedStart         : DT;             (* scheduled start date/time (local, wall-clock) *)
 
@@ -57,9 +59,11 @@ VAR_GLOBAL
     diUtcOffsetSec       : DINT := 3600;
 
     xCabinetOnCmd        : BOOL;           (* desired state, derived from schedule *)
-    xStartPulse          : BOOL;           (* -> EL2869 CH15 -> wire 102 (green button, ~5s pulse) *)
-    xStopPulse           : BOOL;           (* -> EL2869 CH16 -> wire 103 (red button, ~1s pulse) *)
-    xCabinetRunning       : BOOL;           (* feedback: independent run status (no sense wired yet) *)
-    tOffLockRemain        : TIME;           (* anti-short-cycle: time left before restart is allowed *)
+    xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 terminal 28 (D/I 1, "Control Outputs Off") *)
+    xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
+    xAllOutputsOff       : BOOL;           (* -> EL2869 CH16 -> F4 terminal 29 (D/I 2). MUST stay FALSE
+                                              in normal operation -- active causes a silent cooling
+                                              lockout, README §17.5/§17.7. Mapped for future use only. *)
+    tOffLockRemain        : TIME;           (* anti-short-cycle: time left before gate release is allowed *)
     tOffLockDuration      : TIME := T#10S;  (* compressor min off-time, adjustable from watch window for testing *)
 END_VAR
