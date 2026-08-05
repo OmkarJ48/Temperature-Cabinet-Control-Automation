@@ -246,15 +246,28 @@ This creates a dangerous window: if the operator presses the red button during t
 
 **With two independent relays and two independent EL2869 channels:**
 
+⚠️ **Polarity correction (5 Aug 2026):** the original table below had K_REM_STOP's rest/energized
+states backwards — it described a normally-closed contact as *closing* when energized, which is
+not how NC contacts behave. Corrected logic: K_REM_STOP's coil is **OFF at rest** (its NC contact
+closed, stop string intact, cabinet free to run) and is **energized only to command a stop**
+(NC opens, breaking the string exactly as the red button would). This is also what makes the
+§6 fail-safe claim true: lose coil supply → de-energized → NC closes → local circuit works
+normally, which only holds if OFF is the running state.
+
 | Control | Relay | EL2869 CH | Behavior |
 |---|---|---|---|
-| Start pulse (1 sec) | K_REM_START coil → ON | CH1 energizes | NO contact closes; start flows through parallel contact |
-| Stop permission (continuous) | K_REM_STOP coil → ON | CH2 held high | NC contact stays closed; stop circuit ready |
-| Red button pressed during start | Local NC opens | CH2 unaffected | Stop works immediately because remote NC is still closed |
+| Start pulse (~1 s) | K_REM_START coil → ON (pulse) | CH_START energizes briefly | NO contact closes for the pulse; start flows through parallel contact |
+| Stop command (continuous while stopped) | K_REM_STOP coil → ON | CH_STOP held high | NC contact opens; stop string broken, same as holding the red button |
+| Normal running (no remote stop active) | K_REM_STOP coil → OFF | CH_STOP low | NC contact closed at rest; stop string intact |
+| Red button pressed during a start pulse | Local NC opens | CH_STOP unaffected | Stop works immediately — the local NC is in the same series string and independent of the relay |
 
 The sequencer drives them independently:
-- `xStartPulse` → CH1 (1-second pulse)
-- `xStopPermit` → CH2 (held high until stop command)
+- `xRemoteStartPulse` → CH_START (~1 s pulse, energize to start)
+- `xRemoteStopCmd` → CH_STOP (energize to stop; FALSE at rest so the cabinet is free to run)
+
+Deliberately **not** named `xStopPermit` — the corrected polarity above means TRUE energizes the
+relay to *command* a stop, not to *permit* running. The old name inverted the meaning and is what
+produced the K_REM_STOP contradiction this section now fixes; don't reintroduce it.
 
 This ensures the red button's NC path is **never blocked by start logic**. The extra relay and EL2869 channel are the cost of safety, and this is standard motor-starter practice worldwide.
 
