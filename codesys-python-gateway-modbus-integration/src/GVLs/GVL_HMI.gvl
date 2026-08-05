@@ -61,9 +61,18 @@ VAR_GLOBAL
     xCabinetOnCmd        : BOOL;           (* desired state, derived from schedule *)
     xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 terminal 28 (D/I 1, "Control Outputs Off") *)
     xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
-    xAllOutputsOff       : BOOL;           (* -> EL2869 CH16 -> F4 terminal 29 (D/I 2). MUST stay FALSE
-                                              in normal operation -- active causes a silent cooling
-                                              lockout, README §17.5/§17.7. Mapped for future use only. *)
+    (* Panel lock: F4 D/I 2 (terminal 29) reassigned from "All Outputs Off" to
+       "Panel Lock" (F4 digital input function 1). HIGH locks the F4S front-panel
+       keypad, so an operator standing at the cabinet cannot key in a new setpoint
+       and pull the chamber off the profile CODESYS commanded. Modbus writes from
+       the gateway are a separate path and are unaffected -- CODESYS keeps full
+       setpoint authority. See README §18.
+
+       This also retires the old "All Outputs Off" assignment, which §17.5/§17.7
+       flagged as a silent cooling-lockout hazard that had to be held FALSE and
+       served no purpose. The channel now has a real job. *)
+    xPanelLockCmd        : BOOL := TRUE;   (* operator intent: TRUE = keypad locked (default) *)
+    xPanelLock           : BOOL;           (* -> EL2869 CH16 -> F4 terminal 29 (D/I 2, "Panel Lock") *)
     tOffLockRemain        : TIME;           (* anti-short-cycle: time left before gate release is allowed *)
     tOffLockDuration      : TIME := T#10S;  (* compressor min off-time, adjustable from watch window for testing *)
 END_VAR

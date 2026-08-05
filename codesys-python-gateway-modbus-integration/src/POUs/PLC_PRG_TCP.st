@@ -90,6 +90,21 @@ END_IF
 
 GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
 
+(* --- STEP 0b: Front-panel keypad lock - EL2869 CH16 -> F4 terminal 29 (D/I 2) ---
+   D/I 2 is assigned F4 digital input function 1 ("Panel Lock"), condition Start on
+   High. Asserting it locks the F4S keypad so an operator at the cabinet cannot key
+   in a setpoint and pull the chamber off the profile CODESYS is running. Setpoint
+   authority therefore sits with CODESYS alone (README §18).
+
+   Modbus writes reach the F4 over the serial link, not the keypad, so the gateway's
+   setpoint writes are unaffected by this lock -- verify once on hardware (§18 test
+   P3) before relying on it.
+
+   Held permanently by default (xPanelLockCmd defaults TRUE). Clear it from the watch
+   window or WebVisu for deliberate maintenance access; it re-asserts on PLC restart
+   because the default is TRUE, so the lock cannot be left off by accident. *)
+GVL_HMI.xPanelLock := GVL_HMI.xPanelLockCmd;
+
 (* --- STEP 1: Scale raw TCP values -> engineering units ---
    TCP registers carry x10 integers; we work in real degrees.
    All three reads come from the TCP channels (wInput1Value, wSetpoint1Read, wStatus).

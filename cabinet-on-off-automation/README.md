@@ -1135,7 +1135,7 @@ The F4S has (at minimum) two configurable digital inputs, confirmed in the field
 | F4 terminal | Function assigned | Effect when active |
 |---|---|---|
 | **D/I 1** (terminal 28) | **"Control Outputs Off"** | Both control output 1A (heat) and 1B (cool) are held off. Confirmed by direct observation to gate **both directions symmetrically** — this was verified, not assumed (§17.6). |
-| **D/I 2** (terminal 29) | **"All Outputs Off"** | Superset of the above — also disables event outputs. Left mapped in CODESYS (`GVL_HMI.xAllOutputsOff`) for future use, but **must be inactive** during normal operation — see §17.7 troubleshooting. |
+| **D/I 2** (terminal 29) | **"Panel Lock"** (F4 function 1) — *reassigned 5 Aug 2026, was "All Outputs Off"* | Locks the F4S front-panel keypad so an operator cannot key in a setpoint. Driven by `GVL_HMI.xPanelLock`. See **§18**. The previous "All Outputs Off" assignment was a silent cooling-lockout hazard that had to be held FALSE and did nothing useful (§17.5/§17.7) — retired. |
 | **D/I common** (terminal 27) | — | 0 V reference for both inputs |
 
 Neither function touches the cabinet's fan/supply circuit at the switch station — they act
@@ -1183,8 +1183,9 @@ xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 DI1        *)
 xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
 ```
 
-`xAllOutputsOff` (CH16 → F4 DI2) exists as a variable mapped in I/O Mapping but is **not** driven
-by any current PLC logic — it defaults FALSE and must stay FALSE for normal operation (§17.7).
+`xPanelLock` (CH16 → F4 D/I 2) drives the front-panel keypad lock — see **§18**. It replaced
+`xAllOutputsOff`, which was mapped but undriven and had to be held FALSE to avoid a silent
+cooling lockout (§17.5/§17.7).
 
 ### PLC_PRG_TCP — STEP 0, scheduled ramp gate
 
@@ -1219,7 +1220,7 @@ testing) is unchanged from the base setpoint-control work documented in the proj
 | Channel | Variable | Notes |
 |---|---|---|
 | EL2869 CH15 | `GVL_HMI.xRampInhibit` | Output, drives F4 D/I 1 |
-| EL2869 CH16 | `GVL_HMI.xAllOutputsOff` | Output, drives F4 D/I 2 — must stay FALSE (§17.7) |
+| EL2869 CH16 | `GVL_HMI.xPanelLock` | Output, drives F4 D/I 2 ("Panel Lock") — TRUE locks the keypad (§18) |
 
 ## 17.5 Troubleshooting encountered during commissioning (3 Aug 2026)
 
@@ -1257,7 +1258,9 @@ target in the same session, with the setpoint write always landing correctly eve
 
 ## 17.7 Current operating state — what must be true for normal operation
 
-- [ ] `GVL_HMI.xAllOutputsOff` = FALSE (F4 D/I 2 dark on the panel)
+- [ ] F4 D/I 2 function is set to **"Panel Lock"**, not "All Outputs Off" (§18) — if this was
+      re-flashed or factory-reset, re-check it before trusting the keypad lock
+- [ ] `GVL_HMI.xPanelLock` = TRUE for normal locked-down operation (F4 D/I 2 lit)
 - [ ] `GVL_HMI.xSchedEnable` = FALSE unless a scheduled/manual gate is intentionally active
 - [ ] `GVL_HMI.xRampInhibit` = FALSE, `xRampActive` = TRUE for normal, ungated operation
 - [ ] F4 D/I 1 panel indicator dark when `xRampInhibit` is FALSE, lit when TRUE — verify this
@@ -1393,11 +1396,9 @@ proven. No relay purchase, no button-station modification. Route closed.
    `sudo apt install util-linux` → `sudo hwclock -w` → `sudo systemctl restart codesyscontrol`.
    Verified: `dtNow` now reads correct local wall-clock time. The scheduler's automatic
    time-based release no longer needs the manual `xSchedEnable` workaround.
-2. **F4 D/I 2 function.** Currently assigned "All Outputs Off" and mapped to `xAllOutputsOff` in
-   CODESYS, but not used by any logic and confirmed to cause a silent cooling lockout if left
-   active (§17.5). Decide whether to leave it disabled permanently, or give it a defined role
-   (e.g. a hard emergency inhibit distinct from the scheduled ramp gate) and add corresponding
-   ST logic and a documented, deliberate active-state.
+2. ~~**F4 D/I 2 function.**~~ ✅ **RESOLVED 5 Aug 2026.** Reassigned from "All Outputs Off"
+   (unused, and a silent cooling-lockout hazard per §17.5) to **"Panel Lock"**, driven by
+   `GVL_HMI.xPanelLock`. The channel now has a defined, useful role — see **§18**.
 3. **WebVisu integration.** The scheduler variables (`xSchedEnable`, `dtSchedStart`,
    `xRampInhibit`, `xRampActive`) exist in GVL_HMI and are ready to bind to a WebVisu page once
    the operator interface work (tracked in the project root README's "Next stage" section) picks
@@ -1414,7 +1415,7 @@ proven. No relay purchase, no button-station modification. Route closed.
    |---|---|---|
    | R1 | Restore button station to factory (wire-100 → NC1↔NO3, `102` → NO4, `103` → NC2, no EL2869 conductor on any station terminal) | Manual green starts, manual red stops — **do this first, it restores operator authority** |
    | R2 | Land CH15 → F4 terminal 28, CH16 → F4 terminal 29, 0 V → F4 terminal 27 | Ground-loop check < 1 V before bonding (§17.3) |
-   | R3 | Rebuild + download PLC; confirm I/O mapping CH15 → `xRampInhibit`, CH16 → `xAllOutputsOff` | `xAllOutputsOff` reads FALSE and stays FALSE (§17.7) |
+   | R3 | Rebuild + download PLC; confirm I/O mapping CH15 → `xRampInhibit`, CH16 → `xPanelLock` | Both resolve; set F4 D/I 2 function to "Panel Lock" per §18 |
    | R4 | `xRampInhibit := TRUE` from watch window, setpoint well above ambient | Heating does not start; 1A indicator stays dark |
    | R5 | `xRampInhibit := FALSE` | Heating starts, 1A flickers with PWM, temperature ramps |
    | R6 | Repeat R4/R5 with setpoint well **below** ambient | Cooling gated and released symmetrically (re-proof of §17.6) |
@@ -1424,3 +1425,140 @@ proven. No relay purchase, no button-station modification. Route closed.
 6. **Capture R1–R8 as a timestamped test log** in
    `codesys-python-gateway-modbus-integration/docs/test-logs/`, closing open item 4 above for
    this section as well.
+
+---
+
+# 18. Setpoint authority — locking the F4S front panel (5 Aug 2026)
+
+## 18.1 The requirement, stated precisely
+
+> When CODESYS has ramped the chamber to a commanded setpoint, an operator standing at the
+> cabinet must **not** be able to key in a different setpoint and pull the chamber off it —
+> in either direction. Setpoint authority belongs to CODESYS alone.
+
+## 18.2 This is a different problem from §15–§17, and the button station was never the answer
+
+This requirement was for a long time conflated with "overriding the button". They are unrelated
+circuits, and confusing them cost several days:
+
+| | Green/red button station | F4S front-panel keypad |
+|---|---|---|
+| What it controls | Fan + compressor **supply power** | **Setpoint entry** and all F4 menu access |
+| Where it sits | Cabinet control circuit, downstream of the F4S | Inside the F4S controller |
+| Relevant sections | §1–§7, §15, §17.8 | **§18 (this section)** |
+| Can it change the setpoint? | **No — never could.** | Yes — this is the actual exposure |
+
+No amount of work on the button station could ever have satisfied §18.1, because the button
+station has no path to the setpoint. §17.8.4 records the wiring dead-end that resulted.
+
+## 18.3 The F4S has this built in — two independent mechanisms
+
+Both come from the Watlow F4 User's Manual (`docs/WatlowF4_UserManual.pdf`).
+
+### Mechanism A — digital input "Panel Lock" (dynamic, CODESYS-controlled) ✅ preferred
+
+`Panel Lock` is **F4 digital input function 1**, selectable on either digital input alongside
+`Control Outputs Off`, `All Outputs Off`, `Start Profile` etc. The manual's own sample
+application uses exactly this, wiring D/I 1 to a key-lock switch "that requires the operator to
+have a key to operate the controller and chamber":
+
+```
+Digital Input 1
+Name:      KEYLOCK
+Function:  Panel lock
+Condition: Start on high
+```
+
+**We already have the wiring.** §17.3 lands EL2869 CH16 on F4 terminal 29 (D/I 2). Only the
+*function assignment* changes — from `All Outputs Off` to `Panel Lock`. **No new hardware, no
+new cable, no relay.**
+
+This also retires the `All Outputs Off` assignment, which §17.5/§17.7 flagged as a silent
+cooling-lockout hazard that had to be permanently held FALSE and served no purpose. The channel
+gains a real job.
+
+**F4 configuration:**
+
+| Menu path | Set to |
+|---|---|
+| `Main > Setup > Digital Input 2 > Function` | **Panel Lock** |
+| `Main > Setup > Digital Input 2 > Condition` | **High** (start on high) |
+| `Main > Setup > Digital Input 2 > Name` (optional) | `KEYLOCK` — 10 chars, shows on the display |
+
+**CODESYS side** (`PLC_PRG_TCP.st` STEP 0b, `GVL_HMI`):
+
+```iec61131
+xPanelLockCmd : BOOL := TRUE;   (* operator intent: TRUE = keypad locked (default) *)
+xPanelLock    : BOOL;           (* -> EL2869 CH16 -> F4 terminal 29 *)
+
+GVL_HMI.xPanelLock := GVL_HMI.xPanelLockCmd;
+```
+
+Defaulting `xPanelLockCmd` to TRUE means the lock **re-asserts on every PLC restart**, so it
+cannot be left off by accident after maintenance.
+
+### Mechanism B — Factory > Set Lockout (static, password-protected)
+
+Independent of any wiring or PLC state. Four access levels per menu: `Full Access` (default),
+`Read Only`, `Password`, `Hidden`.
+
+| Menu path | Set to | Effect |
+|---|---|---|
+| `Main > Factory > Set Lockout > Set Point` | **Read Only** | Operator can *see* the setpoint but cannot change it. Note: Set Point cannot be set to `Hidden`. |
+| `Main > Factory > Set Lockout > Setup` | **Password** | Stops the digital-input function being quietly changed back to defeat Mechanism A |
+| `Main > Factory > Set Lockout > Factory` | **Password** | Stops the lockouts themselves being cleared via `Clear Locks` |
+
+Passwords are four characters, letters and/or numbers, set at first use. **Record it** — there is
+no documented recovery path in the manual.
+
+### Recommended: run both
+
+They fail in different directions, so together they are properly redundant:
+
+- **A alone** — defeated if the PLC is stopped, CH16 is unplugged, or someone edits the D/I
+  function in the Setup menu.
+- **B alone** — static; cannot be relaxed remotely for legitimate maintenance.
+- **A + B** — B holds the line whenever the PLC is down or the wire is out, and password-locks
+  the Setup menu so A cannot be quietly undone. A gives CODESYS dynamic control on top.
+
+## 18.4 ⚠️ The one thing that must be verified on hardware first
+
+**Does Panel Lock block the gateway's Modbus setpoint writes?** If it did, this design would lock
+out CODESYS along with the operator and be worse than useless.
+
+Strong evidence it does not:
+- Panel Lock's documented purpose is a **key-lock switch for the operator at the panel** — locking
+  the host out would defeat its own sample application.
+- Every lockout parameter (`Set Point, Lockout`, `Setup Page, Lockout`, `Clear Locks`, …) is
+  itself **readable and writable over Modbus** in the Communications chapter register map. A lock
+  that blocked comms could be set but never cleared — an absurd design.
+- The keypad and the serial link are separate input paths into the controller.
+
+That is a strong inference, **not a measurement.** Given §17.8.4, confirm it before relying on
+it — test P3 below takes about ten minutes.
+
+## 18.5 Test suite P1–P6
+
+Run after the §17.9 R-suite. Requires D/I 2 reassigned per §18.3.
+
+| # | Action | Pass criterion |
+|---|---|---|
+| **P1** | `xPanelLock := FALSE`. At the F4S panel, change the static setpoint | Setpoint changes — baseline proves the panel works and the test is meaningful |
+| **P2** | `xPanelLock := TRUE`. At the panel, attempt the same change | Keypad refuses; setpoint unchanged. F4 D/I 2 indicator lit |
+| **P3** | 🔑 With `xPanelLock` still TRUE, write a new setpoint from CODESYS | **Write lands.** `wSetpoint1Read` updates, chamber ramps. *This is the make-or-break test — if it fails, Mechanism A is unusable and only B (Read Only) applies* |
+| **P4** | With lock TRUE, ramp to a high setpoint; at the panel try to enter a much lower one | Chamber holds the CODESYS setpoint and does **not** ramp down — §18.1 satisfied in the heating case |
+| **P5** | Repeat P4 from a low setpoint, attempting a much higher one at the panel | Chamber does not ramp up — §18.1 satisfied in the cooling case |
+| **P6** | Set `Set Lockout > Set Point = Read Only`; stop the PLC so CH16 drops | Setpoint still not editable at the panel — Mechanism B holds with the PLC down |
+
+P4 and P5 together are the direct demonstration of §18.1 and are what should be shown to the
+manager.
+
+## 18.6 What this does *not* cover
+
+- **Profile Key.** An operator can still start/hold/terminate a stored profile from the front
+  panel unless `Set Lockout > Profiles` is also restricted. Set it to `Read Only` or `Password`
+  if profile control must also be CODESYS-only.
+- **The red stop button.** Unaffected and deliberately so — it remains a physical emergency stop
+  (§6, §17.8.4). Panel lock governs *setpoint authority*, not the ability to shut the cabinet
+  down, and those should not be conflated.
+- **Mains disconnect.** Untouched. It stays the lockout/tagout isolation point.
