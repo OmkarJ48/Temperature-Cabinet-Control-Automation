@@ -51,59 +51,56 @@ VAR
 
     dtNow               : DT;                      (* current local time for schedule *)
     uliHighRes          : ULINT;                   (* high-resolution time, raw ms since epoch, UTC *)
-
-    (* --- Scheduled ramp gate (§17 as-built, EL2869 CH15 -> F4 D/I 1) --- *)
-    tonOffLock          : TON;                     (* anti-short-cycle: min inhibit time before release *)
 END_VAR
 
-(* --- STEP 0: Scheduled ramp gate - EL2869 CH15 -> F4 terminal 28 (D/I 1) ---
-   Reverted to the §17 as-built design after the §15 Option C button-station route
-   was attempted on hardware and abandoned. The station switches the LOW side
-   (ground-referenced) and the EL2869 is a SOURCING output, so no terminal
-   arrangement can make them interface -- see README §17.3 topology note. Driving
-   the F4S's own opto-isolated digital input with a sourced 24 V signal is the
-   matched pairing, and it is already proven on hardware (§17.6).
+(* --- STEP 0: Cabinet on/off - EL2869 CH15/CH16 -> Omron CPM1A digital inputs ---
+   AS-BUILT 6 Aug 2026 (README §19), supersedes the §17 F4-DI ramp gate for on/off.
+   CH15 -> wire 102 -> Omron 0CH.00 (start input to the Omron's own start-stop-hold
+   ladder logic). CH16 -> wire 103 -> Omron 0CH.01 (stop input). EL2869 DO GND is
+   bonded to Omron COM0.
 
-   xRampInhibit HIGH holds both control outputs off -- 1A (heat) and 1B (cool),
-   verified symmetric in §17.6. The fan is NOT gated by this and keeps running;
-   that is accepted scope (§16.7, §17.1). The button station is left entirely
-   untouched, so the local operator keeps full manual authority at all times. *)
+   xStartPulse and xStopPermit are plain, independently-commanded levels -- no
+   timer, no derived pulse, no anti-short-cycle lockout. Set them from the watch
+   window (or, later, WebVisu) and they hold until changed. The Omron's own
+   program does the actual start-stop-hold latching, so CODESYS only needs to
+   present a level on each input; it does not need to shape a pulse width the way
+   the earlier (§15 Option C-era) design did.
+
+   That earlier design drove xStartPulse off a TP one-shot fired on the rising
+   edge of xStopPermit, modelling CH16 as a continuous 24 V supply that CH15
+   briefly "pressed" through (the button-station supply-lift model). That model
+   does not apply to the Omron's digital inputs and is what produced the reported
+   "stop permit true, then false, then start pulse fires" sequence -- an artifact
+   of the old coupling, not the Omron's behaviour. Removed here.
+
+   The only guard kept in is stop-priority mutual exclusion: if both are ever
+   commanded TRUE together, stop wins. This costs one line and there is no
+   scenario where firing both at once is the intended action -- flag it for
+   removal if that turns out to be unwanted.
+
+   xCabinetOnCmd (scheduler-derived, below) is NOT wired into xStartPulse/
+   xStopPermit yet -- open question, README §19, on whether the schedule should
+   auto-drive start/stop or these should stay purely operator/CODESYS-commanded. *)
 SysTimeRtcHighResGet(uliHighRes);
 dtNow := ULINT_TO_DT(uliHighRes / 1000 + DINT_TO_ULINT(GVL_HMI.diUtcOffsetSec));  (* ms -> s, then UTC -> local *)
 
 GVL_HMI.xCabinetOnCmd := NOT (GVL_HMI.xSchedEnable AND (dtNow < GVL_HMI.dtSchedStart));
 
-(* Anti-short-cycle: hold the gate shut for a minimum time after every inhibit, so a
-   schedule edit or an RTC step cannot chatter the compressor. Timed against the real
-   inhibited duration rather than the command, so it survives a mid-window edit. *)
-tonOffLock(IN := GVL_HMI.xRampInhibit, PT := GVL_HMI.tOffLockDuration);
-GVL_HMI.tOffLockRemain := GVL_HMI.tOffLockDuration - tonOffLock.ET;
-
-(* Inhibit is immediate and unconditional; release waits for the lockout to expire.
-   Inside the lockout window neither branch runs and xRampInhibit holds its previous
-   value -- tOffLockRemain shows the operator why nothing has happened yet. *)
-IF NOT GVL_HMI.xCabinetOnCmd THEN
-    GVL_HMI.xRampInhibit := TRUE;
-ELSIF tonOffLock.Q THEN
-    GVL_HMI.xRampInhibit := FALSE;
+IF GVL_HMI.xStopPermit THEN
+    GVL_HMI.xStartPulse := FALSE;
 END_IF
 
-GVL_HMI.xRampActive := NOT GVL_HMI.xRampInhibit;
+GVL_HMI.xCabinetRunning := GVL_HMI.xStartPulse AND NOT GVL_HMI.xStopPermit;  (* commanded-state
+    proxy for WebVisu -- no independent run feedback wired back from the Omron yet, README §19.6 *)
 
-(* --- STEP 0b: Front-panel keypad lock - EL2869 CH16 -> F4 terminal 29 (D/I 2) ---
-   D/I 2 is assigned F4 digital input function 1 ("Panel Lock"), condition Start on
-   High. Asserting it locks the F4S keypad so an operator at the cabinet cannot key
-   in a setpoint and pull the chamber off the profile CODESYS is running. Setpoint
-   authority therefore sits with CODESYS alone (README §18).
+(* --- STEP 0b: Front-panel keypad lock (§17/§18 F4 digital input design) ---
+   NOT CURRENTLY WIRED. CH16 is now committed to the Omron stop input above, so
+   xPanelLock has no live output channel until §18's D/I 2 is reallocated to a
+   spare EL2869 channel (README §19.5). Left commented out rather than deleted so
+   the logic is ready to reconnect once that channel is chosen and mapped:
 
-   Modbus writes reach the F4 over the serial link, not the keypad, so the gateway's
-   setpoint writes are unaffected by this lock -- verify once on hardware (§18 test
-   P3) before relying on it.
-
-   Held permanently by default (xPanelLockCmd defaults TRUE). Clear it from the watch
-   window or WebVisu for deliberate maintenance access; it re-asserts on PLC restart
-   because the default is TRUE, so the lock cannot be left off by accident. *)
-GVL_HMI.xPanelLock := GVL_HMI.xPanelLockCmd;
+   GVL_HMI.xPanelLock := GVL_HMI.xPanelLockCmd;
+*)
 
 (* --- STEP 1: Scale raw TCP values -> engineering units ---
    TCP registers carry x10 integers; we work in real degrees.

@@ -1,40 +1,28 @@
 # Cabinet On/Off Automation — Investigation & Integration Guide
 
 **Author:** Omkar Joshi — Oliver Mechatronics
-**Date:** 29 July 2026 (original); **updated 5 August 2026**
+**Date:** 29 July 2026 (original); **updated 6 August 2026**
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** ✅ **DESIGN PROVEN ON HARDWARE — see §17.** Both heating (1A) and cooling (1B)
-outputs are gated by a single EL2869 output wired straight into the F4S's own digital input.
+**Status:** ✅ **Remote start/stop proven on hardware — see §19.** Both operator (previously,
+via the button station) and CODESYS (via EL2869 CH15/CH16) can command the cabinet's own Omron
+CPM1A start/stop PLC directly. ⚠️ **Manual authority is currently disconnected — see §19.4, the
+top open item.**
 
-> ⚠️ **Currently awaiting re-commissioning (§17.9 item 5).** CH15/CH16 were temporarily
-> re-purposed to the button station during the §15 Option C attempt of 4–5 Aug, which was
-> **abandoned** — see **§17.8.4** for the root cause (a sourcing output cannot drive a low-side
-> switched circuit, at any terminal arrangement). Restore the wiring per §17.3 and run R1–R8 to
-> return to the proven state.
-Bidirectional setpoint control (positive and negative, staged while gated, released on command)
-has been demonstrated repeatedly on the physical cabinet. §15 and §16 below were both
-investigated and **superseded** by the approach in §17 — kept here as design history and because
-the troubleshooting in them (button-station topology, low-side vs. sourcing outputs, coil
-current, F4 register behaviour) remains accurate and useful.
-
-> ### ⚠️ READ §17 FIRST — it is the as-built, working solution
+> ### ⚠️ READ §19 FIRST — it is the current as-built, working solution
 >
-> The deployed route does **not** touch the cabinet's switch station, the `-202X3` connector, or
-> the thermocouple junction box at all. It wires two spare EL2869 channels **directly to two
-> spare digital inputs on the Watlow F4S controller itself** and uses the F4S's own built-in
-> "Control Outputs Off" input function. No relays, no supply-lift, no pass-through cabling.
+> As of 6 Aug 2026 the deployed route for full cabinet on/off (fan + compressor) is **not** the
+> F4 digital-input ramp gate of §17, and **not** any of the relay designs in §6/§7. It is a direct
+> wire from two EL2869 channels into two digital inputs on the **Omron CPM1A PLC** that already
+> sits behind the button station and owns the actual start/stop latching. See **§19** for the full
+> account, the wiring, the two critical open items, and the researched safe-conflict-resolution
+> recommendation.
 >
-> §15 (Option C, relayless supply-lift via `-202X3`) and §16 (Route A, Modbus setpoint sentinel)
-> are retained below as investigation record. §16's own test A1 is what proved the sentinel
-> approach was insufficient (it stopped the compressor but not the fan), which is what motivated
-> the F4-DI approach in §17.
->
-> **§15 Option C was additionally attempted on hardware 4–5 Aug 2026 and abandoned — see §17.8.4.**
-> The button station is low-side (ground) switched and the EL2869 is a sourcing output; the two
-> cannot interface at any terminal arrangement. **Do not re-attempt it.** Gating the fan, the one
-> capability §17 lacks, requires the interposing relay of §6/§7 — the very component Option C
-> removed. Its dry contact is voltage-agnostic, which is exactly why it works where Option C
-> cannot.
+> §15 (Option C, relayless supply-lift via `-202X3`), §16 (Route A, Modbus setpoint sentinel) and
+> §17 (F4 digital-input ramp gate, "Control Outputs Off") are retained below as investigation
+> record — each taught something that fed into §19, and §17/§18's panel-lock mechanism is still
+> the correct design for *setpoint authority* (a separate concern from on/off, see §19.5). They
+> are not currently wired, because §19 reuses CH15/CH16 for the new purpose — see §19.5 for the
+> channel-reallocation recommendation that resolves this.
 
 ---
 
@@ -1402,29 +1390,20 @@ proven. No relay purchase, no button-station modification. Route closed.
 3. **WebVisu integration.** The scheduler variables (`xSchedEnable`, `dtSchedStart`,
    `xRampInhibit`, `xRampActive`) exist in GVL_HMI and are ready to bind to a WebVisu page once
    the operator interface work (tracked in the project root README's "Next stage" section) picks
-   this up.
+   this up — **once CH15/CH16 are reallocated per §19.5**, since those channels now drive the
+   Omron on/off pair instead.
 4. **Test-log capture.** §17.6's proof was observed live but not yet captured with raw
    timestamped values in a dedicated test log, unlike the setpoint-control qualification in the
    project root (`codesys-python-gateway-modbus-integration/docs/test-logs/`). Recommended before
-   calling this section formally qualified.
-5. **Re-commission §17 after the Option C revert (5 Aug 2026).** CH15/CH16 were re-purposed to
-   the button station during the abandoned §17.8 attempt and must be returned to the F4S
-   terminal block per §17.3 before the ramp gate works again:
+   calling this section formally qualified — bundle with the CH13/CH14 re-commissioning in §19.7.
 
-   | Step | Action | Pass criterion |
-   |---|---|---|
-   | R1 | Restore button station to factory (wire-100 → NC1↔NO3, `102` → NO4, `103` → NC2, no EL2869 conductor on any station terminal) | Manual green starts, manual red stops — **do this first, it restores operator authority** |
-   | R2 | Land CH15 → F4 terminal 28, CH16 → F4 terminal 29, 0 V → F4 terminal 27 | Ground-loop check < 1 V before bonding (§17.3) |
-   | R3 | Rebuild + download PLC; confirm I/O mapping CH15 → `xRampInhibit`, CH16 → `xPanelLock` | Both resolve; set F4 D/I 2 function to "Panel Lock" per §18 |
-   | R4 | `xRampInhibit := TRUE` from watch window, setpoint well above ambient | Heating does not start; 1A indicator stays dark |
-   | R5 | `xRampInhibit := FALSE` | Heating starts, 1A flickers with PWM, temperature ramps |
-   | R6 | Repeat R4/R5 with setpoint well **below** ambient | Cooling gated and released symmetrically (re-proof of §17.6) |
-   | R7 | Set `dtSchedStart` a few minutes ahead, `xSchedEnable := TRUE` | Gate holds shut; `dtNow` advances correctly; gate releases at the scheduled time with no operator action |
-   | R8 | Force an inhibit, then release immediately | `tOffLockRemain` counts down and release is deferred until it reaches zero |
-
-6. **Capture R1–R8 as a timestamped test log** in
-   `codesys-python-gateway-modbus-integration/docs/test-logs/`, closing open item 4 above for
-   this section as well.
+> **§17 is superseded for on/off control by §19 — read that section first.** CH15/CH16 are no
+> longer wired to the F4S terminal block at all; they now drive the Omron CPM1A start/stop inputs
+> directly (§19.1–§19.3), which is what makes hybrid manual+remote control actually work, rather
+> than the F4-DI ramp gate described in the rest of this section. The R1–R8 re-commissioning
+> sequence that used to appear here assumed CH15/CH16 would return to the F4S block; that
+> assumption no longer holds and the sequence has been retired. §17's ramp-gate design itself is
+> still correct and worth keeping — see §19.5 for reallocating it to spare channels.
 
 ---
 
@@ -1562,3 +1541,228 @@ manager.
   (§6, §17.8.4). Panel lock governs *setpoint authority*, not the ability to shut the cabinet
   down, and those should not be conflated.
 - **Mains disconnect.** Untouched. It stays the lockout/tagout isolation point.
+
+---
+
+# 19. AS-BUILT — Remote start/stop via the Omron CPM1A digital inputs (6 Aug 2026)
+
+## 19.1 What changed, and why §17/§15/§6 didn't need to be right for this to work
+
+Everything from §6 through §17.8.4 assumed the only thing behind the button station was a bare
+latching relay — a passive electromechanical device with no logic of its own, wired directly to
+`102`/`103`. Tracing the panel further back (7168-DWG-100, the LCA Group as-built drawing, and the
+CPM1A datasheet, both added to `docs/`) found that assumption was wrong: **the button station's
+`102`/`103` outputs land on digital inputs of an Omron SYSMAC CPM1A-30CDR-A-V1 PLC**, not directly
+on a relay coil. `102` → CPM1A input `0CH.00`. `103` → CPM1A input `0CH.01`. `COM0` is the shared
+input common for that PLC.
+
+This is the fact that resolves the §17.8.4 dead-end. §15 Option C failed because it tried to make
+an EL2869 **sourcing** output substitute for a **low-side (ground) switched** button contact — a
+device-type mismatch with no fix at any terminal. The Omron's digital inputs are a different kind
+of thing entirely: **bidirectional opto-isolated inputs**. Per the CPM1A datasheet (`docs/Omron
+PLC CP1MA Datasheet.pdf`, I/O Specifications): *"The polarity of the input power supply can be
+either positive or negative."* A sourced 24 V signal from the EL2869 and a sourced 24 V signal
+from the button's own NO4/NC2 output are the **same kind of source** feeding the **same kind of
+input** — they OR together safely, the way §17's F4-DI design already proved for a different pair
+of terminals. No relay was ever the fix; landing on the right terminal was.
+
+## 19.2 Wiring — EL2869 direct to the Omron CPM1A input block
+
+```
+ DLS008 ENCLOSURE                              OMRON CPM1A-30CDR-A-V1 TERMINAL BLOCK
+   EL2869 (EK1100 EtherCAT coupler)
+     CH15 (pin 36) ── Red wire   ──────────────►  0CH.00  (input, wire "102")
+     CH16 (pin 37) ── Green wire ──────────────►  0CH.01  (input, wire "103")
+     DO GND         ── Black + White wire ──────►  COM0    (input common)
+```
+
+**Confirmed on the physical panel, in order:**
+
+1. Terminal strip photographed and cross-referenced against the CPM1A's own printed legend:
+   `L1 | ⏚ | L2/N | COM0 | 00 | 01 | 02 | 03 …` — confirming `COM0` sits immediately left of `00`,
+   and `00`/`01` are the first two input points (`0CH.00`/`0CH.01`).
+2. Wire `100` (thick yellow) identified as the +24 V feed into the button station's NO4/NC2
+   contacts — **not** ground, correcting an earlier working assumption in this investigation.
+   Wires `102`/`103` are the button contacts' outputs, landing on `0CH.00`/`0CH.01`.
+3. Continuity check, COM0 → EL2869 DO GND: **not conclusive as first read.** A directional
+   asymmetric reading (0.4 Ω one way, 8.8 Ω reversed) was initially taken as "continuous," but an
+   asymmetric reading like that is the signature of current passing through a semiconductor
+   junction (an optocoupler input or a protection diode) — not proof of a bonded copper rail,
+   which would read the same both directions. **Treat the ground bond as installed by the
+   explicit jumper wired in §19.2 step 4, not as proven by this reading.**
+4. A ground jumper was landed from the Omron's own `GND`/`COM0` reference to the EL2869 `DO GND`
+   rail (the same rail already proven continuous with `Out 1A GND` in the §17 work), unifying the
+   return path. Both the black and white EL2869 ground conductors terminate there.
+5. CH15 → `102` (physically at the point that previously left the button's NO4 contact), CH16 →
+   `103` (previously left the button's NC2 contact).
+
+**Result:** with this wiring, `xStartPulse` asserted on CH15 and `xStopPermit` asserted on CH16
+are read by the Omron's own program as start/stop commands, and the cabinet starts and stops
+accordingly — **proven repeatedly on hardware, both signals independently.**
+
+## 19.3 CODESYS side
+
+`GVL_HMI` (`codesys-python-gateway-modbus-integration/src/GVLs/GVL_HMI.gvl`):
+
+```iec61131
+xStartPulse    : BOOL;   (* -> EL2869 CH15 -> wire 102 -> Omron 0CH.00 (start) *)
+xStopPermit    : BOOL;   (* -> EL2869 CH16 -> wire 103 -> Omron 0CH.01 (stop)  *)
+xCabinetRunning : BOOL;  (* commanded-state proxy; no independent run feedback wired yet *)
+```
+
+`PLC_PRG_TCP.st`, STEP 0:
+
+```iec61131
+IF GVL_HMI.xStopPermit THEN
+    GVL_HMI.xStartPulse := FALSE;
+END_IF
+GVL_HMI.xCabinetRunning := GVL_HMI.xStartPulse AND NOT GVL_HMI.xStopPermit;
+```
+
+That is deliberately the entire on/off program now. An earlier iteration modelled CH16 as a
+continuous 24 V supply and derived CH15 from a `TON`/`TP`/`R_TRIG` chain that "pressed" it
+electronically — a carryover from the abandoned §15 Option C supply-lift model. Under that model,
+toggling `xStopPermit` produced a **derived, delayed** pulse on `xStartPulse`, which is what
+produced the reported sequence — stop-permit true, then false, then a start pulse firing on its
+own a moment later, with no direct command to start anything. That model does not describe the
+Omron: its own ladder program is what performs the start-stop-hold latching, so CODESYS's job is
+only to present a level on each input and hold it. The timer/pulse chain has been removed
+entirely — no `TON`, no `TP`, no anti-short-cycle lockout, no `tOffLockDuration`. **Pure level
+commands, held until changed.**
+
+The one thing kept in is a one-line stop-priority guard: if both are ever commanded `TRUE`
+together, `xStartPulse` is forced `FALSE`. This costs nothing and there is no known scenario where
+firing both at once is the intended action — flag it if that turns out to be unwanted.
+
+**Watch window (current test procedure):**
+
+| Variable | Force to | Expected result |
+|---|---|---|
+| `GVL_HMI.xStartPulse` | `TRUE` | CH15 output energises; Omron `0CH.00` LED lit; cabinet starts |
+| `GVL_HMI.xStartPulse` | `FALSE` | CH15 de-energises; no independent effect unless the Omron's own logic ties it to a run condition |
+| `GVL_HMI.xStopPermit` | `TRUE` | CH16 output energises; Omron `0CH.01` LED lit; cabinet stops; `xStartPulse` forced `FALSE` by the guard above |
+| `GVL_HMI.xStopPermit` | `FALSE` | CH16 de-energises |
+| `GVL_HMI.xCabinetRunning` | (read-only) | Mirrors the commanded state — **not** a measured run status, see §19.6 |
+
+## 19.4 ⚠️ Open item — manual physical authority (needs one confirming test)
+
+The original requirement (project kick-off and reiterated repeatedly in this investigation) is
+**hybrid control**: the operator standing at the cabinet must be able to start and stop it by
+hand, in addition to CODESYS. Two pieces of conflicting information are on record for the current
+physical state of `102`/`103`, and this needs a single deliberate confirming test before it goes
+in as fact:
+
+- During this investigation, the button's NO4/NC2 outputs were reported disconnected from
+  `102`/`103`, leaving only the EL2869 landed there.
+- Separately, both wires were reported temporarily removed for a bench test, with both the button
+  and the EL2869 working "perfectly fine together" once reconnected.
+
+Both cannot be true of the same permanent wiring state at once. Since the Omron's inputs are
+bidirectional opto-isolated inputs (§19.1), **landing the button's NO4/NC2 outputs in parallel
+with CH15/CH16 on `102`/`103` is expected to work** — both are sourcing 24 V into the same input,
+which is exactly the OR relationship that already makes CH15/CH16 work on their own. There is no
+electrical reason this should fail.
+
+**Required before this section is called complete:** with the cabinet powered and CODESYS online,
+confirm on the physical terminal block that both the button's NO4 output and the EL2869 CH15 red
+wire land on `102` together (and NC2 / CH16 green on `103` together), then run:
+
+| Test | Action | Pass criterion |
+|---|---|---|
+| M1 | `xStartPulse`/`xStopPermit` both `FALSE`. Press the green button by hand | Cabinet starts |
+| M2 | Press the red button by hand | Cabinet stops |
+| M3 | `xStartPulse := TRUE` from the watch window, hands off the panel | Cabinet starts |
+| M4 | `xStopPermit := TRUE` from the watch window | Cabinet stops |
+| M5 | `xStartPulse := TRUE`, then press the red button by hand while it is held | Cabinet stops — local stop takes priority over a remote start, as required |
+| M6 | Restore `xStartPulse`/`xStopPermit` to `FALSE` after each test | Panel and CODESYS agree on idle state |
+
+Until M1–M6 are run and pass, **treat manual physical authority as unconfirmed**, not as
+restored. This is the single highest-priority open item in this document.
+
+## 19.5 Open item — CH15/CH16 reallocation for §17 (ramp gate) and §18 (panel lock)
+
+CH15/CH16 are now committed to the Omron on/off pair. They can no longer also drive the F4S's
+`D/I 1` (ramp gate, §17) and `D/I 2` (panel lock, §18) — those two designs are proven and
+documented, but **not currently wired**, because the two channels they used have a new job.
+
+**Recommendation:** the EL2869 is a 16-channel terminal and only CH15/CH16 are in use anywhere in
+this project. Reallocate §17/§18 to two spare channels (e.g. CH13/CH14) and re-terminate two wires
+at the F4S end — no new hardware, no cost, roughly the same effort as the original §17
+installation. This is a re-termination and I/O-mapping change, not a redesign; `xRampInhibit` and
+`xPanelLock(Cmd)` are already declared in `GVL_HMI` and the STEP 0b logic is preserved (commented
+out) in `PLC_PRG_TCP.st`, ready to reconnect once a channel is chosen.
+
+Until this is done, the chamber has **no automated ramp gate** (§17's original "sits idle until
+scheduled start" behaviour) and **no panel lock** (§18's setpoint-authority protection) —
+`xCabinetOnCmd`'s schedule computation still runs, but nothing currently acts on it, and the F4S
+keypad is not locked. If setpoint authority is the more urgent of the two given the manager's
+original concern (§18.2), prioritise reallocating `D/I 2` (panel lock) first.
+
+## 19.6 Conflict-resolution design — research and recommendation
+
+*Ranked per direction: software interlock first (recommended, matches the direct-wiring solution
+that made this section possible), condensed hardware fallback second.*
+
+### 19.6.1 Why this is a different problem than §6/§7 solved for
+
+§6/§7's two-relay design existed to make a **sourcing output play the role of a low-side contact**
+— a wiring-compatibility problem, and it no longer applies (§19.1). What remains is a **behavioural**
+question: since both the button and CODESYS can independently assert `0CH.00`/`0CH.01`, what
+happens when they disagree at the same moment, or in close succession? This is not a short-circuit
+risk — both sources add 24 V to the same node, which is safe by construction — it is a question of
+what the **Omron's own, undocumented ladder program** does with two sources changing near-
+simultaneously, and neither this project nor its author has that program (it belongs to JTS, the
+original panel builder).
+
+### 19.6.2 Recommended — software-side interlock in CODESYS (no new hardware)
+
+1. **Stop-priority mutual exclusion** (already implemented, §19.3): if both are commanded, stop
+   wins. Trivial and unconditionally safe.
+2. **Hold time, not pulse width.** Because the Omron does its own latching, CODESYS does not need
+   to guess a pulse width the way the abandoned Option C model did. A command should simply be
+   held at the level intended and released deliberately — there is no minimum "catch" duration to
+   tune, which removes an entire class of the timing bugs seen in §17.8.4 and in today's
+   `TON`/`TP` chain.
+3. **Run-feedback loop (highest-value next step).** `xCabinetRunning` today is a *commanded-state
+   proxy*, not a measurement — CODESYS has no way to know if a manual button press changed the
+   actual state underneath it. Wiring one spare Omron output (or a spare EL1409 digital input,
+   already used for exactly this purpose in §4 Option 1) back to CODESYS closes the loop: CODESYS
+   can then detect "the cabinet's actual state disagrees with what I last commanded," which is the
+   direct signature of a manual override, and react (suppress a conflicting automatic command, log
+   the event, or surface it on the HMI) instead of blindly re-asserting a stale command.
+4. **Rate-limit automatic commands**, once the scheduler (§19.5) is reconnected, so a schedule
+   edit or RTC step cannot re-fire start/stop against a state the operator just changed by hand —
+   the same principle as the anti-short-cycle timer removed from §19.3, but keyed off the
+   feedback in point 3 rather than a blind fixed duration.
+
+None of this requires new relays, new wiring, or touching the button station again — it is entirely
+CODESYS-side logic once the feedback wire in point 3 exists.
+
+### 19.6.3 Fallback — hardware relay, condensed from §6/§7
+
+If a hard, CODESYS-independent override is ever required (e.g. a maintenance lockout that must
+hold even with the PLC stopped), a single relay with a **normally-closed dry contact in series**
+with the CH15/CH16 path to `102`/`103` gives a physical kill switch that neither software state nor
+a stuck output can defeat. This is a strictly smaller ask than the original two-relay §6/§7
+design — one relay, one contact, no interaction with the button station's own wiring — and should
+only be added if a specific hazard analysis calls for a hardware-enforced override that outlives a
+CODESYS or Omron fault. Estimated cost €20–40 for a single DIN-rail relay with integral freewheel
+diode (§6b). Not currently justified without a named hazard driving it.
+
+## 19.7 Open items
+
+1. **§19.4 — confirm manual physical authority** (M1–M6). Highest priority; see above.
+2. **§19.5 — reallocate CH13/CH14 (or similar spares) to §17 ramp gate and §18 panel lock**, and
+   re-run the R1–R8 and P1–P6 test suites against the new channels once landed.
+3. **Run-feedback wire** from the Omron back to CODESYS (§19.6.2 point 3) — the single highest-
+   value next step for closing the "manual override while CODESYS is mid-command" gap.
+4. **`xCabinetOnCmd` integration decision.** Should the schedule automatically drive
+   `xStartPulse`/`xStopPermit`, or should those stay purely operator/CODESYS-commanded with the
+   schedule as a separate, not-yet-connected concern? Currently the schedule computes but nothing
+   consumes it.
+5. **Contact JTS for the CPM1A ladder program / panel schematic.** The single action that would
+   retire the "undocumented Omron program" uncertainty underlying §19.6.1 entirely — confirmed
+   contact available.
+6. **Capture M1–M6 (and, once wired, the CH13/CH14 re-commissioning) as a timestamped test log**,
+   consistent with the qualification standard set in
+   `codesys-python-gateway-modbus-integration/docs/test-logs/`.
