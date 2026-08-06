@@ -5,14 +5,14 @@
 > Watlow F4S over its own Modbus RTU device tree. That approach was abandoned:
 > the Python gateway now owns the serial port and CODESYS talks Modbus **TCP**.
 > For the current, proven integration see
-> [`../codesys-python-gateway-modbus-integration/`](../codesys-python-gateway-modbus-integration/).
+> [`../codesys modbus proof of concept and test logs/`](<../codesys modbus proof of concept and test logs/>).
 > Kept because the parity/wiring investigation it records is still the reference
 > for the physical RS-232 link.
 
 ## Complete Setup Guide (Zero Prior Knowledge Assumed)
 
 **For:** Engineers integrating Watlow F4S setpoint control into CODESYS running on Raspberry Pi  
-**Prerequisites:** Linux/mbpoll side is proven working (see ../linux-integration-README-UPDATED.md)  
+**Prerequisites:** Linux/mbpoll side is proven working (see ../linux modbus proof of concept and test logs/README.md)  
 **Hardware:** CODESYS Control for Linux ARM64 SL runtime, Prolific PL2303 USB-RS232 adapter, Raspberry Pi (10.1.6.17)
 
 ---

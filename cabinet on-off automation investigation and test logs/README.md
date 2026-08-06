@@ -1071,7 +1071,7 @@ right lever.
 Offline proof of the gateway logic (no hardware needed):
 
 ```bash
-python3 python-rtu-integration/test_onoff_route_a.py
+python3 "python modbus proof of concept and test logs/test_onoff_route_a.py"
 ```
 
 13 checks covering sentinel derivation, idle-when-steady, staging, range refusal,
@@ -1161,7 +1161,7 @@ the EL2869's sourcing output provides — this is a matched pairing, unlike the 
 
 ### GVL_HMI additions
 
-`codesys-python-gateway-modbus-integration/src/GVLs/GVL_HMI.gvl`:
+`codesys modbus proof of concept and test logs/src/GVLs/GVL_HMI.gvl`:
 
 ```iec61131
 (* ---- Scheduled ramp gate (logic -> hardware -> WebVisu feedback) ---- *)
@@ -1177,7 +1177,7 @@ cooling lockout (§17.5/§17.7).
 
 ### PLC_PRG_TCP — STEP 0, scheduled ramp gate
 
-`codesys-python-gateway-modbus-integration/src/POUs/PLC_PRG_TCP.st`:
+`codesys modbus proof of concept and test logs/src/POUs/PLC_PRG_TCP.st`:
 
 ```iec61131
 VAR
@@ -1394,7 +1394,7 @@ proven. No relay purchase, no button-station modification. Route closed.
    Omron on/off pair instead.
 4. **Test-log capture.** §17.6's proof was observed live but not yet captured with raw
    timestamped values in a dedicated test log, unlike the setpoint-control qualification in the
-   project root (`codesys-python-gateway-modbus-integration/docs/test-logs/`). Recommended before
+   project root (`codesys modbus proof of concept and test logs/docs/test-logs/`). Recommended before
    calling this section formally qualified — bundle with the CH13/CH14 re-commissioning in §19.7.
 
 > **§17 is superseded for on/off control by §19 — read that section first.** CH15/CH16 are no
@@ -1602,7 +1602,7 @@ accordingly — **proven repeatedly on hardware, both signals independently.**
 
 ## 19.3 CODESYS side
 
-`GVL_HMI` (`codesys-python-gateway-modbus-integration/src/GVLs/GVL_HMI.gvl`):
+`GVL_HMI` (`codesys modbus proof of concept and test logs/src/GVLs/GVL_HMI.gvl`):
 
 ```iec61131
 xStartPulse    : BOOL;   (* -> EL2869 CH15 -> wire 102 -> Omron 0CH.00 (start) *)
@@ -1765,4 +1765,4 @@ diode (§6b). Not currently justified without a named hazard driving it.
    contact available.
 6. **Capture M1–M6 (and, once wired, the CH13/CH14 re-commissioning) as a timestamped test log**,
    consistent with the qualification standard set in
-   `codesys-python-gateway-modbus-integration/docs/test-logs/`.
+   `codesys modbus proof of concept and test logs/docs/test-logs/`.

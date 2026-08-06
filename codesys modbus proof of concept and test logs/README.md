@@ -9,7 +9,7 @@ master/slave configuration, the channel table, the I/O mapping, the ST source,
 and the watch-window operating procedure.
 
 The Python gateway and its RTU link to the F4S live separately in
-[`../python-rtu-integration/`](../python-rtu-integration/). That split is the
+[`../python modbus proof of concept and test logs/`](<../python modbus proof of concept and test logs/>). That split is the
 architecture: **the gateway owns the serial port and CODESYS never touches it.**
 
 ```
@@ -18,7 +18,7 @@ Modbus TCP Master ──> Modbus TCP Slave ──TCP──> f4s_gateway.py ─�
         10.1.6.17:502, Unit ID 1              /dev serial, 19200        SP reg 300
 ```
 
-> **Predecessor.** [`../codesys-modbus-integration/`](../codesys-modbus-integration/)
+> **Predecessor.** [`../codesys modbus com port investigation and troubleshooting log/`](<../codesys modbus com port investigation and troubleshooting log/>)
 > documents the earlier RS-232 serial-direct approach, where CODESYS drove the
 > F4S itself. That approach is **superseded** by this one and is kept only as an
 > investigation record.

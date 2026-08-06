@@ -6,7 +6,7 @@ simulated controller holding just the registers the on/off route touches.
 That is enough to prove the decision logic, because everything Route A does
 to the F4 is an ordinary holding-register read or write.
 
-Run:  python3 python-rtu-integration/test_onoff_route_a.py
+Run:  python3 python modbus proof of concept and test logs/test_onoff_route_a.py
 """
 import sys
 import os

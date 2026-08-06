@@ -6,7 +6,7 @@
 
 This folder covers the tooling layer only — how you get a terminal and an editor *onto* the Pi,
 and how code changes made there get back to GitHub. It has nothing to do with the serial
-hardware (see `linux-integration/`) or CODESYS itself (see `codesys-modbus-integration/`) — those are
+hardware (see `linux modbus proof of concept and test logs/`) or CODESYS itself (see `codesys modbus com port investigation and troubleshooting log/`) — those are
 kept separate on purpose so each concern can be read, fixed, and referenced independently.
 
 ---
@@ -90,7 +90,7 @@ source venv/bin/activate
 # (you should see (venv) at the start of your prompt)
 
 # Install Python dependencies
-pip3 install -r python-rtu-integration/requirements.txt
+pip3 install -r "python modbus proof of concept and test logs/requirements.txt"
 
 # Verify pymodbus version (must be exactly 3.12.1)
 pip3 list | grep pymodbus
@@ -111,6 +111,6 @@ this same Pi.
 
 This folder only covers the *edges* of the workflow (connect in, push changes out). The middle —
 identifying the serial adapter, granting permissions, bench-testing with `mbpoll`, and mapping
-into CODESYS — is documented in `linux-integration/README.md` and `codesys-modbus-integration/README.md`.
+into CODESYS — is documented in `linux modbus proof of concept and test logs/README.md` and `codesys modbus com port investigation and troubleshooting log/README.md`.
 See the root `README.md`'s "Linux ↔ Raspberry Pi ↔ CODESYS ↔ GitHub" section for the full
 six-step sequence and how these three folders fit together.

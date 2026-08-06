@@ -3,12 +3,12 @@
 **Status: ✅ Proven working end-to-end on hardware.** Reads, writes-with-confirmation,
 and range-validation all verified over real Modbus TCP against a real Watlow F4S.
 CODESYS integration is proven too — see
-[`../codesys-python-gateway-modbus-integration/`](../codesys-python-gateway-modbus-integration/).
+[`../codesys modbus proof of concept and test logs/`](<../codesys modbus proof of concept and test logs/>).
 
 This folder owns **one leg only**: the gateway process, its RTU link to the F4S,
 and the scripts that exercise that leg standalone. It was previously named
 `codesys-python-tcp-integration/python-gateway/`; the rename to
-`python-rtu-integration/` reflects what it actually is now that all CODESYS
+`python modbus proof of concept and test logs/` reflects what it actually is now that all CODESYS
 material lives in its own package.
 
 This is the canonical, only copy of the gateway. Any other `python-gateway/`
@@ -20,7 +20,7 @@ folder in older clones or branches is stale — delete it.
 > arrives as `65526`) was rejected as out-of-range. It now converts to signed
 > before validating, against `SP_MIN_X10 = -400 .. SP_MAX_X10 = 2000`, which is
 > what this README always claimed. See
-> [Range investigation](../codesys-python-gateway-modbus-integration/docs/RANGE_INVESTIGATION.md).
+> [Range investigation](<../codesys modbus proof of concept and test logs/docs/RANGE_INVESTIGATION.md>).
 
 ## Daily Startup Runbook (Read This First)
 
@@ -48,7 +48,7 @@ reboots on its own).
    git fetch origin Omkar_Temperature_Cabinet_Setpoint_Control
    git pull origin Omkar_Temperature_Cabinet_Setpoint_Control
    ```
-7. Open this README (`python-rtu-integration/README.md`)
+7. Open this README (`python modbus proof of concept and test logs/README.md`)
    in the VS Code editor so the commands below are one click away.
 8. Confirm the serial symlink is present:
    ```bash
@@ -75,7 +75,7 @@ reboots on its own).
 
 Use this any time the adapter was physically removed (moved benches,
 someone unplugged it, new Pi, etc.). This repeats the hardware bring-up
-from `linux-integration/README.md` before trusting the gateway again —
+from `linux modbus proof of concept and test logs/README.md` before trusting the gateway again —
 don't skip straight to starting the service.
 
 1. Plug the USB-to-RS232 adapter into the Pi.
@@ -97,13 +97,13 @@ don't skip straight to starting the service.
    replugs keep working unattended.
 5. Confirm permissions (`dialout` group) are still correct:
    ```bash
-   ./linux-integration/scripts/check-serial-permissions.sh /dev/ttyWatlowF4S
+   "./linux modbus proof of concept and test logs/scripts/check-serial-permissions.sh" /dev/ttyWatlowF4S
    ```
 6. Physically double-check the DB9 wiring is still seated at the F4S
    terminal block (Tx white → 14, Rx red → 15, GND black → 16) — reseating
    the adapter sometimes tugs the terminal block loose.
 7. Baseline the RTU link directly with `mbpoll` *before* trusting the
-   gateway, exactly as in `linux-integration/README.md` Part 3:
+   gateway, exactly as in `linux modbus proof of concept and test logs/README.md` Part 3:
    ```bash
    mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 100 -c 1 -1 -0 /dev/ttyWatlowF4S
    # expect a live temperature value matching the F4S front panel
@@ -181,14 +181,14 @@ address `1`, 19200 baud 8N1.
 **Always navigate to the gateway folder first:**
 
 ```bash
-cd python-rtu-integration
+cd "python modbus proof of concept and test logs"
 ```
 
 All commands below assume you are in this directory.
 
 ## Install
 
-From the python-rtu-integration directory:
+From the python modbus proof of concept and test logs directory:
 
 ```bash
 pip3 install -r requirements.txt --break-system-packages
@@ -201,7 +201,7 @@ breaks the whole gateway.
 
 ## Run
 
-From the python-rtu-integration directory:
+From the python modbus proof of concept and test logs directory:
 
 Port 502 needs root, or grant the bind capability once and run as a normal user:
 
@@ -248,10 +248,10 @@ Description=F4S Modbus TCP<->RTU Gateway
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python-rtu-integration/f4s_gateway.py
+ExecStart=/usr/bin/python3 "/path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python modbus proof of concept and test logs/f4s_gateway.py"
 Restart=always
 User=YOUR_USERNAME
-WorkingDirectory=/path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python-rtu-integration
+WorkingDirectory="/path/to/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python modbus proof of concept and test logs"
 
 [Install]
 WantedBy=multi-user.target
@@ -571,9 +571,9 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 /dev/ttyWatlowF4S
 **Objective:** Confirm RTU connection works and cyclic polling is active
 
 **Steps:**
-1. Terminal 1: Navigate to python-rtu-integration folder and start the gateway
+1. Terminal 1: Navigate to python modbus proof of concept and test logs folder and start the gateway
    ```bash
-   cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python-rtu-integration
+   cd "Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python modbus proof of concept and test logs"
    python3 f4s_gateway.py
    ```
    
@@ -649,9 +649,9 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 /dev/ttyWatlowF4S
 **Objective:** Verify write-trigger mechanism and confirmation
 
 **Steps:**
-1. With gateway running, in Terminal 3: Navigate to python-rtu-integration folder and run the test
+1. With gateway running, in Terminal 3: Navigate to python modbus proof of concept and test logs folder and run the test
    ```bash
-   cd Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python-rtu-integration
+   cd "Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI/python modbus proof of concept and test logs"
    python3 test_rtu_write.py
    ```
    
@@ -805,7 +805,7 @@ mbpoll -m rtu -a 1 -b 19200 -P none -t 4 -r 300 -c 1 /dev/ttyWatlowF4S
 setup, channel table, I/O mapping, GVL definitions, watch-window procedure —
 now lives in its own package:
 
-> **[`../codesys-python-gateway-modbus-integration/README.md`](../codesys-python-gateway-modbus-integration/README.md)**
+> **[`../codesys modbus proof of concept and test logs/README.md`](<../codesys modbus proof of concept and test logs/README.md>)**
 
 This folder is now the **Python/RTU side only**: the gateway service, its RTU
 link to the Watlow F4S, and the scripts that test that leg in isolation. The

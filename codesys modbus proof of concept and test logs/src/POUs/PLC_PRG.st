@@ -11,7 +11,7 @@
     and the safety interlock input.
 
     Matches the Project Development Package spec (Details A) and the
-    build guide already in codesys-modbus-integration/README.md.
+    build guide already in codesys modbus com port investigation and troubleshooting log/README.md.
 
     TODO (flagged in the Project Development Package, not yet resolved):
     xOverTempDI below is wired to GVL_Modbus.xModbusError as a
