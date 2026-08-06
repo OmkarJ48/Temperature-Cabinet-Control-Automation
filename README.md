@@ -1,5 +1,7 @@
 # Temperature Cabinet Setpoint Control from CODESYS HMI
 
+**Parent project:** ISO15848-1 Automated R&D Test Rig
+
 Supervisory setpoint control of the **Left Hand Small Temperature Cabinet** (Watlow F4S controller)
 from a CODESYS runtime on a Raspberry Pi, so an operator can change the cabinet setpoint from a
 CODESYS HMI instead of walking to the cabinet front panel.
@@ -81,12 +83,12 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 
 | Folder | Owns | Stage |
 |---|---|---|
-| [`remote-ssh-vscode/`](remote-ssh-vscode/) | VS Code Remote-SSH onto the Pi, and the GitHub workflow from there | 1 |
-| [`linux-integration/`](linux-integration/) | Pi-side serial bring-up: adapter, permissions, udev symlink, `mbpoll` bench tests | 2 |
-| [`codesys-modbus-integration/`](codesys-modbus-integration/) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
-| [`python-rtu-integration/`](python-rtu-integration/) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |
-| [`codesys-python-gateway-modbus-integration/`](codesys-python-gateway-modbus-integration/) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
-| [`cabinet-on-off-automation/`](cabinet-on-off-automation/) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 6 |
+| [`remote ssh vs code 10.1.6.17 setup guide/`](<remote ssh vs code 10.1.6.17 setup guide/>) | VS Code Remote-SSH onto the Pi, and the GitHub workflow from there | 1 |
+| [`linux modbus proof of concept and test logs/`](<linux modbus proof of concept and test logs/>) | Pi-side serial bring-up: adapter, permissions, udev symlink, `mbpoll` bench tests | 2 |
+| [`codesys modbus com port investigation and troubleshooting log/`](<codesys modbus com port investigation and troubleshooting log/>) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
+| [`python modbus proof of concept and test logs/`](<python modbus proof of concept and test logs/>) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |
+| [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
+| [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
 
 ---
@@ -106,7 +108,7 @@ command becomes a copy-paste exercise between two machines.
   `pymodbus` pinned to **3.12.1** — the version matters, see Stage 4.
 - All commits go to `Omkar_Temperature_Cabinet_Setpoint_Control`.
 
-Full procedure: [`remote-ssh-vscode/README.md`](remote-ssh-vscode/README.md).
+Full procedure: [`remote ssh vs code 10.1.6.17 setup guide/README.md`](<remote ssh vs code 10.1.6.17 setup guide/README.md>).
 
 ---
 
@@ -163,7 +165,7 @@ before CODESYS was involved at all.**
 A `udev` rule gives the adapter a stable name, `/dev/ttyWatlowF4S`, so the link survives the port
 moving between `ttyUSB0` and `ttyUSB1`.
 
-Full procedure: [`linux-integration/README.md`](linux-integration/README.md).
+Full procedure: [`linux modbus proof of concept and test logs/README.md`](<linux modbus proof of concept and test logs/README.md>).
 
 ---
 
@@ -204,13 +206,13 @@ fragile to operate and awkward to debug.
 change is what made the rest of the project straightforward.
 
 This folder is retained as the investigation record, not as a live path:
-[`codesys-modbus-integration/README.md`](codesys-modbus-integration/README.md).
+[`codesys modbus com port investigation and troubleshooting log/README.md`](<codesys modbus com port investigation and troubleshooting log/README.md>).
 
 ---
 
 ## Stage 4 — Python RTU integration: the gateway
 
-[`python-rtu-integration/f4s_gateway.py`](python-rtu-integration/f4s_gateway.py) is a Modbus
+[`python modbus proof of concept and test logs/f4s_gateway.py`](<python modbus proof of concept and test logs/f4s_gateway.py>) is a Modbus
 **TCP server** and Modbus **RTU client** in one process. It polls the F4S continuously over serial
 and publishes everything into a five-register TCP image that CODESYS can read and write.
 
@@ -244,7 +246,7 @@ Runs as a systemd unit (`f4s-gateway`), enabled at boot. Standalone test scripts
 (`test_rtu_write.py`, `test_range_sweep.py`, `probe_f4s_limits.py`) let me qualify the RTU leg
 without CODESYS in the loop at all.
 
-Full detail, including the T1–T5 plan: [`python-rtu-integration/README.md`](python-rtu-integration/README.md).
+Full detail, including the T1–T5 plan: [`python modbus proof of concept and test logs/README.md`](<python modbus proof of concept and test logs/README.md>).
 
 ---
 
@@ -314,7 +316,7 @@ accepts −40…200 °C, so the software limits match the hardware rather than g
 
 ### The setpoint state machine
 
-[`src/POUs/PLC_PRG_TCP.st`](codesys-python-gateway-modbus-integration/src/POUs/PLC_PRG_TCP.st) is the program
+[`src/POUs/PLC_PRG_TCP.st`](<codesys modbus proof of concept and test logs/src/POUs/PLC_PRG_TCP.st>) is the program
 actually running. It turns a raw register write into a supervised transaction:
 
 ```
@@ -345,7 +347,7 @@ prepare-then-write: type the value into *Prepared value*, then `Ctrl+F7` to comm
 `rReqSetpoint` and `xStartWrite` in the same cycle.
 
 Full build guide, watch list and procedure:
-[`codesys-python-gateway-modbus-integration/README.md`](codesys-python-gateway-modbus-integration/README.md).
+[`codesys modbus proof of concept and test logs/README.md`](<codesys modbus proof of concept and test logs/README.md>).
 
 ---
 
@@ -383,7 +385,7 @@ is not temperature-dependent.
 The important safety property in both drills: **the cabinet setpoint never changed during a fault.**
 A failed write is a failed write, not a partial one.
 
-Daily log: [`codesys-python-gateway-modbus-integration/docs/test-logs/2026-07-27_monday.md`](codesys-python-gateway-modbus-integration/docs/test-logs/2026-07-27_monday.md).
+Daily log: [`codesys modbus proof of concept and test logs/docs/test-logs/2026-07-27_monday.md`](<codesys modbus proof of concept and test logs/docs/test-logs/2026-07-27_monday.md>).
 
 ---
 
@@ -410,7 +412,7 @@ relay coil.
 
 Full investigation, wiring, CODESYS source, and open items (manual-authority confirmation,
 channel reallocation for the ramp gate and panel lock, and a researched software-first
-conflict-resolution design): [`cabinet-on-off-automation/README.md`](cabinet-on-off-automation/README.md).
+conflict-resolution design): [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>).
 
 ---
 
@@ -421,7 +423,7 @@ conflict-resolution design): [`cabinet-on-off-automation/README.md`](cabinet-on-
 cd ~/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
 git checkout Omkar_Temperature_Cabinet_Setpoint_Control
 source venv/bin/activate
-pip3 install -r python-rtu-integration/requirements.txt   # pymodbus must be 3.12.1
+pip3 install -r "python modbus proof of concept and test logs/requirements.txt"   # pymodbus must be 3.12.1
 
 # 1. Confirm the serial adapter and the F4S itself
 ls -l /dev/ttyWatlowF4S
@@ -486,7 +488,7 @@ of it, and nothing underneath should need to change.
 - [ ] Operator test pass on the finished page, and capture Drill 3 (runtime restart) with evidence
 
 A first-pass operator page already exists at
-[`codesys-python-gateway-modbus-integration/WebVisu/codesys_hmi.html`](codesys-python-gateway-modbus-integration/WebVisu/codesys_hmi.html)
+[`codesys modbus proof of concept and test logs/WebVisu/codesys_hmi.html`](<codesys modbus proof of concept and test logs/WebVisu/codesys_hmi.html>)
 as a layout reference for that work.
 
 ---
@@ -495,13 +497,13 @@ as a layout reference for that work.
 
 | Document | What it covers |
 |---|---|
-| [`codesys-python-gateway-modbus-integration/README.md`](codesys-python-gateway-modbus-integration/README.md) | CODESYS build guide, proven configuration, watch-window procedure |
-| [`codesys-python-gateway-modbus-integration/docs/test-logs/`](codesys-python-gateway-modbus-integration/docs/test-logs/) | Daily hardware test logs |
-| [`python-rtu-integration/README.md`](python-rtu-integration/README.md) | Gateway install, systemd, register map, RTU test plan, troubleshooting history |
-| [`linux-integration/README.md`](linux-integration/README.md) | Modbus RTU concepts, serial bring-up, `mbpoll` bench test |
-| [`codesys-modbus-integration/README.md`](codesys-modbus-integration/README.md) | Superseded serial-direct approach; network stabilisation and SysCom |
-| [`remote-ssh-vscode/README.md`](remote-ssh-vscode/README.md) | Remote-SSH and Git workflow from the Pi |
-| [`cabinet-on-off-automation/README.md`](cabinet-on-off-automation/README.md) | Remote start/stop investigation, abandoned routes, as-built Omron CPM1A solution, open items |
+| [`codesys modbus proof of concept and test logs/README.md`](<codesys modbus proof of concept and test logs/README.md>) | CODESYS build guide, proven configuration, watch-window procedure |
+| [`codesys modbus proof of concept and test logs/docs/test-logs/`](<codesys modbus proof of concept and test logs/docs/test-logs/>) | Daily hardware test logs |
+| [`python modbus proof of concept and test logs/README.md`](<python modbus proof of concept and test logs/README.md>) | Gateway install, systemd, register map, RTU test plan, troubleshooting history |
+| [`linux modbus proof of concept and test logs/README.md`](<linux modbus proof of concept and test logs/README.md>) | Modbus RTU concepts, serial bring-up, `mbpoll` bench test |
+| [`codesys modbus com port investigation and troubleshooting log/README.md`](<codesys modbus com port investigation and troubleshooting log/README.md>) | Superseded serial-direct approach; network stabilisation and SysCom |
+| [`remote ssh vs code 10.1.6.17 setup guide/README.md`](<remote ssh vs code 10.1.6.17 setup guide/README.md>) | Remote-SSH and Git workflow from the Pi |
+| [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>) | Remote start/stop investigation, abandoned routes, as-built Omron CPM1A solution, open items |
 | `docs/Project Kick-Off- Temperature Cabinet Setpoint Control.pdf` | Objective, scope, definition of done |
 | `docs/7168-DWG-100 - REV B - CP1.pdf` | LCA Group panel as-built drawing (DLS008) — terminal numbering, I/O channel maps, enclosure layout |
 | `docs/Omron PLC CP1MA Datasheet.pdf` | CPM1A I/O specifications — confirms bidirectional opto-isolated digital inputs, the fact that made §19 of the cabinet on/off doc work |

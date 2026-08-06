@@ -9,7 +9,7 @@ on the setpoint itself (user manual, chapter 3, Static Set Point Control):
 
 So OFF is F4 register 300 := (register 602) - 1, and ON is register 300 := the
 wanted setpoint. The gateway owns that translation; this script only asks for a
-state. See python-rtu-integration/f4s_gateway.py and README.md section 16.
+state. See python modbus proof of concept and test logs/f4s_gateway.py and README.md section 16.
 
 Command encoding is 0/1/2, not a boolean: holding registers come up as 0 after
 a gateway restart, and an off==0 encoding would make every restart command a

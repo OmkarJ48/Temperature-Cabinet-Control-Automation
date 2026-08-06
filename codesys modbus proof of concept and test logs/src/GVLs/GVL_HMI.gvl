@@ -39,7 +39,7 @@ VAR_GLOBAL
     sStatusText           : STRING(80);
 
     (* ---- Cabinet on/off (logic -> hardware -> WebVisu feedback) ----
-       README cabinet-on-off-automation §19 (as-built, 6 Aug 2026, supersedes §17 for
+       README cabinet on-off automation investigation and test logs §19 (as-built, 6 Aug 2026, supersedes §17 for
        on/off): EL2869 CH15/CH16 now drive two digital inputs on the Omron CPM1A PLC
        that already sits behind the button station and owns the actual start/stop
        latching -- CH15 -> wire 102 -> Omron 0CH.00 (start), CH16 -> wire 103 ->
