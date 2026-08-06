@@ -38,13 +38,21 @@ VAR_GLOBAL
     eFaultCode            : E_FaultCode;
     sStatusText           : STRING(80);
 
-    (* ---- Scheduled ramp gate (logic -> hardware -> WebVisu feedback) ----
-       README cabinet-on-off-automation §17 (as-built): EL2869 CH15/CH16 drive the
-       F4S's own digital inputs 1/2 directly. The §15 Option C route into the button
-       station was attempted and abandoned -- the station is low-side (ground)
-       switching and the EL2869 is a sourcing output, so the two cannot interface
-       directly at any terminal arrangement (§17.3 topology note). The F4S digital
-       inputs are opto-isolated and expect a sourced 24 V signal: a matched pairing. *)
+    (* ---- Cabinet on/off (logic -> hardware -> WebVisu feedback) ----
+       README cabinet-on-off-automation §19 (as-built, 6 Aug 2026, supersedes §17 for
+       on/off): EL2869 CH15/CH16 now drive two digital inputs on the Omron CPM1A PLC
+       that already sits behind the button station and owns the actual start/stop
+       latching -- CH15 -> wire 102 -> Omron 0CH.00 (start), CH16 -> wire 103 ->
+       Omron 0CH.01 (stop), EL2869 DO GND bonded to Omron COM0. The Omron's own
+       ladder program does the start-stop-hold latching; CODESYS only presents a
+       level on each input and holds it -- no pulse shaping or timing needed on this
+       side, the PLC decides what to do with the level (§19.3).
+
+       xRampInhibit/xRampActive/xPanelLock(Cmd) below are the OLDER §17/§18 F4
+       digital-input design (ramp gate + panel lock). They are declared here but
+       NOT currently wired -- CH15/CH16 are now committed to the Omron on/off pair
+       above, so §17/§18 need reallocation to spare EL2869 channels before they
+       are live again. See README §19.5. *)
     xSchedEnable         : BOOL;           (* scheduler enabled flag          *)
     dtSchedStart         : DT;             (* scheduled start date/time (local, wall-clock) *)
 
@@ -58,21 +66,27 @@ VAR_GLOBAL
          0    = GMT (winter, late Oct - late Mar) *)
     diUtcOffsetSec       : DINT := 3600;
 
-    xCabinetOnCmd        : BOOL;           (* desired state, derived from schedule *)
-    xRampInhibit         : BOOL;           (* -> EL2869 CH15 -> F4 terminal 28 (D/I 1, "Control Outputs Off") *)
-    xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
-    (* Panel lock: F4 D/I 2 (terminal 29) reassigned from "All Outputs Off" to
-       "Panel Lock" (F4 digital input function 1). HIGH locks the F4S front-panel
-       keypad, so an operator standing at the cabinet cannot key in a new setpoint
-       and pull the chamber off the profile CODESYS commanded. Modbus writes from
-       the gateway are a separate path and are unaffected -- CODESYS keeps full
-       setpoint authority. See README §18.
+    xCabinetOnCmd        : BOOL;           (* desired state, derived from schedule. NOT currently
+                                               wired into xStartPulse/xStopPermit below -- open
+                                               question, README §19 -- kept computed so the
+                                               scheduler is ready to be connected once decided. *)
 
-       This also retires the old "All Outputs Off" assignment, which §17.5/§17.7
-       flagged as a silent cooling-lockout hazard that had to be held FALSE and
-       served no purpose. The channel now has a real job. *)
+    (* --- §19 as-built: direct commands to the Omron CPM1A start/stop inputs ---
+       Plain, independently-commanded levels -- no timer, no derived pulse, no
+       anti-short-cycle lockout. Set from the watch window (or, later, WebVisu) and
+       held until changed; the Omron's own ladder logic is the thing that actually
+       latches start/stop, so CODESYS does not need to shape a pulse width. *)
+    xStartPulse          : BOOL;           (* -> EL2869 CH15 -> wire 102 -> Omron 0CH.00 (start) *)
+    xStopPermit          : BOOL;           (* -> EL2869 CH16 -> wire 103 -> Omron 0CH.01 (stop) *)
+    xCabinetRunning       : BOOL;           (* commanded-state proxy for WebVisu -- no independent
+                                               run feedback wired back from the Omron yet, see
+                                               README §19.6 *)
+
+    (* --- §17/§18 F4 digital-input design (ramp gate + panel lock) --- NOT WIRED,
+       pending channel reallocation, README §19.5. Declarations kept so the design
+       and its CODESYS side are ready to reconnect without rewriting this GVL. *)
+    xRampInhibit         : BOOL;           (* -> spare EL2869 channel -> F4 terminal 28 (D/I 1, "Control Outputs Off") *)
+    xRampActive          : BOOL;           (* feedback: inverted from xRampInhibit *)
     xPanelLockCmd        : BOOL := TRUE;   (* operator intent: TRUE = keypad locked (default) *)
-    xPanelLock           : BOOL;           (* -> EL2869 CH16 -> F4 terminal 29 (D/I 2, "Panel Lock") *)
-    tOffLockRemain        : TIME;           (* anti-short-cycle: time left before gate release is allowed *)
-    tOffLockDuration      : TIME := T#10S;  (* compressor min off-time, adjustable from watch window for testing *)
+    xPanelLock           : BOOL;           (* -> spare EL2869 channel -> F4 terminal 29 (D/I 2, "Panel Lock") *)
 END_VAR
