@@ -90,6 +90,7 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
 | [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
+| [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 7 |
 
 ---
 
