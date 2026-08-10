@@ -88,7 +88,7 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`codesys modbus com port investigation and troubleshooting log/`](<codesys modbus com port investigation and troubleshooting log/>) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
 | [`python modbus proof of concept and test logs/`](<python modbus proof of concept and test logs/>) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |
 | [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
-| [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 6 |
+| [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation — complete — and the as-built, integration-tested two-relay solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
 | [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 7 |
 
@@ -396,24 +396,27 @@ Setpoint control (Stages 1–6) assumes the cabinet is already running. This sta
 separate question: **can the cabinet itself be started and stopped remotely**, without touching
 mains wiring and without taking manual authority away from the operator standing at the panel.
 
-The investigation went through several routes before landing on the one that works:
+**Status: ✅ Investigation complete. Integration testing complete on the Left Hand Small
+Temperature Cabinet (DLS008).**
+
+The investigation went through several routes before landing on the one that's now built and tested:
 
 | Route | What it tried | Outcome |
 |---|---|---|
-| Two-relay design (§6/§7) | Parallel relay across the start contact, series relay in the stop contact | Superseded once a wiring-only route was found — kept as a documented fallback |
 | §15 Option C | EL2869 wired straight into the button station's dry contacts | **Failed on hardware, twice.** The button station switches its low (ground) side; the EL2869 is a sourcing output. No terminal arrangement can make a sourcing output substitute for a low-side contact — a device-type mismatch, not a wiring mistake |
 | §17 F4 digital-input ramp gate | EL2869 into the Watlow F4S's own "Control Outputs Off" digital input | **Proven on hardware.** Gates heating/cooling symmetrically, but the fan keeps running — accepted as a separate, narrower capability (holding the chamber idle until a scheduled start) |
-| **§19 Omron CPM1A digital inputs (as-built)** | Tracing the button station's `102`/`103` outputs further back found they land on digital inputs of an **Omron CPM1A PLC**, not directly on a relay coil. The Omron's inputs are bidirectional opto-isolated inputs — the same kind of thing the EL2869 sourcing output is a matched pairing for | **Proven on hardware.** Both remote (CODESYS) and, pending one confirming test, manual (button) start/stop now work through the same pair of Omron inputs |
+| §19 Omron CPM1A digital inputs, direct wire | Tracing the button station's `102`/`103` outputs further back found they land on digital inputs of an **Omron CPM1A PLC**, not directly on a relay coil. The Omron's inputs are bidirectional opto-isolated inputs — the same kind of thing the EL2869 sourcing output is a matched pairing for | **Proven on hardware,** but no galvanic isolation between the DLS008 rail and the button station circuit |
+| **§20 Two-relay design onto the Omron inputs (as-built)** | Reintroduced the two interposing relays from §6/§7 (one for start, one for stop, driven by the DLS Start/Stop digital outputs), this time landing their contacts on the Omron `01`/`02` inputs found in §19 instead of a bare latch coil | **✅ Proven on hardware — integration tested on the Left Hand Small Temperature Cabinet.** Galvanic isolation restored, local button station left physically unmodified, local and remote authority confirmed to coexist by test |
 
 The key finding that unlocked this: the panel's own as-built drawing and the Omron CPM1A
 datasheet — both added to `docs/` — showed the button station was never wired straight to a bare
-relay coil. It goes through a small PLC first, and that PLC's inputs accept the EL2869's sourcing
-output directly, which is what the earlier low-side/sourcing mismatch had ruled out for the raw
-relay coil.
+relay coil. It goes through a small PLC first, and that PLC's inputs accept a sourced 24 V signal
+directly — which is what makes the two-relay design in §20 work cleanly: the relay contacts and
+the local button's own contacts land on the same input and OR together safely.
 
-Full investigation, wiring, CODESYS source, and open items (manual-authority confirmation,
-channel reallocation for the ramp gate and panel lock, and a researched software-first
-conflict-resolution design): [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>).
+Full investigation, wiring diagrams, CODESYS source, the §20 integration test record, and
+remaining open items (channel reallocation for the ramp gate and panel lock, and a researched
+software-first conflict-resolution design): [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>).
 
 ---
 
@@ -504,7 +507,7 @@ as a layout reference for that work.
 | [`linux modbus proof of concept and test logs/README.md`](<linux modbus proof of concept and test logs/README.md>) | Modbus RTU concepts, serial bring-up, `mbpoll` bench test |
 | [`codesys modbus com port investigation and troubleshooting log/README.md`](<codesys modbus com port investigation and troubleshooting log/README.md>) | Superseded serial-direct approach; network stabilisation and SysCom |
 | [`remote ssh vs code 10.1.6.17 setup guide/README.md`](<remote ssh vs code 10.1.6.17 setup guide/README.md>) | Remote-SSH and Git workflow from the Pi |
-| [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>) | Remote start/stop investigation, abandoned routes, as-built Omron CPM1A solution, open items |
+| [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>) | Remote start/stop investigation — complete. As-built two-relay integration onto the Omron CPM1A inputs, tested on LH Small Temp Cab, open items |
 | `docs/Project Kick-Off- Temperature Cabinet Setpoint Control.pdf` | Objective, scope, definition of done |
 | `docs/7168-DWG-100 - REV B - CP1.pdf` | LCA Group panel as-built drawing (DLS008) — terminal numbering, I/O channel maps, enclosure layout |
 | `docs/Omron PLC CP1MA Datasheet.pdf` | CPM1A I/O specifications — confirms bidirectional opto-isolated digital inputs, the fact that made §19 of the cabinet on/off doc work |

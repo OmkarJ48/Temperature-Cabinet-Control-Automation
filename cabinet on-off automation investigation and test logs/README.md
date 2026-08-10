@@ -1,28 +1,31 @@
 # Cabinet On/Off Automation — Investigation & Integration Guide
 
 **Author:** Omkar Joshi — Oliver Mechatronics
-**Date:** 29 July 2026 (original); **updated 6 August 2026**
+**Date:** 29 July 2026 (original); **updated 10 August 2026**
 **Objective:** Remotely start and stop the Left Hand Small Temperature Cabinet, without touching mains wiring and without taking authority away from the local operator.
-**Status:** ✅ **Remote start/stop proven on hardware — see §19.** Both operator (previously,
-via the button station) and CODESYS (via EL2869 CH15/CH16) can command the cabinet's own Omron
-CPM1A start/stop PLC directly. ⚠️ **Manual authority is currently disconnected — see §19.4, the
-top open item.**
+**Status:** ✅ **Investigation complete. Integration testing complete on the Left Hand Small
+Temperature Cabinet (DLS008) — see §20.** Remote start/stop is proven on hardware via two
+interposing relays, driven by the DLS Start/Stop digital outputs, landing on the Omron CPM1A's
+`01`/`02` inputs in parallel with the local button station. Both operator (button station) and
+CODESYS (via the two relays) can command the cabinet's start/stop, and the two-relay topology
+restores the galvanic isolation and OR/AND local-remote authority behaviour originally specified
+in §6/§7.
 
-> ### ⚠️ READ §19 FIRST — it is the current as-built, working solution
+> ### ⚠️ READ §20 FIRST — it is the current as-built, tested solution
 >
-> As of 6 Aug 2026 the deployed route for full cabinet on/off (fan + compressor) is **not** the
-> F4 digital-input ramp gate of §17, and **not** any of the relay designs in §6/§7. It is a direct
-> wire from two EL2869 channels into two digital inputs on the **Omron CPM1A PLC** that already
-> sits behind the button station and owns the actual start/stop latching. See **§19** for the full
-> account, the wiring, the two critical open items, and the researched safe-conflict-resolution
-> recommendation.
+> As of 10 Aug 2026 the deployed route for full cabinet on/off (fan + compressor) is the
+> **two-relay design of §6/§7, re-terminated onto the Omron CPM1A's `01`/`02` digital inputs**
+> (the termination point identified in §19) instead of a bare latch coil. See **§20** for the
+> wiring diagram, terminal/wire-colour table, and the integration test record on the Left Hand
+> Small Temperature Cabinet.
 >
-> §15 (Option C, relayless supply-lift via `-202X3`), §16 (Route A, Modbus setpoint sentinel) and
-> §17 (F4 digital-input ramp gate, "Control Outputs Off") are retained below as investigation
-> record — each taught something that fed into §19, and §17/§18's panel-lock mechanism is still
-> the correct design for *setpoint authority* (a separate concern from on/off, see §19.5). They
-> are not currently wired, because §19 reuses CH15/CH16 for the new purpose — see §19.5 for the
-> channel-reallocation recommendation that resolves this.
+> §15 (Option C, relayless supply-lift via `-202X3`), §16 (Route A, Modbus setpoint sentinel),
+> §17 (F4 digital-input ramp gate, "Control Outputs Off") and §19 (direct EL2869-to-Omron wiring,
+> no relays) are retained below as investigation record — each taught something that fed into
+> §20. §17/§18's panel-lock mechanism is still the correct design for *setpoint authority* (a
+> separate concern from on/off, see §19.5). They are not currently wired, because §20 reuses
+> CH15/CH16 for the new purpose — see §19.5 for the channel-reallocation recommendation that
+> resolves this.
 
 ---
 
@@ -1766,3 +1769,100 @@ diode (§6b). Not currently justified without a named hazard driving it.
 6. **Capture M1–M6 (and, once wired, the CH13/CH14 re-commissioning) as a timestamped test log**,
    consistent with the qualification standard set in
    `codesys modbus proof of concept and test logs/docs/test-logs/`.
+
+---
+
+# 20. AS-BUILT — Two-relay interposing design onto the Omron inputs, integration tested (10 Aug 2026)
+
+**Status: ✅ Investigation complete. Integration testing complete on the Left Hand Small
+Temperature Cabinet (DLS008).**
+
+## 20.1 What this section changes
+
+§19 proved that CH15/CH16 could drive the Omron CPM1A's `01`/`02` inputs directly, with no relay,
+because those inputs are bidirectional opto-isolated inputs rather than a bare latch coil. That
+remains electrically true. For the actual integration build, **two interposing relays have been
+reintroduced** between the DLS008 digital outputs and the Omron inputs — reviving the §6/§7
+two-relay topology, but now correctly terminating on the Omron's `01`/`02` inputs instead of the
+originally-assumed latch coil. This gives the best of both findings:
+
+- From §6/§7: galvanic isolation between the DLS008 24 V rail and the button station's own 24 V
+  circuit, and a design that is fully reversible (unplug two relays, panel is as it was).
+- From §19: the correct termination point — the Omron CPM1A's `01`/`02` digital inputs — so the
+  relay contacts and the local button's own contacts land on the **same** input and OR together
+  safely, instead of trying to interrupt a low-side contact the EL2869 was never able to switch
+  (the §15 Option C dead-end).
+
+## 20.2 Wiring — as tested, from the reference diagram
+
+Two interposing relays, each a standard DIN-rail 2-changeover-contact relay (terminal numbering
+`11`/`14`/`12` and `21`/`24`/`22` — commons `11`/`21`, NO `14`/`24`, NC `12`/`22`), one per
+function:
+
+| Relay | Coil driven by | Function |
+|---|---|---|
+| **Relay 1** | `DLS Start DO 24V+` / `DLS 0V` (EL2869 CH15) | START — sources 24 V onto wire `102` → Omron `01` |
+| **Relay 2** | `DLS Stop DO 24V+` / `DLS 0V` (EL2869 CH16) | STOP — sources 24 V onto wire `103` → Omron `02` |
+
+**Terminal / wire-colour table, as built and tested:**
+
+| Wire colour | From | To | Purpose |
+|---|---|---|---|
+| Green | Bus `100` (button station 24 V feed) | `NO3` (local start contact) **and** across to Relay 1 terminal `11` | Local start contact and Relay 1 common share the same 24 V rail |
+| Tan/orange | Bus `100` | `NC1` (local stop contact) | Local stop contact 24 V feed |
+| White | Bus `60` | `X1` (lamp/indicator) | Indicator only — no logic role |
+| Red | Relay 1 terminal `14` (NO) | wire `102` → Omron terminal `01` | Start command — parallel with the local button's own `102` path, exactly the OR/parallel-start logic specified in §6 |
+| Blue | `NC2` (local stop contact output) | Relay 2 terminal `21` (common) | Ties the local stop output into the same relay junction that also carries the remote stop source |
+| Orange | Relay 2 terminal `22` (NC) | wire `103` → Omron terminal `02` | Stop command — lands on the same Omron input as the local button's `NC2` output |
+| Red (bottom bus) | `NO4` (button station's physical `102` terminal) | field wire `102`, return via 0 V/ground rail (`Y`) | Physical wire-number continuity check — `NO4`/`NC2` at the bottom of the button block are where field wires `102`/`103` actually leave the station, per the numbering established in §2.1 |
+
+```
+ ON/OFF SWITCH STATION           RELAY 1 (START)         RELAY 2 (STOP)          OMRON CPM1A
+ (local button, unmodified)      coil <- DLS Start DO     coil <- DLS Stop DO     input block
+
+  100   60   100                    21   11                  21   11
+   |     |    |                      |    |                    |    |
+ [NO3] [X1] [NC1] ── green ─────────┘    |                    |    |
+   |    lamp  |                          |                    |    |
+   |          |                     24   14 ── red ── 102 ────┼────┼──►  01
+   |          |                      |    |                    |    |
+  102        103                    22   12                  22   12
+   |          |                      |    |                    |    |
+  [NO4]     [NC2] ── blue ───────────────────────────────────┘    |
+                                                                     |
+                                     Relay 2 terminal 22 ── orange ─┴── 103 ──►  02
+```
+
+## 20.3 CODESYS side — unchanged from §19.3
+
+No CODESYS logic change was required for this section. `GVL_HMI.xStartPulse` (CH15) and
+`GVL_HMI.xStopPermit` (CH16) still drive the same two EL2869 channels; the relays sit purely in
+the field wiring between the terminal and the Omron input, adding isolation without changing the
+software contract. Re-use the same watch-window test procedure documented in §19.3.
+
+## 20.4 Integration test — Left Hand Small Temperature Cabinet (DLS008)
+
+**Result: ✅ PASS.** With both relays wired per §20.2 and the local button station left
+physically unmodified:
+
+| Test | Action | Result |
+|---|---|---|
+| Local start | Green button pressed by hand | Cabinet started |
+| Local stop | Red button pressed by hand while running | Cabinet stopped immediately |
+| Remote start | `xStartPulse := TRUE` from CODESYS | Relay 1 energised, CH15 LED lit, cabinet started |
+| Remote stop | `xStopPermit := TRUE` from CODESYS | Relay 2 energised, CH16 LED lit, cabinet stopped |
+| Local/remote coexistence | Both button and relay wiring landed on the same `01`/`02` inputs simultaneously | No fault, no contention — confirms the OR behaviour predicted in §19.1/§19.4 |
+
+This closes the top open item carried since §19.4 — manual physical authority is now **confirmed
+by test**, not assumed, because the two-relay topology keeps the local button's own contacts
+electrically intact and merely adds a parallel, isolated source at the same input.
+
+## 20.5 Investigation status
+
+**Investigation: complete.** **Integration testing: complete on the Left Hand Small Temperature
+Cabinet.** This design (§20) is the one to replicate on the remaining cabinets per
+[`ROLLOUT-CHECKLIST.md`](../ROLLOUT-CHECKLIST.md) Job 3 — build both relays, wire per §20.2, and
+run the §20.4 test table on each cabinet before moving to Job 4 (EL1859).
+
+Open items carried forward unchanged: §19.5 (CH13/CH14 reallocation for the ramp gate and panel
+lock) and §19.6.2 point 3 (run-feedback wire) remain open — see §19.7.
