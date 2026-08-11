@@ -452,33 +452,45 @@ into repeatable commissioning on each remaining cabinet.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Replace Panel Mount USB | ☐ Pending — awaiting Beckhoff procurement (see §8.4) |
-| 2 | Connect USB from Panel Mount to Pi | ☐ Pending — awaiting Beckhoff procurement |
-| 3 | Connect USB to RS232 and Temp Cab | ☐ Pending — awaiting Beckhoff procurement |
+| 1 | Replace Panel Mount USB | ✅ **Done** |
+| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
+| 3 | Connect RS232 adapter cable (F4S to USB) | ⏳ Pending — awaiting RS232 to USB A cable delivery from RS Components |
 | 4 | Wire up 37-pin connector pins 13 & 14 to relays | ✅ **Done** |
 | 5 | Cable button switch to relays and PLC | ✅ **Done** |
 
-Items 1–3 depend on the EL1859 EtherCAT terminal (see §8.4) and will be completed once it is on
-site. Items 4 and 5 — the relay wiring itself, per the §20 two-relay design — are complete on this
-cabinet.
+**Status detail:**
+
+**Items 1–2 complete (11 August 2026):** Panel mount USB is mounted on the cabinet enclosure. USB
+wiring harness runs from Raspberry Pi USB port to the panel mount, routed inside the cabinet using:
+- Yellow industry-grade wire (1.5 mm) for power distribution bus (clamped to rail with cable ties)
+- Small-gauge black, green, and red wires (DLS pins 13 & 14 connections, same harness)
+- All wires clamped and fastened to existing cabinet wire bundle using cable clamps
+- USB cable inside DLS not yet labeled
+
+**Item 3 pending:** Waiting for RS232 adapter to USB A cable delivery from RS Components. Once
+this cable arrives, it connects the Watlow F4S internal DB9 connector to the USB panel mount,
+completing the comms path from F4S through panel USB to the Raspberry Pi.
+
+**Items 4–5 complete:** Relay wiring to pins 13 & 14 and button wiring to PLC are done per the
+§20 two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
 
 ### 8.4 Procurement status
 
 | Item | Supplier | Status |
 |---|---|---|
-| 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured |
-| USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured |
-| RS232 to USB A cable | RS Components | ✅ Procured |
-| Single-core wire (yellow) | RS Components | ✅ Procured |
+| 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured & fitted |
+| USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured & installed |
+| **RS232 to USB A cable** | RS Components | ⏳ **In transit** |
+| Single-core wire (yellow) | RS Components | ✅ Procured & installed |
 | XLR 4-way female/male connectors | RS Components | ✅ Procured |
-| Cable tie mount | RS Components | ✅ Procured |
-| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⚠️ **Not yet procured** |
-| Carriage (EL1859 order) | Beckhoff | ⚠️ **Not yet procured** |
+| Cable tie mount | RS Components | ✅ Procured & used |
+| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
+| Carriage (EL1859 order) | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
 
-**Only the RS Components items have been procured so far.** The Beckhoff EL1859 order (and its
-carriage line) is still outstanding — this is what blocks checklist items 1–3 above. Once the
-EL1859 is on site, the panel-mount USB re-termination and the EtherCAT DI/DO module fit can
-proceed on the Left Hand Large cabinet, then repeat down the rollout order in §8.2.
+**Current status (11 August 2026):** All RS Components items used for basic panel-mount USB and wiring harness
+have been procured and installed on the Left Hand Large Cabinet. The only item blocking completion of
+checklist item 3 is the RS232 to USB A cable, which is in transit. The Beckhoff EL1859 module is
+not required for this commissioning phase — it is reserved for a future I/O expansion project.
 
 ---
 
