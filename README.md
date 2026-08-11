@@ -11,7 +11,10 @@ loop — it reads state and writes a target. That boundary is the whole design.
 
 **Author:** Omkar Joshi — Oliver Valvetek / Oliver Mechatronics / Oliver R&D
 **Working branch:** `Omkar_Temperature_Cabinet_Setpoint_Control` (all development; `main` is not used for this work)
-**Status:** Modbus proof of concept **complete and qualified on hardware**. Next stage: CODESYS WebVisu HMI.
+**Status:** Modbus proof of concept **complete and qualified on hardware**. Cabinet on/off
+prototyping **complete and proven on the Left Hand Small Temperature Cabinet (DLS008)**. Now
+**commissioning across the five R&D temperature cabinets**, starting with the Left Hand Large
+Temperature Cabinet — see Stage 8.
 
 ---
 
@@ -90,7 +93,6 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
 | [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation — complete — and the as-built, integration-tested two-relay solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
-| [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 7 |
 
 ---
 
@@ -417,6 +419,66 @@ the local button's own contacts land on the same input and OR together safely.
 Full investigation, wiring diagrams, CODESYS source, the §20 integration test record, and
 remaining open items (channel reallocation for the ramp gate and panel lock, and a researched
 software-first conflict-resolution design): [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>).
+
+---
+
+## Stage 8 — Commissioning across the R&D temperature cabinet fleet
+
+**Status: ✅ Prototyping complete on the Left Hand Small Temperature Cabinet (DLS008). Now
+commissioning the same design across the remaining four R&D temperature cabinets, starting with
+the Left Hand Large Temperature Cabinet.**
+
+### 8.1 Prototyping sign-off
+
+Prototyping is considered done because a **5-second on/off pulse program**, built directly into
+`PLC_PRG` alongside the setpoint state machine, proved the cabinet can be started and stopped
+exactly as an operator requires — both from the physical button station and from CODESYS —
+through the §20 two-relay wiring. `xStartPulse`/`xStopPermit` were driven from the watch window
+with a 5 s hold on each edge, and the cabinet responded correctly on every cycle, matching the
+§20.4 integration test results. **No further prototyping work is planned** — the design now moves
+into repeatable commissioning on each remaining cabinet.
+
+### 8.2 Cabinet rollout order
+
+| # | Cabinet | Controller | Status |
+|---|---|---|---|
+| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ✅ Prototyped, integration-tested, complete — see §20 |
+| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress — commissioning starting here** |
+| 2 | Twinsafe Temperature Cabinet | *confirm on survey* | ☐ Not started |
+| 3 | Right Hand Large Temperature Cabinet | *confirm on survey* | ☐ Not started |
+| 4 | Right Hand Small Temperature Cabinet | **Watlow F4T — different controller, register map unproven** | ☐ Not started — needs a separate investigation stage before commissioning, same as the original F4S bring-up |
+
+### 8.3 Commissioning checklist — Left Hand Large Temperature Cabinet
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Replace Panel Mount USB | ☐ Pending — awaiting Beckhoff procurement (see §8.4) |
+| 2 | Connect USB from Panel Mount to Pi | ☐ Pending — awaiting Beckhoff procurement |
+| 3 | Connect USB to RS232 and Temp Cab | ☐ Pending — awaiting Beckhoff procurement |
+| 4 | Wire up 37-pin connector pins 13 & 14 to relays | ✅ **Done** |
+| 5 | Cable button switch to relays and PLC | ✅ **Done** |
+
+Items 1–3 depend on the EL1859 EtherCAT terminal (see §8.4) and will be completed once it is on
+site. Items 4 and 5 — the relay wiring itself, per the §20 two-relay design — are complete on this
+cabinet.
+
+### 8.4 Procurement status
+
+| Item | Supplier | Status |
+|---|---|---|
+| 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured |
+| USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured |
+| RS232 to USB A cable | RS Components | ✅ Procured |
+| Single-core wire (yellow) | RS Components | ✅ Procured |
+| XLR 4-way female/male connectors | RS Components | ✅ Procured |
+| Cable tie mount | RS Components | ✅ Procured |
+| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⚠️ **Not yet procured** |
+| Carriage (EL1859 order) | Beckhoff | ⚠️ **Not yet procured** |
+
+**Only the RS Components items have been procured so far.** The Beckhoff EL1859 order (and its
+carriage line) is still outstanding — this is what blocks checklist items 1–3 above. Once the
+EL1859 is on site, the panel-mount USB re-termination and the EtherCAT DI/DO module fit can
+proceed on the Left Hand Large cabinet, then repeat down the rollout order in §8.2.
 
 ---
 

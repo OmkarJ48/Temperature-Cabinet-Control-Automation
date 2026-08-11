@@ -1860,9 +1860,10 @@ electrically intact and merely adds a parallel, isolated source at the same inpu
 ## 20.5 Investigation status
 
 **Investigation: complete.** **Integration testing: complete on the Left Hand Small Temperature
-Cabinet.** This design (§20) is the one to replicate on the remaining cabinets per
-[`ROLLOUT-CHECKLIST.md`](../ROLLOUT-CHECKLIST.md) Job 3 — build both relays, wire per §20.2, and
-run the §20.4 test table on each cabinet before moving to Job 4 (EL1859).
+Cabinet.** This design (§20) is the one to replicate on the remaining cabinets — see the root
+[`README.md`](<../README.md>) Stage 8 for the cabinet rollout order and commissioning checklist.
+Build both relays, wire per §20.2, and run the §20.4 test table on each cabinet before moving on
+to the EL1859 re-termination work.
 
 Open items carried forward unchanged: §19.5 (CH13/CH14 reallocation for the ramp gate and panel
 lock) and §19.6.2 point 3 (run-feedback wire) remain open — see §19.7.
