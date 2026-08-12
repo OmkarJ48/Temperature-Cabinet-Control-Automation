@@ -424,9 +424,9 @@ software-first conflict-resolution design): [`cabinet on-off automation investig
 
 ## Stage 8 — Commissioning across the R&D temperature cabinet fleet
 
-**Status: ✅ Prototyping complete on the Left Hand Small Temperature Cabinet (DLS008). Now
-commissioning the same design across the remaining four R&D temperature cabinets, starting with
-the Left Hand Large Temperature Cabinet.**
+**Status: ✅ Prototyping complete on the Left Hand Small Temperature Cabinet (DLS008). Left Hand Large
+Temperature Cabinet commissioning complete (12 August 2026). Now commissioning the Twinsafe
+Temperature Cabinet, then continuing with Right Hand Large and Right Hand Small.**
 
 ### 8.1 Prototyping sign-off
 
@@ -443,8 +443,8 @@ into repeatable commissioning on each remaining cabinet.
 | # | Cabinet | Controller | Status |
 |---|---|---|---|
 | 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ✅ Prototyped, integration-tested, complete — see §20 |
-| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress — commissioning starting here** |
-| 2 | Twinsafe Temperature Cabinet | *confirm on survey* | ☐ Not started |
+| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** |
+| 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ▶ **In progress — commissioning starting** |
 | 3 | Right Hand Large Temperature Cabinet | *confirm on survey* | ☐ Not started |
 | 4 | Right Hand Small Temperature Cabinet | **Watlow F4T — different controller, register map unproven** | ☐ Not started — needs a separate investigation stage before commissioning, same as the original F4S bring-up |
 
@@ -454,25 +454,26 @@ into repeatable commissioning on each remaining cabinet.
 |---|---|---|
 | 1 | Replace Panel Mount USB | ✅ **Done** |
 | 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
-| 3 | Connect RS232 adapter cable (F4S to USB) | ⏳ Pending — awaiting RS232 to USB A cable delivery from RS Components |
+| 3 | Connect RS232 adapter cable (F4S to USB) | ✅ **Done (12 August 2026)** |
 | 4 | Wire up 37-pin connector pins 13 & 14 to relays | ✅ **Done** |
 | 5 | Cable button switch to relays and PLC | ✅ **Done** |
 
-**Status detail:**
+**Status detail — All items complete (12 August 2026):**
 
-**Items 1–2 complete (11 August 2026):** Panel mount USB is mounted on the cabinet enclosure. USB
-wiring harness runs from Raspberry Pi USB port to the panel mount, routed inside the cabinet using:
+**Items 1–2 (11 August 2026):** Panel mount USB is mounted on the cabinet enclosure. USB wiring
+harness runs from Raspberry Pi USB port to the panel mount, routed inside the cabinet using:
 - Yellow industry-grade wire (1.5 mm) for power distribution bus (clamped to rail with cable ties)
 - Small-gauge black, green, and red wires (DLS pins 13 & 14 connections, same harness)
 - All wires clamped and fastened to existing cabinet wire bundle using cable clamps
-- USB cable inside DLS not yet labeled
 
-**Item 3 pending:** Waiting for RS232 adapter to USB A cable delivery from RS Components. Once
-this cable arrives, it connects the Watlow F4S internal DB9 connector to the USB panel mount,
-completing the comms path from F4S through panel USB to the Raspberry Pi.
+**Item 3 (12 August 2026):** RS232 adapter to USB A cable received from RS Components. Connected
+Watlow F4S internal DB9 connector to USB panel mount, completing the comms path from F4S through
+panel USB to the Raspberry Pi. Comms path proven and tested.
 
-**Items 4–5 complete:** Relay wiring to pins 13 & 14 and button wiring to PLC are done per the
-§20 two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
+**Items 4–5:** Relay wiring to pins 13 & 14 and button wiring to PLC are done per the §20
+two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
+
+**✅ Left Hand Large commissioning complete and ready for full integration testing.**
 
 ### 8.4 Procurement status
 
@@ -480,17 +481,31 @@ completing the comms path from F4S through panel USB to the Raspberry Pi.
 |---|---|---|
 | 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured & fitted |
 | USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured & installed |
-| **RS232 to USB A cable** | RS Components | ⏳ **In transit** |
+| **RS232 to USB A cable** | RS Components | ✅ **Received & installed (12 August 2026)** |
 | Single-core wire (yellow) | RS Components | ✅ Procured & installed |
 | XLR 4-way female/male connectors | RS Components | ✅ Procured |
 | Cable tie mount | RS Components | ✅ Procured & used |
 | **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
 | Carriage (EL1859 order) | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
 
-**Current status (11 August 2026):** All RS Components items used for basic panel-mount USB and wiring harness
-have been procured and installed on the Left Hand Large Cabinet. The only item blocking completion of
-checklist item 3 is the RS232 to USB A cable, which is in transit. The Beckhoff EL1859 module is
-not required for this commissioning phase — it is reserved for a future I/O expansion project.
+**Status (12 August 2026):** Left Hand Large Cabinet commissioning is **complete**. All RS Components items
+have been procured and installed. Comms path from Watlow F4S → RS232 adapter cable → USB → Raspberry Pi
+is proven and tested. Cabinet ready for full integration testing. The Beckhoff EL1859 module is
+reserved for a future I/O expansion project.
+
+### 8.5 Commissioning checklist — Twinsafe Temperature Cabinet
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Replace Panel Mount USB | ☐ Not started |
+| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ☐ Not started |
+| 3 | Connect RS232 adapter cable (F4S to USB) | ☐ Not started |
+| 4 | Wire up 37-pin connector pins 13 & 14 to relays | ☐ Not started |
+| 5 | Cable button switch to relays and PLC | ☐ Not started |
+
+**Status detail (12 August 2026):** Commissioning of the Twinsafe Temperature Cabinet has started,
+following the same process as the Left Hand Large Cabinet. Materials are on hand (RS Components
+items from the Left Hand Large procurement). Will update progress as each item is completed.
 
 ---
 
