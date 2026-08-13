@@ -424,10 +424,10 @@ software-first conflict-resolution design): [`cabinet on-off automation investig
 
 ## Stage 8 — Commissioning across the R&D temperature cabinet fleet
 
-**Status: ✅ Prototyping complete on the Left Hand Small Temperature Cabinet (DLS008). Left Hand Large
-Temperature Cabinet commissioning complete (12 August 2026). Twinsafe Temperature Cabinet commissioning
-complete (13 August 2026) — awaiting RS232 to USB adapter cable arrival. Next: Right Hand Large
-Temperature Cabinet.**
+**Status: ✅ Design prototyping and validation complete on the Left Hand Small Temperature Cabinet (DLS008).
+Left Hand Large commissioning complete (12 August 2026). Twinsafe commissioning complete (13 August 2026)
+— awaiting RS232 cable. Right Hand Large commissioning in progress. DLS008 commissioning and
+Right Hand Small investigation scheduled after current rollout.**
 
 ### 8.1 Prototyping sign-off
 
@@ -443,7 +443,7 @@ into repeatable commissioning on each remaining cabinet.
 
 | # | Cabinet | Controller | Status |
 |---|---|---|---|
-| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ✅ Prototyped, integration-tested, complete — see §20 |
+| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ⏳ **Commissioning pending** — prototyping and design validation complete (see §20), commissioning workflow to follow |
 | 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** |
 | 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026) — awaiting RS232 cable** |
 | 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress — commissioning starting** |
