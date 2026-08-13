@@ -1,20 +1,18 @@
-# Temperature Cabinet Setpoint Control from CODESYS HMI
+# Temperature Cabinet Control & Automation from CODESYS HMI
 
 **Parent project:** ISO15848-1 Automated R&D Test Rig
 
-Supervisory setpoint control of the **Left Hand Small Temperature Cabinet** (Watlow F4S controller)
-from a CODESYS runtime on a Raspberry Pi, so an operator can change the cabinet setpoint from a
-CODESYS HMI instead of walking to the cabinet front panel.
+Remote supervisory control of R&D temperature cabinets via CODESYS runtime on Raspberry Pi:
+- **Setpoint control:** Operator changes cabinet setpoint from CODESYS HMI instead of the cabinet's front panel
+- **Cabinet on/off automation:** Remote start/stop of cabinet via CODESYS, with local button station authority preserved
 
-The cabinet keeps its own closed-loop PID control at all times. CODESYS never becomes the control
-loop — it reads state and writes a target. That boundary is the whole design.
+Both features are proven, integrated, and commissioning across the fleet of five R&D temperature cabinets.
 
 **Author:** Omkar Joshi — Oliver Valvetek / Oliver Mechatronics / Oliver R&D
 **Working branch:** `Omkar_Temperature_Cabinet_Setpoint_Control` (all development; `main` is not used for this work)
-**Status:** Modbus proof of concept **complete and qualified on hardware**. Cabinet on/off
-prototyping **complete and proven on the Left Hand Small Temperature Cabinet (DLS008)**. Now
-**commissioning across the five R&D temperature cabinets**, starting with the Left Hand Large
-Temperature Cabinet — see Stage 8.
+**Status:** ✅ Setpoint control **complete and qualified on hardware**. ✅ Cabinet on/off automation
+**complete, integration-tested, and proven on DLS008**. Now **commissioning across five R&D temperature cabinets** (Left Hand
+Large and Twinsafe complete; Right Hand Large in progress; DLS008 and Right Hand Small to follow) — see Stage 8.
 
 ---
 
