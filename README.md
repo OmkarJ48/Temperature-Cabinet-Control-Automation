@@ -477,17 +477,17 @@ two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
 |---|---|---|
 | 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured & fitted |
 | USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured & installed |
-| **RS232 to USB A cable** | RS Components | ✅ **Received & installed (12 August 2026)** |
+| **RS232 to USB A cable** (RS 1860518) | RS Components | ⏳ **On order — awaiting delivery for all cabinets** |
 | Single-core wire (yellow) | RS Components | ✅ Procured & installed |
 | XLR 4-way female/male connectors | RS Components | ✅ Procured |
 | Cable tie mount | RS Components | ✅ Procured & used |
 | **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
 | Carriage (EL1859 order) | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
 
-**Status (12 August 2026):** Left Hand Large Cabinet commissioning is **complete**. All RS Components items
-have been procured and installed. Comms path from Watlow F4S → RS232 adapter cable → USB → Raspberry Pi
-is proven and tested. Cabinet ready for full integration testing. The Beckhoff EL1859 module is
-reserved for a future I/O expansion project.
+**Status (13 August 2026):** Left Hand Large Cabinet commissioning is **complete** (4-item checklist). Physical
+wiring harness, relay wiring, and button connections are installed and tested. Awaiting RS232 to USB A cable
+(RS 1860518) for comms path validation and final sign-off. The Beckhoff EL1859 module is reserved for
+a future I/O expansion project.
 
 ### 8.5 Commissioning checklist — Twinsafe Temperature Cabinet
 
