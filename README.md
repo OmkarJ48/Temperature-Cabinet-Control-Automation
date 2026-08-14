@@ -423,9 +423,9 @@ software-first conflict-resolution design): [`cabinet on-off automation investig
 ## Stage 8 — Commissioning across the R&D temperature cabinet fleet
 
 **Status: ✅ Design prototyping and validation complete on the Left Hand Small Temperature Cabinet (DLS008).
-Left Hand Large commissioning complete (12 August 2026). Twinsafe commissioning complete (13 August 2026)
-— awaiting RS232 cable. Right Hand Large commissioning in progress. DLS008 commissioning and
-Right Hand Small investigation scheduled after current rollout.**
+DLS008 commissioning in progress (items 1–2, 4 done; item 3 remaining). Left Hand Large commissioning complete
+(12 August 2026). Twinsafe commissioning complete (13 August 2026) — awaiting RS232 cable. Right Hand Large
+scheduled next. Right Hand Small investigation to follow.**
 
 ### 8.1 Prototyping sign-off
 
@@ -441,13 +441,32 @@ into repeatable commissioning on each remaining cabinet.
 
 | # | Cabinet | Controller | Status |
 |---|---|---|---|
-| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ⏳ **Commissioning pending** — prototyping and design validation complete (see §20), commissioning workflow to follow |
+| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ▶ **In progress — commissioning items 3–4 remaining** (relay/switch/PLC wiring done; panel USB done) |
 | 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** |
 | 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026) — awaiting RS232 cable** |
-| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress — commissioning starting** |
+| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ☐ Not started |
 | 4 | Right Hand Small Temperature Cabinet | **Watlow F4T — different controller, register map unproven** | ☐ Not started — needs a separate investigation stage before commissioning, same as the original F4S bring-up |
 
-### 8.3 Commissioning checklist — Left Hand Large Temperature Cabinet
+### 8.3 Commissioning checklist — Left Hand Small Temperature Cabinet (DLS008)
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Replace Panel Mount USB | ✅ **Done** |
+| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
+| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ⏳ Pending |
+| 4 | Cable button switch to relays and PLC | ✅ **Done** |
+
+**Status detail — Partial completion (13 August 2026):**
+
+**Items 1–2, 4 complete:** Panel mount USB Type A to Type A connected to DLS. Relay to switch wiring complete. 
+Button switch to Omron CPM1A PLC wiring complete (per §20 two-relay design).
+
+**Item 3 pending:** Wire up 37-pin connector pins 13 & 14 (from DLS output to relay coils). Once complete, will 
+connect RS232 adapter cable and validate comms path.
+
+**✅ DLS008 commissioning in progress — 75% complete, awaiting item 3 and RS232 cable.**
+
+### 8.4 Commissioning checklist — Left Hand Large Temperature Cabinet
 
 | # | Item | Status |
 |---|---|---|
@@ -469,7 +488,7 @@ two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
 
 **✅ Left Hand Large commissioning complete. RS232 cable and comms path testing in procurement phase.**
 
-### 8.4 Procurement status
+### 8.5 Procurement status
 
 | Item | Supplier | Status |
 |---|---|---|
@@ -487,7 +506,7 @@ wiring harness, relay wiring, and button connections are installed and tested. A
 (RS 1860518) for comms path validation and final sign-off. The Beckhoff EL1859 module is reserved for
 a future I/O expansion project.
 
-### 8.5 Commissioning checklist — Twinsafe Temperature Cabinet
+### 8.6 Commissioning checklist — Twinsafe Temperature Cabinet
 
 | # | Item | Status |
 |---|---|---|
@@ -507,7 +526,7 @@ number) is on order for comms path testing and final sign-off.
 
 **✅ Twinsafe commissioning complete — awaiting RS232 cable for final comms validation.**
 
-### 8.6 Commissioning checklist — Right Hand Large Temperature Cabinet
+### 8.7 Commissioning checklist — Right Hand Large Temperature Cabinet
 
 | # | Item | Status |
 |---|---|---|
@@ -516,9 +535,10 @@ number) is on order for comms path testing and final sign-off.
 | 3 | Wire up 37-pin connector pins 13 & 14 to relays | ☐ Not started |
 | 4 | Cable button switch to relays and PLC | ☐ Not started |
 
-**Status detail (13 August 2026):** Commissioning of the Right Hand Large Temperature Cabinet has started,
-following the same 4-item process as Left Hand Large and Twinsafe Cabinets. Materials are on hand (RS Components
-items). RS232 cable procurement handled separately. Will update progress as each item is completed.
+**Status detail (13 August 2026):** Commissioning of the Right Hand Large Temperature Cabinet is scheduled
+to start after DLS008 and current cabinet completions. Following the same 4-item process as 
+Left Hand Large and Twinsafe Cabinets. Materials are on hand (RS Components items). RS232 cable 
+procurement handled separately. Will update progress as each item is completed.
 
 ---
 
