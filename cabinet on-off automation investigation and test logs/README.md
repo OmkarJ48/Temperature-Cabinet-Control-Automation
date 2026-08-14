@@ -154,63 +154,23 @@ This is standard motor-starter practice and it gives exactly the behaviour you w
 
 ---
 
-## 6b. DLS008 → Relay coil interaction (power supply compatibility)
+## 6b. Power supply compatibility — relay requirements
 
-The cabinet control runs on 24V DC from the DLS008 field power supply. Relay coils are inductive loads — they present a brief high-current inrush on close and a voltage spike on open. This section proves the DLS008 can safely deliver that current without relay damage.
+The cabinet control runs on 24V DC from the DLS008 field power supply. Relay coils are inductive loads and **must have integral freewheel diodes** to prevent back-EMF damage to the EL2869 MOSFET output stage.
 
-**DLS008 and EL2869 specifications** (from control panel datasheet):
-- **24V field supply rating:** Rated for 1 A per module (multi-module system with shared 24V bus)
-- **EL2869 per-channel output:** EtherCAT coupler feeds 24V to each driven load through internal MOSFET drivers
-- **Cable spec:** Minimum 0.5–0.75 mm² CSA for control circuits (shielded, ELV-rated)
-- **System protection:** Integrated within Beckhoff EX1100 coupler; over-current monitoring present per EtherCAT standard
+**Critical requirement:** Use only relays with **integral freewheel diodes built into the coil terminals**. A bare relay coil (without a diode) will destroy the EL2869 on the first de-energization when the coil back-EMF reaches 100+ V.
 
-**Relay coil power analysis:**
+**Specifications:**
+- Relay coil: 24 V DC, DIN-rail mount, **integral freewheel diode**
+- Holding current: ~30 mA (continuous, well below EL2869 rating)
+- Inrush current: ~150–300 mA (transient, acceptable for MOSFET drivers)
+- Cable: Shielded 2-core, 0.75 mm² minimum, ELV-rated
+- Cable length: Keep ≤5 m to reduce EMI
+- Grounding: Single-point star connection at the enclosure; both relays share DLS008 0V common
 
-| Specification | Typical value | Worst case | Notes |
-|---|---|---|---|
-| Coil nominal voltage | 24 V DC | — | Phoenix Contact PLC-RSC-24DC, Finder 38 series |
-| Holding current (steady) | ~30 mA | 50 mA | Relay energized, sealed in |
-| Pickup current (inrush, transient) | ~150 mA | 300 mA | First 5–50 ms on energize; L/R time constant ~20 ms |
-| Coil inductance | 15–25 mH | 30 mH | Depends on coil design |
-| DC resistance (cold) | 800–1000 Ω | 650 Ω | At 20°C; rises to ~1100 Ω hot |
+**Freewheel diode function:** When the coil de-energizes, the diode conducts briefly and clamps the back-EMF to ~24.6 V, preventing the spike that would damage the EL2869 output driver.
 
-**Voltage drop during inrush:** When the EL2869 switches on and drives 150–300 mA through ~0.5 m of 0.75 mm² cable (R ≈ 0.01 Ω/m → 0.005 Ω total), the transient voltage drop is:
-- V_drop = I_inrush × R_cable ≈ 200 mA × 0.005 Ω ≈ **1 mV** (negligible)
-- 24 V supply remains ≥ 23.8 V (well within relay tolerance ±10%)
-
-**EL2869 output rating vs. coil draw:** EL2869 specifications (Beckhoff EC2020 coupler manual):
-- Output voltage: 24 V DC (sourced from internal supply)
-- Per-channel continuous rating: ~500 mA (conservative, MOSFET-based)
-- Per-channel inrush handling: Transient over-current allowed up to ~1 A for <100 ms (standard MOSFET behavior)
-- Spike suppression: Internal clamp diodes prevent parasitic reverse voltages
-
-**Freewheel diode requirement (CRITICAL):**
-
-A 24V DC relay coil inductance stores energy. When the EL2869 output cuts off:
-- Without protection: Coil acts as a voltage source, back-EMF can reach **100+ V**, destroying the EL2869 MOSFET output stage
-- With freewheel diode: Diode clamps the coil to ≈ 24V + 0.6V (diode drop), allowing current to decay safely
-
-This is why **§7 specifies relay coils with integral freewheel diodes** — it is not optional and not a convenience feature. Using a bare relay coil will fail the EL2869 on the first de-energization.
-
-**Cable recommendations** (from DLS008 panel schematic):
-- Minimum CSA: **0.75 mm²** (double the PLC minimum to account for EMI margin)
-- Type: Shielded, twisted-pair, ELV-rated (UL-listed or equivalent)
-- Shield termination: Connect both ends to the DLS008 24V common (0V rail) and control enclosure ground via ferrule or clamp
-- Length: Keep ≤5 m; longer runs need slightly heavier gauge (1 mm²) to reduce EMI pickup
-
-**Grounding and return path:**
-- Both relay coil supply and EL2869 output must share the same 24V common (0V reference)
-- Do not use multiple return paths — single-point star grounding at the control enclosure, feeding back through the DLS008 24V bus
-- Enforce this with a short, heavy-gauge return wire (same gauge as supply, minimum 0.75 mm²) from the relay common to the DLS008 bus common
-
-**Safety margins and confirmation:**
-1. ✅ Holding current (30 mA nominal) << EL2869 rating (500 mA continuous) — **16× safety factor**
-2. ✅ Inrush current (150–300 mA transient) << EL2869 transient rating (1 A for <100 ms) — **3–6× safety factor**
-3. ✅ Voltage drop <1 mV — negligible, relay sees 24V throughout
-4. ✅ Freewheel diode present in specified relays — back-EMF clamped, no MOSFET stress
-5. ✅ Cable gauging (0.75 mm²) provides 50% EMI margin above the minimum PLC spec
-
-**Conclusion:** A 24V DC relay coil with integral freewheel diode, driven through shielded 0.75 mm² cable, is safe for the DLS008 EL2869 output. No special drivers, current-limiting resistors, or external diodes are required. The relay holds steady at 24V, draws <50 mA continuous, and the freewheel diode protects the EL2869 during switching transients.
+**Conclusion:** Relays with integral freewheel diodes are safe for DLS008 EL2869 outputs. Examples: Phoenix Contact PLC-RSC-24DC/21, Finder 38-series. **Always verify the datasheet confirms integral freewheel diodes before procurement.**
 
 ---
 
@@ -1856,6 +1816,153 @@ physically unmodified:
 This closes the top open item carried since §19.4 — manual physical authority is now **confirmed
 by test**, not assumed, because the two-relay topology keeps the local button's own contacts
 electrically intact and merely adds a parallel, isolated source at the same input.
+
+## 20.5 Wiring diagram explanation — Start/Stop relays and Omron CPM1A integration
+
+The two-relay design connects to the existing button station and Omron CPM1A PLC inputs as follows:
+
+```
+ON/OFF SWITCH STATION (local button, unmodified)
+   100: +24V rail        60: +10V lamp       102: Green NO out    103: Red NC out
+
+RELAY 1 (START)                    RELAY 2 (STOP)                    OMRON CPM1A
+24V DC coil + freewheel diode      24V DC coil + freewheel diode     Input block
+
+Coil ← DLS CH15 Start DO           Coil ← DLS CH16 Stop DO
+Return ← DLS 0V common             Return ← DLS 0V common
+
+NO contact 14 ──┐                  NC contact 22 ──┐
+               │ parallel          │ series        │
+               ├── wire 102 ───────┤               ├── Terminal 01 (START input)
+               │                   │               │
+Green button ──┘                   ├─ wire 103 ───┴── Terminal 02 (STOP input)
+(NO 3-4)                           │
+                                   └─ Red button
+                                      (NC 1-2)
+
+KEY LOGIC:
+- **START (parallel):** Wire 102 receives 24V from either green button OR relay 1 → Omron `01` input
+  → Both sources can initiate start (OR gate)
+  
+- **STOP (series):** Wire 103 stop path requires BOTH local red NC contact AND relay 2 NC contact closed
+  → Either source can break the circuit = either can stop (AND gate, fail-safe)
+```
+
+**Why this matters:**
+- Relay 1 NO contact **parallels** the green button: remote start adds to local start, both trigger Omron `01`
+- Relay 2 NC contact **series** on the stop path: remote stop command (energize to stop) mirrors the red button behavior
+- Local button station wiring physically unchanged; local control always works
+- Fail-safe: If DLS008 loses power, Relay 2 de-energizes → NC contact closes → stop circuit intact → manual operation restored
+
+---
+
+## 20.6 Watch-window operating procedure
+
+**Before first use:**
+- Confirm relay coils: **24 ±2V DC** across each coil with multimeter
+- Download CODESYS and go online
+- Verify `xSetOperational` = TRUE (EL2869 status)
+- Confirm GVL_HMI variables visible in watch window
+
+**Operating sequence:**
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Set `xCabinetOnCmd = TRUE` in **Prepared value** | `xStartPulse` HIGH for 1 second, then FALSE |
+| 2 | Listen | Fan starts (relay 1 energizes, supplies 24V to Omron `01`) |
+| 3 | Wait 5–10s | Compressor starts after fan |
+| 4 | Set `xCabinetOnCmd = FALSE` | `xStopPermit` FALSE; `xStartPulse` FALSE |
+| 5 | Listen | Fan/compressor stop (~3s) |
+| 6 | Watch `tOffLockRemain` | Counts down from 5 minutes |
+| 7 | Retry during lockout | Set `xCabinetOnCmd = TRUE` before timer = 0; `xStartPulse` stays FALSE (blocked) |
+| 8 | Wait for 0s | Timer expires |
+| 9 | Retry after lockout | Set `xCabinetOnCmd = TRUE` after timer = 0; `xStartPulse` pulses, cabinet restarts |
+
+**Verify local authority:** While running from remote (`xCabinetOnCmd = TRUE`), press red button at panel → cabinet stops immediately (local always wins).
+
+---
+
+## 20.7 Manual authority verification tests (M1–M6)
+
+Run on each commissioned cabinet:
+
+| Test | Setup | Action | Expected | Pass |
+|------|-------|--------|----------|------|
+| M1 | Cabinet idle | Press green button | Cabinet starts (local NO → Omron `01`) | ☐ |
+| M2 | Running (from M1) | Press red button | Cabinet stops (local NC breaks wire 103) | ☐ |
+| M3 | Cabinet idle | `xCabinetOnCmd = TRUE` | Cabinet starts (relay 1 → Omron `01`) | ☐ |
+| M4 | Running (from M3) | `xCabinetOnCmd = FALSE` | Cabinet stops (relay 2 NC closes) | ☐ |
+| M5 | Idle; lockout active | `xCabinetOnCmd = TRUE` while `tOffLockRemain > 0` | Cabinet blocked (anti-short-cycle) | ☐ |
+| M6 | Idle; lockout expired | `xCabinetOnCmd = TRUE` after `tOffLockRemain = 0` | Cabinet starts (lockout expired) | ☐ |
+
+**All six tests required before commissioning sign-off.**
+
+---
+
+## 20.8 Troubleshooting
+
+| Symptom | Cause | Check | Fix |
+|---------|-------|-------|-----|
+| Green button doesn't start cabinet | Relay 1 coil lost power; NO contact stuck open | Multimeter: 24V ±2V across relay 1 coil | Reconnect coil supply; replace relay if contact failed |
+| Remote `xCabinetOnCmd=TRUE` does nothing | EL2869 not operational; I/O mapping missing | Check `xSetOperational` = TRUE; `xStartPulse` visible in watch window | Download CODESYS; verify EL2869 mapping |
+| Red button doesn't stop cabinet | Relay 2 NC contact failed closed; wire 103 not in series | Multimeter across relay 2 NC: should be CLOSED when coil OFF | Replace relay; rewire NC contact into series path |
+| `xCabinetOnCmd=FALSE` doesn't stop cabinet | Relay 2 NC wired in parallel instead of series | Trace wire 103 from button; verify relay NC in series | Rewire relay 2 into series path |
+| `xStartPulse` never triggers | Anti-short-cycle lockout running | Watch `tOffLockRemain` | Wait for timer to expire |
+| Relay clicks/chatters constantly | Coil current too low; relay without freewheel diode | Verify datasheet: integral freewheel diode present | Replace with Phoenix Contact PLC-RSC-24DC/21 or Finder 38-series |
+
+---
+
+## 20.9 Quick reference
+
+**Sequencer settings:**
+
+| Parameter | Value | Reason |
+|-----------|-------|--------|
+| Start pulse width | 1 second | Longer than relay pickup (~50 ms) |
+| Anti-short-cycle lockout | 5 minutes | Compressor soft-start protection |
+
+**Watch-window variables:**
+
+| Variable | TRUE | FALSE |
+|----------|------|-------|
+| `xStartPulse` | Start active (~1s pulse) | Start idle |
+| `xStopPermit` | Stop path open; run allowed | Stop path broken; must stop |
+| `xCabinetOnCmd` | Request run | Request stop |
+| `tOffLockRemain` | > 0s (restart blocked) | = 0s (restart allowed) |
+
+---
+
+## 20.10 Commissioning checklist
+
+| # | Item | Done |
+|---|------|------|
+| 1 | Panel Mount USB installed | ☐ |
+| 2 | USB harness routed to Pi | ☐ |
+| 3 | Relay coils wired to 37-pin pins 13 & 14 | ☐ |
+| 4 | Button switch wired per §20.2 two-relay design | ☐ |
+| 5 | Relay coils confirmed 24 ±2V DC | ☐ |
+| 6 | Manual authority tests M1–M6 all pass | ☐ |
+
+---
+
+## 20.11 12-item handover verification
+
+- [ ] D1: Document read and understood
+- [ ] D2: Wiring diagram (§20.5) matches physical installation
+- [ ] D3: BOM (§7) verified against actual parts
+- [ ] H1: Relay coils 24 ±2V DC; supply stable
+- [ ] H2: Relay contacts tested; NO/NC logic correct
+- [ ] H3: Cable shielding grounded at both ends
+- [ ] H4: Wires labeled with ferrules; legible
+- [ ] S1: CODESYS downloaded; `xSetOperational` = TRUE
+- [ ] S2: Watch-window procedure (§20.6) executed
+- [ ] S3: Manual authority tests M1–M6 passed
+- [ ] F1: Fail-safe test: DLS008 off; red button still stops cabinet
+- [ ] F2: Operator trained; red button priority confirmed
+
+**Approved by:** ________________ **Date:** __________
+
+---
 
 ## 20.5 Investigation status
 
