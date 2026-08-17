@@ -91,6 +91,8 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
 | [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation — complete — and the as-built, integration-tested two-relay solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
+| [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 7 |
+| [`temperature swing integration/`](<temperature swing integration/>) | **New module, design complete.** API 6A–compliant Temperature Swing test (ramp → stabilise → hold → return) built on top of the setpoint-control path above: CODESYS state machine, Python OPC UA manager, and HMI start/progress pages. Not yet imported into the live project — see its README for the implementation checklist | 9 |
 
 ---
 
