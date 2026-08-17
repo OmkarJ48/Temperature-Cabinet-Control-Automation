@@ -1,0 +1,95 @@
+<!--
+  Start Dialog — Temperature Swing test configuration.
+  Follows the existing Start Dialog pattern used by other DLS programs
+  (Holds, PR2 Dynamic Cycle). Loaded into the WebVisu via VisuFbWebBrowser.
+  Shares styling with shared/frontend_assets/main.css in the main RnD repo.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Temperature Swing — Start</title>
+  <link rel="stylesheet" href="../shared/frontend_assets/main.css">
+  <style>
+    .dialog-container { max-width: 480px; margin: 0 auto; padding: 1.5rem; }
+    fieldset { margin-bottom: 1.25rem; border: 1px solid var(--border-color, #ccc); border-radius: 4px; padding: 0.75rem 1rem; }
+    legend { font-weight: 600; padding: 0 0.5rem; }
+    .info { display: block; font-size: 0.8rem; color: var(--text-muted, #666); margin-top: 0.25rem; }
+    .radio-row label { display: block; margin: 0.35rem 0; }
+    .actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+    input[type="number"] { width: 8rem; }
+  </style>
+</head>
+<body>
+  <div class="dialog-container">
+    <h2>Temperature Swing — Test Configuration</h2>
+
+    <fieldset>
+      <legend>Extreme Temperature</legend>
+      <label for="extreme_temp">Target extreme (&deg;C):</label>
+      <input type="number" id="extreme_temp" min="-45" max="85" step="1" value="0">
+      <span class="info">Range: -45&deg;C to +85&deg;C (per test profile limits)</span>
+    </fieldset>
+
+    <fieldset>
+      <legend>Pressure Mode</legend>
+      <div class="radio-row">
+        <label><input type="radio" name="pressure" value="none"> No Pressure (0 psi)</label>
+        <label><input type="radio" name="pressure" value="50" checked> 50% Test Pressure</label>
+        <label><input type="radio" name="pressure" value="75"> 75% Test Pressure</label>
+        <label><input type="radio" name="pressure" value="100"> 100% Test Pressure</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Hold Duration</legend>
+      <label for="hold_minutes">Minutes at extreme:</label>
+      <input type="number" id="hold_minutes" min="5" max="60" step="1" value="10">
+    </fieldset>
+
+    <div id="validation_error" class="error-message" style="display:none; color:#c0392b; margin-bottom:1rem;"></div>
+
+    <div class="actions">
+      <button type="button" id="cancel_btn">Cancel</button>
+      <button type="button" id="start_btn" class="primary">Start Test</button>
+    </div>
+  </div>
+
+  <script src="temperature_swing_client.js"></script>
+  <script>
+    document.getElementById('start_btn').addEventListener('click', () => {
+      const extreme = parseFloat(document.getElementById('extreme_temp').value);
+      const pressureEl = document.querySelector('input[name="pressure"]:checked');
+      const holdMin = parseFloat(document.getElementById('hold_minutes').value);
+      const errorBox = document.getElementById('validation_error');
+
+      if (Number.isNaN(extreme) || extreme < -45 || extreme > 85) {
+        errorBox.textContent = 'Extreme temperature must be between -45°C and +85°C.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      if (Number.isNaN(holdMin) || holdMin < 5 || holdMin > 60) {
+        errorBox.textContent = 'Hold duration must be between 5 and 60 minutes.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      errorBox.style.display = 'none';
+
+      TemperatureSwingClient.startTest({
+        extremeTempC: extreme,
+        pressureMode: pressureEl.value,
+        holdMinutes: holdMin,
+      }).then(() => {
+        window.location.href = 'temperature_swing_progress.html';
+      }).catch((err) => {
+        errorBox.textContent = 'Failed to start test: ' + err.message;
+        errorBox.style.display = 'block';
+      });
+    });
+
+    document.getElementById('cancel_btn').addEventListener('click', () => {
+      window.location.href = '_05_Automation.html';
+    });
+  </script>
+</body>
+</html>
