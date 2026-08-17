@@ -422,10 +422,13 @@ software-first conflict-resolution design): [`cabinet on-off automation investig
 
 ## Stage 8 — Commissioning across the R&D temperature cabinet fleet
 
-**Status: ✅ Design prototyping and validation complete on the Left Hand Small Temperature Cabinet (DLS008).
-DLS008 commissioning in progress (items 1–2, 4 done; item 3 remaining). Left Hand Large commissioning complete
-(12 August 2026). Twinsafe commissioning complete (13 August 2026) — awaiting RS232 cable. Right Hand Large
-scheduled next. Right Hand Small investigation to follow.**
+**Status (17 August 2026): ✅ Design prototyping and validation complete. RS232-to-USB cable (RS 1860518)
+arrived and connected across all cabinets. Left Hand Large and Twinsafe commissioning complete (all 4 items done).
+Right Hand Large and DLS008 in progress (panel mount USB and cable connections done; awaiting 37-pin connector
+wiring). Right Hand Small investigation to follow (F4T register-map investigation required first).**
+
+**Commissioning details:** See [`commissioning of temperature cabinets/`](<commissioning of temperature cabinets/>) folder for
+complete commissioning procedures, wiring diagrams, test suites, and rollout status.
 
 ### 8.1 Prototyping sign-off
 
@@ -441,10 +444,10 @@ into repeatable commissioning on each remaining cabinet.
 
 | # | Cabinet | Controller | Status |
 |---|---|---|---|
-| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ▶ **In progress — commissioning items 3–4 remaining** (relay/switch/PLC wiring done; panel USB done) |
-| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** |
-| 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026) — awaiting RS232 cable** |
-| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ☐ Not started |
+| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ▶ **In progress — commissioning item 3 remaining** (panel USB done; cable button switch to relays wiring done; **awaiting 37-pin connector wiring to pins 13 & 14**) |
+| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026) — all 4 items done** |
+| 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026) — all 4 items done** |
+| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress** — panel mount USB replaced; cable button switch to relays connection done; **awaiting 37-pin connector wiring** |
 | 4 | Right Hand Small Temperature Cabinet | **Watlow F4T — different controller, register map unproven** | ☐ Not started — needs a separate investigation stage before commissioning, same as the original F4S bring-up |
 
 ### 8.3 Commissioning checklist — Left Hand Small Temperature Cabinet (DLS008)
@@ -453,18 +456,18 @@ into repeatable commissioning on each remaining cabinet.
 |---|---|---|
 | 1 | Replace Panel Mount USB | ✅ **Done** |
 | 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
-| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ⏳ Pending |
+| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ⏳ **Pending** |
 | 4 | Cable button switch to relays and PLC | ✅ **Done** |
 
-**Status detail — Partial completion (13 August 2026):**
+**Status detail — Partial completion (17 August 2026):**
 
-**Items 1–2, 4 complete:** Panel mount USB Type A to Type A connected to DLS. Relay to switch wiring complete. 
-Button switch to Omron CPM1A PLC wiring complete (per §20 two-relay design).
+**Items 1–2, 4 complete:** Panel mount USB Type A to Type A connected to DLS. Button switch to Omron CPM1A PLC 
+wiring complete (per two-relay design).
 
 **Item 3 pending:** Wire up 37-pin connector pins 13 & 14 (from DLS output to relay coils). Once complete, will 
-connect RS232 adapter cable and validate comms path.
+have RS232 cable in hand for comms path validation.
 
-**✅ DLS008 commissioning in progress — 75% complete, awaiting item 3 and RS232 cable.**
+**▶ DLS008 commissioning in progress — ~75% complete, awaiting item 3 completion. RS232 cable arrived.**
 
 ### 8.4 Commissioning checklist — Left Hand Large Temperature Cabinet
 
@@ -483,10 +486,10 @@ harness runs from Raspberry Pi USB port to the panel mount, routed inside the ca
 - Small-gauge black, green, and red wires (DLS pins 13 & 14 connections, same harness)
 - All wires clamped and fastened to existing cabinet wire bundle using cable clamps
 
-**Items 3–4:** Relay wiring to pins 13 & 14 and button wiring to PLC are done per the §20
-two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
+**Items 3–4:** Relay wiring to pins 13 & 14 and button wiring to PLC are done per the two-relay design 
+— tested and passed on the Left Hand Small Cabinet (DLS008).
 
-**✅ Left Hand Large commissioning complete. RS232 cable and comms path testing in procurement phase.**
+**✅ Left Hand Large commissioning complete (all 4 items done). RS232 cable (RS 1860518) connected.**
 
 ### 8.5 Procurement status
 
@@ -494,17 +497,17 @@ two-relay design — tested and passed on the Left Hand Small Cabinet (DLS008).
 |---|---|---|
 | 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured & fitted |
 | USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured & installed |
-| **RS232 to USB A cable** (RS 1860518) | RS Components | ⏳ **On order — awaiting delivery for all cabinets** |
+| **RS232 to USB A cable** (RS 1860518) | RS Components | ✅ **Arrived and connected across all cabinets** |
 | Single-core wire (yellow) | RS Components | ✅ Procured & installed |
 | XLR 4-way female/male connectors | RS Components | ✅ Procured |
 | Cable tie mount | RS Components | ✅ Procured & used |
-| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
-| Carriage (EL1859 order) | Beckhoff | ⏳ Future expansion — not blocking current commissioning |
+| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ **On order** — future I/O expansion, not blocking current commissioning |
+| Carriage (EL1859 order) | Beckhoff | ⏳ **On order** — future I/O expansion, not blocking current commissioning |
 
-**Status (13 August 2026):** Left Hand Large Cabinet commissioning is **complete** (4-item checklist). Physical
-wiring harness, relay wiring, and button connections are installed and tested. Awaiting RS232 to USB A cable
-(RS 1860518) for comms path validation and final sign-off. The Beckhoff EL1859 module is reserved for
-a future I/O expansion project.
+**Status (17 August 2026):** RS232-to-USB cable (RS 1860518) arrived and connected across all cabinets. 
+Left Hand Large and Twinsafe commissioning complete. Right Hand Large and DLS008 in progress (panel mount USB 
+and cable connections done; awaiting 37-pin connector wiring). Beckhoff EL1859 module and carriage on order 
+for future I/O expansion project.
 
 ### 8.6 Commissioning checklist — Twinsafe Temperature Cabinet
 
@@ -518,27 +521,30 @@ a future I/O expansion project.
 **Status detail — Commissioning complete (13 August 2026):**
 
 **All items complete (13 August 2026):** Panel mount USB mounted on enclosure. USB wiring harness
-routed from Raspberry Pi to panel mount. Relay wiring to pins 13 & 14 complete per §20 two-relay design.
+routed from Raspberry Pi to panel mount. Relay wiring to pins 13 & 14 complete per two-relay design.
 Button wiring to PLC relays complete. All physical wiring and connectivity identical to Left Hand Large Cabinet.
 
-**RS232 cable status:** Previous RS232 to USB cable proved infeasible. New cable **RS 1860518** (RS Online part
-number) is on order for comms path testing and final sign-off.
+**RS232 cable status:** RS232 to USB cable **RS 1860518** arrived and connected.
 
-**✅ Twinsafe commissioning complete — awaiting RS232 cable for final comms validation.**
+**✅ Twinsafe commissioning complete (all 4 items done). RS232 cable (RS 1860518) connected.**
 
 ### 8.7 Commissioning checklist — Right Hand Large Temperature Cabinet
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Replace Panel Mount USB | ☐ Not started |
-| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ☐ Not started |
-| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ☐ Not started |
-| 4 | Cable button switch to relays and PLC | ☐ Not started |
+| 1 | Replace Panel Mount USB | ✅ **Done** |
+| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
+| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ⏳ **Pending** |
+| 4 | Cable button switch to relays and PLC | ✅ **Done** |
 
-**Status detail (13 August 2026):** Commissioning of the Right Hand Large Temperature Cabinet is scheduled
-to start after DLS008 and current cabinet completions. Following the same 4-item process as 
-Left Hand Large and Twinsafe Cabinets. Materials are on hand (RS Components items). RS232 cable 
-procurement handled separately. Will update progress as each item is completed.
+**Status detail (17 August 2026):** Commissioning of the Right Hand Large Temperature Cabinet is in progress.
+
+**Items 1–2, 4 complete:** Panel mount USB replaced. Cable button switch to relays wiring complete.
+
+**Item 3 pending:** Wire up 37-pin connector pins 13 & 14 to relay coils. Once complete, will connect 
+RS232 cable for comms path validation.
+
+**▶ Right Hand Large commissioning in progress — ~75% complete, following the same 4-item process as other cabinets.**
 
 ---
 
@@ -629,7 +635,8 @@ as a layout reference for that work.
 | [`linux modbus proof of concept and test logs/README.md`](<linux modbus proof of concept and test logs/README.md>) | Modbus RTU concepts, serial bring-up, `mbpoll` bench test |
 | [`codesys modbus com port investigation and troubleshooting log/README.md`](<codesys modbus com port investigation and troubleshooting log/README.md>) | Superseded serial-direct approach; network stabilisation and SysCom |
 | [`remote ssh vs code 10.1.6.17 setup guide/README.md`](<remote ssh vs code 10.1.6.17 setup guide/README.md>) | Remote-SSH and Git workflow from the Pi |
-| [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>) | Remote start/stop investigation — complete. As-built two-relay integration onto the Omron CPM1A inputs, tested on LH Small Temp Cab, open items |
+| [`cabinet on-off automation proof of concept and integration/README.md`](<cabinet on-off automation proof of concept and integration/README.md>) | Remote start/stop design investigation — complete. As-built two-relay architecture, integration test results, CODESYS implementation |
+| [`commissioning of temperature cabinets/README.md`](<commissioning of temperature cabinets/README.md>) | Commissioning procedures, watch-window operating guide, manual authority test suite M1–M6, troubleshooting, cabinet rollout status, and per-cabinet progress tracking |
 | `docs/Project Kick-Off- Temperature Cabinet Setpoint Control.pdf` | Objective, scope, definition of done |
 | `docs/7168-DWG-100 - REV B - CP1.pdf` | LCA Group panel as-built drawing (DLS008) — terminal numbering, I/O channel maps, enclosure layout |
 | `docs/Omron PLC CP1MA Datasheet.pdf` | CPM1A I/O specifications — confirms bidirectional opto-isolated digital inputs, the fact that made §19 of the cabinet on/off doc work |
