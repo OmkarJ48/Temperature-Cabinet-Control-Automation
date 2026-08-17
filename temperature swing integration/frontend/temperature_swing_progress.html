@@ -1,0 +1,107 @@
+<!--
+  Live progress display for a running Temperature Swing test.
+  Subscribes to the "temperature_swing_update" WebSocket messages produced
+  by backend/websocket_temperature_swing.py.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Temperature Swing — In Progress</title>
+  <link rel="stylesheet" href="../shared/frontend_assets/main.css">
+  <style>
+    .progress-container { max-width: 640px; margin: 0 auto; padding: 1.5rem; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color, #eee); }
+    .row label { color: var(--text-muted, #666); }
+    .row span { font-weight: 600; }
+    .status-good { color: #1e8449; }
+    .status-bad { color: #c0392b; }
+    .state-display { font-size: 1.1rem; text-align: center; margin-bottom: 1rem; padding: 0.5rem; background: var(--panel-bg, #f4f4f4); border-radius: 4px; }
+    #trendChart { width: 100%; height: 220px; margin-top: 1rem; }
+    .actions { text-align: center; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="progress-container">
+    <h2>Temperature Swing — In Progress</h2>
+
+    <div class="state-display">State: <strong id="current_state">—</strong></div>
+
+    <div class="row"><label>Current Temperature</label><span id="body_temp">—</span></div>
+    <div class="row"><label>Target Extreme</label><span id="target_extreme">—</span></div>
+    <div class="row"><label>Ramp Rate</label><span id="ramp_rate">—</span> <span id="rate_status"></span></div>
+    <div class="row"><label>Overshoot</label><span id="overshoot">—</span> <span id="overshoot_status"></span></div>
+    <div class="row"><label>Chamber Pressure</label><span id="chamber_pressure">—</span></div>
+    <div class="row"><label>Target Pressure</label><span id="target_pressure">—</span></div>
+    <div class="row"><label>Hold Time Remaining</label><span id="hold_timer">—</span></div>
+    <div class="row" id="fallback_row" style="display:none;"><label>Channel</label><span id="fallback_notice" class="status-bad">Using fallback channel (Monitor Temperature)</span></div>
+    <div class="row" id="error_row" style="display:none;"><label>Error</label><span id="error_message" class="status-bad">—</span></div>
+
+    <canvas id="trendChart"></canvas>
+
+    <div class="actions">
+      <button type="button" id="stop_btn" class="danger">Stop Test</button>
+    </div>
+  </div>
+
+  <script src="temperature_swing_client.js"></script>
+  <script>
+    const els = {
+      state: document.getElementById('current_state'),
+      temp: document.getElementById('body_temp'),
+      extreme: document.getElementById('target_extreme'),
+      rate: document.getElementById('ramp_rate'),
+      rateStatus: document.getElementById('rate_status'),
+      overshoot: document.getElementById('overshoot'),
+      overshootStatus: document.getElementById('overshoot_status'),
+      pressure: document.getElementById('chamber_pressure'),
+      targetPressure: document.getElementById('target_pressure'),
+      holdTimer: document.getElementById('hold_timer'),
+      fallbackRow: document.getElementById('fallback_row'),
+      errorRow: document.getElementById('error_row'),
+      errorMessage: document.getElementById('error_message'),
+    };
+
+    function formatTimer(totalSeconds) {
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    TemperatureSwingClient.onUpdate((status) => {
+      els.state.textContent = status.state;
+      els.temp.textContent = `${status.current_temp_c.toFixed(1)}°C`;
+      els.rate.textContent = `${status.rate_c_per_min.toFixed(2)} °C/min`;
+      els.rateStatus.textContent = status.rate_passed ? 'PASS' : 'CHECKING';
+      els.rateStatus.className = status.rate_passed ? 'status-good' : '';
+      els.overshoot.textContent = `${status.overshoot_c.toFixed(1)}°C`;
+      els.overshootStatus.textContent = status.overshoot_exceeded ? 'EXCEEDED' : 'OK';
+      els.overshootStatus.className = status.overshoot_exceeded ? 'status-bad' : 'status-good';
+      els.pressure.textContent = status.pressure_ready ? `${status.established_pressure_psi.toFixed(1)} psi` : '—';
+      els.targetPressure.textContent = status.established_pressure_psi ? `${status.established_pressure_psi.toFixed(1)} psi` : '—';
+      els.holdTimer.textContent = formatTimer(status.hold_timer_sec || 0);
+
+      els.fallbackRow.style.display = status.using_fallback_channel ? 'flex' : 'none';
+
+      if (status.error) {
+        els.errorRow.style.display = 'flex';
+        els.errorMessage.textContent = status.error;
+      } else {
+        els.errorRow.style.display = 'none';
+      }
+    });
+
+    TemperatureSwingClient.onComplete(() => {
+      window.location.href = '_05_Automation.html';
+    });
+
+    document.getElementById('stop_btn').addEventListener('click', () => {
+      if (confirm('Stop the Temperature Swing test?')) {
+        TemperatureSwingClient.stopTest().then(() => {
+          window.location.href = '_05_Automation.html';
+        });
+      }
+    });
+  </script>
+</body>
+</html>
