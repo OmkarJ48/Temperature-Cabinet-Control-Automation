@@ -92,7 +92,7 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation — complete — and the as-built, integration-tested two-relay solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
 | [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 7 |
-| [`temperature swing integration/`](<temperature swing integration/>) | **New module, design complete.** API 6A–compliant Temperature Swing test (ramp → stabilise → hold → return) built on top of the setpoint-control path above: CODESYS state machine, Python OPC UA manager, and HMI start/progress pages. Not yet imported into the live project — see its README for the implementation checklist | 9 |
+| [`temperature swing integration/`](<temperature swing integration/>) | **Module: design complete; backend router implementation complete.** API 6A–compliant Temperature Swing test (ramp → stabilise → hold → return) built on top of the setpoint-control path above: CODESYS state machine, Python OPC UA manager, FastAPI page router, and HMI start/progress pages. All source files ready; awaiting integration into the main RnD backend (see its README for the step-by-step integration checklist) | 9 |
 
 ---
 
@@ -547,6 +547,41 @@ Button wiring to PLC relays complete. All physical wiring and connectivity ident
 RS232 cable for comms path validation.
 
 **▶ Right Hand Large commissioning in progress — ~75% complete, following the same 4-item process as other cabinets.**
+
+---
+
+## Stage 9 — Temperature Swing: FastAPI page router implementation
+
+**Status (18 August 2026): ✅ FastAPI router implementation complete. All backend source files ready for integration into the main RnD backend.**
+
+The Temperature Swing module design (CODESYS state machine, Python manager, WebSocket broadcaster, HMI pages) was drafted in Stage 2 of the `temperature swing integration/` folder. Stage 9 completes the missing piece: the **FastAPI page router** (`temperature_swing.py`) that ties the Python manager to the existing DLS backend HTTP routes and WebSocket infrastructure.
+
+### What was implemented
+
+**`temperature_swing.py`** — a FastAPI `APIRouter` following DLS conventions:
+- **Three REST routes** — `POST /api/temperature-swing/start`, `GET /api/temperature-swing/status`, `POST /api/temperature-swing/stop`
+- **WebSocket endpoint** — `WS /ws/temperature-swing` for live status broadcast during a running test
+- **Pydantic request/response models** — validated extreme temperature (−45…85 °C), pressure mode ("none"/"50"/"75"/"100"), and hold duration (>0 minutes)
+- **Error handling** — 503 for OPC connection issues, 500 for other exceptions, 400 for invalid input, matching the existing `live_trend.py` / `camera.py` pattern
+- **OPC adapter bridge** — `_OpcNodeAdapter` converts the sync, friendly-name DLS `opc` wrapper to the async, raw-node-id interface `TemperatureSwingManager` expects
+- **Connection manager** — batches WebSocket clients and broadcasts status to all connected HMI clients while a test is active
+
+### Integration checklist (ready to move to Stage 3 of main RnD repo)
+
+1. Copy `backend/config_temperature_swing.py` and `backend/temperature_swing_manager.py` into `apps/dls/backend/automation/`
+2. Copy `backend/websocket_temperature_swing.py` and `backend/temperature_swing.py` into `apps/dls/backend/pages/`
+3. Update import paths in both files (e.g., `from ..automation.temperature_swing_manager import ...`)
+4. Include `temperature_swing.py`'s `router` in `main.py`: `app.include_router(temperature_swing.router)`
+5. Call `start_background_broadcaster()` once on app startup (from an `@app.on_event("startup")` handler)
+6. Confirm `opc.client` exposes a raw-node-id `get_node(id).get_value()/.set_value()` interface; adjust `_OpcNodeAdapter` if needed
+7. Run existing tests — `backend/test_temperature_swing_manager.py` passes against a fake OPC client (no live CODESYS required)
+8. Copy `frontend/` files into `apps/dls/frontend/pages/`; wire the `_05_Automation` menu entry per `frontend/README.md`
+
+### Why this matters
+
+- **Completes the backend half of Temperature Swing.** CODESYS and Python manager are already done; this router makes the test controllable and observable from an HMI
+- **Reuses existing infrastructure.** No new libraries, no custom WebSocket patterns — uses FastAPI `APIRouter`, Pydantic models, and the `asyncio.to_thread` bridge already proven elsewhere in the DLS backend
+- **Safety property preserved.** CODESYS owns all control decisions (rate enforcement, overshoot tracking, pressure maintain); Python only starts the test and displays status, matching the project's "CODESYS is the control loop, Python is the transport" boundary
 
 ---
 
