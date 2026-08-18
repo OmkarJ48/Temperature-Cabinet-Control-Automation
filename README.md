@@ -550,13 +550,29 @@ RS232 cable for comms path validation.
 
 ---
 
-## Stage 9 — Temperature Swing: FastAPI page router implementation
+## Stage 9 (continued) — Temperature Swing Development on R&D Prototype
 
-**Status (18 August 2026): ✅ FastAPI router implementation complete. All backend source files ready for integration into the main RnD backend.**
+**New:** Development of Temperature Swing is now underway on a dedicated R&D Prototype Pi (10.1.6.40) following the same workflow as the original Temperature Cabinet Control project (Stages 1–8).
 
-The Temperature Swing module design (CODESYS state machine, Python manager, WebSocket broadcaster, HMI pages) was drafted in Stage 2 of the `temperature swing integration/` folder. Stage 9 completes the missing piece: the **FastAPI page router** (`temperature_swing.py`) that ties the Python manager to the existing DLS backend HTTP routes and WebSocket infrastructure.
+### Stage 1 — Remote SSH + VS Code setup (Complete 18 August 2026)
 
-### What was implemented
+**Host:** Raspberry Pi 5 at **10.1.6.40** (`PrototypePi5`)  
+**Repository:** `tlelean/RnD` on branch `Omkar_Temperature_Swing_Integration`  
+**Development environment:** VS Code Remote-SSH → `mechatronics@10.1.6.40`  
+**Python venv:** pymodbus==3.12.1 pinned, opcua==0.98.13, fastapi==0.135.1
+
+**Setup complete:**
+- ✅ Remote SSH connection from laptop
+- ✅ RnD repo cloned on correct branch
+- ✅ Python venv with pinned dependencies
+- ✅ Directory structure: backend/, frontend/, codesys/, docs/
+- ✅ All commits pushed
+
+**Next:** Stage 2 (design investigation of existing DLS implementation) — see [`temperature swing integration/Development_history/`](<temperature swing integration/Development_history/>)
+
+### Previous: FastAPI page router implementation (Stage 9 original)
+
+The Temperature Swing module design (CODESYS state machine, Python manager, WebSocket broadcaster, HMI pages) was drafted in Stage 2 of the `temperature swing integration/` folder. A **FastAPI page router** (`temperature_swing.py`) was created that ties the Python manager to the existing DLS backend HTTP routes and WebSocket infrastructure.
 
 **`temperature_swing.py`** — a FastAPI `APIRouter` following DLS conventions:
 - **Three REST routes** — `POST /api/temperature-swing/start`, `GET /api/temperature-swing/status`, `POST /api/temperature-swing/stop`
@@ -566,22 +582,7 @@ The Temperature Swing module design (CODESYS state machine, Python manager, WebS
 - **OPC adapter bridge** — `_OpcNodeAdapter` converts the sync, friendly-name DLS `opc` wrapper to the async, raw-node-id interface `TemperatureSwingManager` expects
 - **Connection manager** — batches WebSocket clients and broadcasts status to all connected HMI clients while a test is active
 
-### Integration checklist (ready to move to Stage 3 of main RnD repo)
-
-1. Copy `backend/config_temperature_swing.py` and `backend/temperature_swing_manager.py` into `apps/dls/backend/automation/`
-2. Copy `backend/websocket_temperature_swing.py` and `backend/temperature_swing.py` into `apps/dls/backend/pages/`
-3. Update import paths in both files (e.g., `from ..automation.temperature_swing_manager import ...`)
-4. Include `temperature_swing.py`'s `router` in `main.py`: `app.include_router(temperature_swing.router)`
-5. Call `start_background_broadcaster()` once on app startup (from an `@app.on_event("startup")` handler)
-6. Confirm `opc.client` exposes a raw-node-id `get_node(id).get_value()/.set_value()` interface; adjust `_OpcNodeAdapter` if needed
-7. Run existing tests — `backend/test_temperature_swing_manager.py` passes against a fake OPC client (no live CODESYS required)
-8. Copy `frontend/` files into `apps/dls/frontend/pages/`; wire the `_05_Automation` menu entry per `frontend/README.md`
-
-### Why this matters
-
-- **Completes the backend half of Temperature Swing.** CODESYS and Python manager are already done; this router makes the test controllable and observable from an HMI
-- **Reuses existing infrastructure.** No new libraries, no custom WebSocket patterns — uses FastAPI `APIRouter`, Pydantic models, and the `asyncio.to_thread` bridge already proven elsewhere in the DLS backend
-- **Safety property preserved.** CODESYS owns all control decisions (rate enforcement, overshoot tracking, pressure maintain); Python only starts the test and displays status, matching the project's "CODESYS is the control loop, Python is the transport" boundary
+**Status:** First draft complete; now undergoing Stage 2 design review to align with existing DLS patterns and API 6A requirements before integration into main RnD backend.
 
 ---
 

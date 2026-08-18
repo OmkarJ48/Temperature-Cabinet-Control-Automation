@@ -35,6 +35,8 @@ control pattern rather than duplicating them — see
 
 | Folder | Owns |
 |---|---|
+| [`Development_history/`](Development_history/) | Stage-by-stage development progress: SSH setup, design reviews, PoC logs, hardware test results |
+| [`Stage_2_Design_Review/`](Stage_2_Design_Review/) | Design investigation: existing DLS patterns, findings, design documents |
 | [`docs/`](docs/) | Design document, GVL variable reference, hardware test plan |
 | [`codesys/`](codesys/) | Structured Text: state machine, GVL variables, state enum |
 | [`backend/`](backend/) | Python OPC UA manager, node map, WebSocket broadcaster, unit tests |
@@ -42,6 +44,8 @@ control pattern rather than duplicating them — see
 
 Each folder has its own README with file-by-file detail and integration
 steps specific to that layer.
+
+**Development approach:** Same as Temperature Cabinet Control Stages 1–8 — investigate → document → build PoC → test → iterate. See [`Development_history/`](Development_history/) for the running log.
 
 ---
 
