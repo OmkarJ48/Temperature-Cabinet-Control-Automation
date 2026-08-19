@@ -16,7 +16,7 @@ concerns for clarity and independent troubleshooting.
 1. Install the **Remote - SSH** extension in VS Code (once, on your laptop).
 2. `Ctrl+Shift+P` → **Remote-SSH: Connect to Host…** → enter:
    ```
-   mechatronics@10.1.6.40
+   pi@10.1.6.40
    ```
 3. VS Code re-opens with its terminal, file explorer, and extensions all running **on the Pi**,
    not your laptop. Every command from here on (`git`, `python`, `nano`, etc.) executes on the Pi itself,

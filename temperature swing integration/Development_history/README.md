@@ -10,7 +10,7 @@ Same workflow as Temperature Cabinet Control Stages 1–8: investigate → docum
 
 **Host:** Raspberry Pi 5 at **10.1.6.40** (`PrototypePi5`)  
 **Development location:** `~/RnD` cloned from `tlelean/RnD` on branch `Omkar_Temperature_Swing_Integration`  
-**Development environment:** VS Code Remote-SSH → `mechatronics@10.1.6.40`  
+**Development environment:** VS Code Remote-SSH → `pi@10.1.6.40`  
 **Python:** venv with `pymodbus==3.12.1` pinned (critical), `opcua==0.98.13`, `fastapi==0.135.1`
 
 ### What Stage 1 accomplished
@@ -35,7 +35,7 @@ Same as Temperature Cabinet Control Stage 1 (`10.1.6.17`), but for the R&D Proto
 ```
 Host rnd-pi
     HostName 10.1.6.40
-    User mechatronics
+    User pi
     IdentityFile ~/.ssh/id_rsa
     AddKeysToAgent yes
 ```
