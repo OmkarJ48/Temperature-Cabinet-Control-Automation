@@ -4,10 +4,14 @@
 **Compliance target:** API 6A — Temperature Testing (F.1.9), Hold Periods /
 Stabilisation (F.1.10), Pressure/Temperature Cycles (F.1.11)
 **Status:** Design complete (Stage 2) at **v2.0**, reconciled against the project
-kickoff document. The source files in `codesys/`, `backend/`, and `frontend/` are
-**v1.0-era drafts that now lag the design** — they still contain a hold state and
-v1.0 variable names, and must be re-drafted in Stage 3 rather than patched.
-Nothing here is imported into the live CODESYS project or backend.
+kickoff document. `ProgramSelecter` was inspected directly — Temperature Swing
+runs as `FB_Temperature_Swing` (not `FB_TemperatureSwing`) at `GVL.iProgram = 13`.
+Only one item remains before Stage 2 is fully closed: the 5 °C ambient-return
+tolerance needs TL sign-off (blocks only the ambient-return path). The source
+files in `codesys/`, `backend/`, and `frontend/` are **v1.0-era drafts that now
+lag the design** — they still contain a hold state, v1.0 variable names, and the
+wrong FB name, and must be re-drafted in Stage 3 rather than patched. Nothing
+here is imported into the live CODESYS project or backend.
 
 ---
 
@@ -89,11 +93,16 @@ Python is the transport layer" boundary.
 
 - [ ] **Re-draft `codesys/`, `backend/`, and `frontend/` against design v2.0**
       — remove the hold/return states, adopt the `TempSwing_` variable names,
-      add the monitoring-channel selector and the 0 psi skip path. Do this
-      before any of the import steps below.
+      rename the FB to `FB_Temperature_Swing` (matches the placeholder already
+      in `ProgramSelecter.st`), add the monitoring-channel selector and the
+      0 psi skip path. Do this before any of the import steps below.
+- [ ] Slot `FB_Temperature_Swing` into `ProgramSelecter` at `GVL.iProgram = 13`
+      — uncomment the existing placeholder declaration, add the `CASE 13:`
+      block matching the uniform `xStart`/`iStep`/`xDone` call contract used
+      by every other program (see design doc Section 10a)
 - [ ] Import `codesys/` files into the live `Device.export` project (see
       `codesys/README.md` for exact steps and the two existing symbols
-      `FB_TemperatureSwing` depends on that must be confirmed/renamed)
+      `FB_Temperature_Swing` depends on that must be confirmed/renamed)
 - [ ] Copy `backend/` files into `apps/dls/backend/automation/` in the main
       RnD repository and wire the FastAPI routes (see `backend/README.md`)
 - [ ] Copy `frontend/` files into `apps/dls/frontend/pages/` and add the

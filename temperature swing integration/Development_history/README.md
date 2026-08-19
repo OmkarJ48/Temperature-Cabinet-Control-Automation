@@ -114,15 +114,39 @@ Also added: end-of-test behaviour (never auto-vent; leave at setpoint), exact
 HMI prompt-bar text and white→orange channel highlighting, and the fixed
 five-channel monitoring list.
 
+### `ProgramSelecter` inspected — slot 13 confirmed (19 August 2026)
+
+`ProgramSelecter.st` was reviewed directly (source provided, not guessed).
+Findings:
+
+- `GVL.iProgram` is a plain `CASE` selector: 0 = Idle, 1–12 = sequential
+  programs, 99 = Calibration (reserved, out of sequence).
+- A commented-out placeholder already reserves the next slot for us:
+  `// Temperature_Swing : FB_Temperature_Swing;` — positioned right before
+  Calibration. **Slot assigned: 13.**
+- **FB name corrected to `FB_Temperature_Swing`** (underscore between every
+  word) to match the existing placeholder — earlier drafts used
+  `FB_TemperatureSwing`, which is wrong.
+- Every program FB must satisfy a uniform call contract: `xStart` (BOOL, IN),
+  `iStep` (INT), `xDone` (BOOL, OUT) — `FB_Temperature_Swing` must match it.
+- **Safety exit is structural, not per-program.** `ProgramSelecter` checks
+  `xSystemStopActive` once, above the whole `CASE` block, and short-circuits
+  every program via `ACT_ResetMovementCommands()` + `fbEStop` + `iStep := 0`
+  before any program FB runs. `FB_Temperature_Swing` does not need its own
+  E-stop handling — this corrects the earlier assumption that it should
+  reuse "the PR2 pattern" for this.
+
+Full detail: design document Section 10a.
+
 ### Open items carried into Stage 3
 
-| # | Item | Type |
-|---|---|---|
-| 1 | `rTempSwing_AmbientTolerance` = 5 °C for ambient-return detection | Needs TL sign-off |
-| 2 | Program selector slot/ID convention (`ProgramSelecter`) | Investigation — inspect in CODESYS |
+| # | Item | Type | Status |
+|---|---|---|---|
+| 1 | `rTempSwing_AmbientTolerance` = 5 °C for ambient-return detection | Needs TL sign-off | Open |
+| 2 | ~~Program selector slot/ID convention (`ProgramSelecter`)~~ | Investigation | ✅ Resolved — slot 13 |
 
 Item 1 blocks only the ambient-return path; the main hot/cold swing can be
-drafted without it.
+drafted without it. **Stage 2 is otherwise fully complete.**
 
 See [`../Stage_2_Design_Review/`](../Stage_2_Design_Review/) for the full
 question-by-question record.

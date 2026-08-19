@@ -4,7 +4,7 @@
 **Parent project:** ISO15848-1 Automated R&D Test Rig / DLS Temperature Cabinet Control
 **Document version:** 2.0 — reconciled against the project kickoff document
 **Supersedes:** v1.0 (pre-kickoff draft). See Section 12 for what changed and why.
-**Status:** Design settled except one item — ambient-return tolerance awaiting TL sign-off (Section 11)
+**Status:** Design settled except one item — ambient-return tolerance awaiting TL sign-off (Section 9, tracked in Section 12). Program-selector slot (13) confirmed by direct code inspection (Section 10a).
 
 ---
 
@@ -61,9 +61,15 @@ COMPLETE
 IDLE
 ```
 
-**Safety exit (valid from any state):** STOP pressed or active alarm →
-transition to `IDLE`, log as aborted. This is the existing pattern used by
-PR2 and the Hold programs; no new fault-handling architecture is introduced.
+**Safety exit (valid from any state):** handled centrally by `ProgramSelecter`,
+not by this FB. `xSystemStopActive` (local E-stop OR SEW safety feedback) is
+checked once above the program `CASE` block; when active it calls
+`ACT_ResetMovementCommands()`, drives `fbEStop`, forces `iStep := 0`, and
+`RETURN`s before any program FB executes. Slotting `FB_Temperature_Swing`
+into the `CASE` at slot 13 inherits this for free — **no E-stop handling is
+implemented inside `FB_Temperature_Swing` itself.** This corrects the
+previous description ("reuse the PR2 pattern") — the exit is structural to
+`ProgramSelecter`, not something each program FB re-implements.
 
 **No HOLD state.** The kickoff document specifies "reach or pass the requested
 temperature; wait for temperature stabilisation; complete the Temperature Swing."
@@ -254,12 +260,52 @@ used as the rule here.
 | Start Dialog pattern | `_05_Automation` visualisation | Extended with new fields |
 | Pressure Display page | Existing HMI | Extended per Section 8, not rebuilt |
 | Setpoint write path | This repo's setpoint-control work | Drives the cabinet setpoint |
-| Program selector | `ProgramSelecter` | Extend the list, don't restructure — slot convention under investigation (Section 11) |
+| Program selector | `ProgramSelecter` | Extend the list, don't restructure — slot **13**, confirmed (Section 11) |
 | EL4078 analog output | Hardware I/O (ESI now installed) | Heating/cooling control signal path |
 | EL2869 digital output | Hardware I/O | Solenoid control, existing channels |
 
 Nothing here requires modifying PR2. Temperature Swing is a sibling program that
 borrows PR2's function blocks, not PR2's program logic.
+
+---
+
+## 10a. `ProgramSelecter` Integration (resolved by inspection)
+
+`ProgramSelecter.st` was reviewed directly. Findings:
+
+- `GVL.iProgram` is a plain `CASE` selector: `0`=Idle, `1`–`12`=sequential
+  programs, `99`=Calibration (reserved, out of sequence). A commented-out
+  placeholder already reserves the next slot for us, positioned right
+  before Calibration:
+  ```
+  // Temperature_Swing : FB_Temperature_Swing;
+  ```
+- **Slot assigned: 13.** Next open sequential value.
+- **FB name is `FB_Temperature_Swing`** (underscore between every word),
+  per the existing placeholder — not `FB_TemperatureSwing` as earlier
+  drafts of this document used. All Stage 3 deliverables use the corrected
+  name.
+- **Call contract every program FB must satisfy** (uniform across all 13
+  existing programs, so `FB_Temperature_Swing` must match it exactly):
+  ```
+  IF NOT GVL.xStart THEN
+      FB_Temperature_Swing(xStart := FALSE, iStep := iStep);
+  ELSE
+      FB_Temperature_Swing(xStart := TRUE);
+  END_IF
+  IF FB_Temperature_Swing.xDone THEN
+      TestCompleted := TRUE;
+  END_IF
+  GVL.iCurrentStep := FB_Temperature_Swing.iStep;
+  ```
+  Required I/O on the FB: `xStart` (BOOL, IN), `iStep` (INT, IN_OUT-style —
+  passed in on the FALSE branch, read back as output otherwise, matching
+  every other program FB), `xDone` (BOOL, OUT).
+- **E-stop/safety is NOT re-implemented per program.** See the revised
+  safety-exit note in Section 2 — `ProgramSelecter` gates all programs
+  centrally via `xSystemStopActive` before the `CASE` block runs.
+
+This closes open item 2 from Section 12 — no further investigation needed.
 
 ---
 
@@ -290,13 +336,14 @@ Separately (not part of this design): the existing C0569 persistence warnings on
 
 ## 12. Open Items
 
-| # | Item | Type | Owner |
-|---|---|---|---|
-| 1 | `rAmbientTolerance` = 5 °C for ambient-return detection (Section 9) | New constant — needs sign-off | TL |
-| 2 | Program selector slot/ID convention for adding Temperature Swing | Investigation, not a question | Me — inspect `ProgramSelecter` in CODESYS and report |
+| # | Item | Type | Owner | Status |
+|---|---|---|---|---|
+| 1 | `rAmbientTolerance` = 5 °C for ambient-return detection (Section 9) | New constant — needs sign-off | TL | Open — blocks only the ambient-return path |
+| 2 | ~~Program selector slot/ID convention for adding Temperature Swing~~ | Investigation | Me | ✅ Resolved — slot 13, see Section 10a |
 
-Everything else previously listed as an open question is now settled directly
-from the kickoff document (Section 13).
+Item 1 is the only item remaining before Stage 2 is fully closed. Everything
+else previously listed as an open question is now settled directly from the
+kickoff document (Section 13) or from direct code inspection (Section 10a).
 
 ---
 
@@ -346,7 +393,7 @@ What v1.0 of this document got wrong, and the source text that corrected it.
 
 | File | Purpose |
 |---|---|
-| `codesys/FB_TemperatureSwing.st` | State machine, rate calculation, pressure supervision |
+| `codesys/FB_Temperature_Swing.st` | State machine, rate calculation, pressure supervision — slots into `ProgramSelecter` at `iProgram = 13` |
 | `codesys/GVL_TemperatureSwing.st` | New global variables (Section 11) |
 | `codesys/E_TemperatureSwingState.st` | State enum |
 | `backend/temperature_swing_manager.py` | Python OPC UA manager |

@@ -44,7 +44,7 @@ kickoff document. See [`../docs/Stage2_Design_Document.md`](../docs/Stage2_Desig
 | 2 | Overshoot handling | 11 °C is a displayed target range, not an auto-abort |
 | 3 | Monitor channel scope | Fixed generic list of five channels, no cabinet filtering |
 | 4 | 0 psi variant | Upstream closed, downstream open, all supervision skipped |
-| 5 | Program selector integration | Not answered — resolved by investigation, not TL sign-off |
+| 5 | Program selector integration | Resolved — slot 13, FB name `FB_Temperature_Swing`, safety exit is structural to `ProgramSelecter` (design doc Section 10a) |
 
 Full reconciliation table (8 corrections against the v1.0 draft) is in
 [`../docs/Stage2_Design_Document.md`](../docs/Stage2_Design_Document.md) Section 13.
@@ -54,6 +54,7 @@ Full reconciliation table (8 corrections against the v1.0 draft) is in
 - [x] Design document with state sequence, rate calculation, pressure logic — v2.0
 - [x] Variable reference (CODESYS ↔ OPC naming) — [`../docs/GVL_TemperatureSwing_Variables.md`](../docs/GVL_TemperatureSwing_Variables.md)
 - [x] Reuse checklist (what exists, what's new) — design doc Section 10
+- [x] Program selector slot/ID convention — resolved, slot 13
 - [ ] Architecture review sign-off before Stage 3 — blocked only on the 5 °C ambient tolerance
 
 ---

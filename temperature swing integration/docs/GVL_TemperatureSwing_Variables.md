@@ -93,6 +93,20 @@ Target range is `Setpoint` → `Setpoint + 11 °C` when heating, `Setpoint` →
 
 ---
 
+## Program selector
+
+Confirmed by direct inspection of `ProgramSelecter.st` (Design Document
+Section 10a): Temperature Swing runs as `FB_Temperature_Swing` at
+`GVL.iProgram = 13`, the next open sequential slot after `Five_to_10_PR2`
+(12) and before the reserved `Calibration` slot (99). A commented-out
+placeholder for this exact FB name already exists in `ProgramSelecter.st`.
+
+The FB must expose `xStart` (BOOL, IN), `iStep` (INT), and `xDone` (BOOL) to
+match the call contract every other program FB satisfies — see Section 10a
+of the design document for the exact call pattern.
+
+---
+
 ## Ambient return (pending TL sign-off — Design Document Section 12)
 
 | Variable | Type | Description |
