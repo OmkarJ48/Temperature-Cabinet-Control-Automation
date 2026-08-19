@@ -77,7 +77,7 @@ There is no operator-set hold duration and no automatic return ramp in this
 program.
 
 State encoding and transition table are implemented in
-[`codesys/FB_TemperatureSwing.st`](../codesys/FB_TemperatureSwing.st).
+[`codesys/FB_Temperature_Swing.st`](../codesys/FB_Temperature_Swing.st).
 
 ---
 
@@ -100,7 +100,7 @@ enforce 0.5 °C/min. The cabinet ramps at its natural rate; software measures an
 reports whether that rate satisfies API 6A. A ramp too fast for compliance is a
 result to record, not a control loop to add.
 
-Implemented in `FB_TemperatureSwing.st` (`rTempSwing_CurrentRate` calculation
+Implemented in `FB_Temperature_Swing.st` (`rTempSwing_CurrentRate` calculation
 block) and mirrored host-side for display in `temperature_swing_manager.py`.
 
 ---
@@ -368,9 +368,9 @@ What v1.0 of this document got wrong, and the source text that corrected it.
 
 | Requirement | Section | Where enforced |
 |---|---|---|
-| F.1.9 Temperature Testing | 2 | `FB_TemperatureSwing.st` state machine |
-| F.1.10 Stabilisation (<0.5 °C/min) | 3 | `FB_TemperatureSwing.st` rate check, 2-window debounce |
-| F.1.11 Pressure/Temperature Cycles (50–100 %) | 5, 6 | `FB_TemperatureSwing.st` pressure blocks |
+| F.1.9 Temperature Testing | 2 | `FB_Temperature_Swing.st` state machine |
+| F.1.10 Stabilisation (<0.5 °C/min) | 3 | `FB_Temperature_Swing.st` rate check, 2-window debounce |
+| F.1.11 Pressure/Temperature Cycles (50–100 %) | 5, 6 | `FB_Temperature_Swing.st` pressure blocks |
 | Overshoot ≤ 11 °C | 4 | Target-range display + CSV record (measured, not enforced) |
 
 ---
@@ -406,7 +406,7 @@ What v1.0 of this document got wrong, and the source text that corrected it.
 
 ---
 
-**Next:** Stage 3 — draft `FB_TemperatureSwing.st` against this corrected design.
+**Next:** Stage 3 — draft `FB_Temperature_Swing.st` against this corrected design.
 Item 1 in Section 12 (ambient tolerance) blocks only the ambient-return path;
 the main hot/cold swing can be drafted without it.
 
