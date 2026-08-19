@@ -3,10 +3,11 @@
 **Parent project:** Temperature Cabinet Setpoint Control from CODESYS HMI
 **Compliance target:** API 6A — Temperature Testing (F.1.9), Hold Periods /
 Stabilisation (F.1.10), Pressure/Temperature Cycles (F.1.11)
-**Status:** Design complete (Stage 2), deliverable source files drafted
-(Stage 3 draft), **not yet imported into the live CODESYS project or backend
-— see the implementation checklist below before treating anything here as
-commissioned.**
+**Status:** Design complete (Stage 2) at **v2.0**, reconciled against the project
+kickoff document. The source files in `codesys/`, `backend/`, and `frontend/` are
+**v1.0-era drafts that now lag the design** — they still contain a hold state and
+v1.0 variable names, and must be re-drafted in Stage 3 rather than patched.
+Nothing here is imported into the live CODESYS project or backend.
 
 ---
 
@@ -15,19 +16,24 @@ commissioned.**
 The parent repository proves two things end to end on hardware: remote
 setpoint control and remote on/off automation of a temperature cabinet. This
 folder adds the piece needed for API 6A compliance testing: an automated
-**ramp → stabilise → hold → return** test cycle that
+**ramp → reach/pass setpoint → stabilise → complete** sequence that
 
-- drives the cabinet to an operator-specified extreme temperature,
-- enforces a rate-of-change limit of **&lt;0.5&deg;C/min** during ramp and return,
-- establishes and holds chamber pressure at **0/50/75/100%** of test pressure
-  throughout,
-- tracks overshoot against the **11&deg;C** ceiling past the extreme,
-- holds at the extreme for an operator-specified duration, and
-- logs the full cycle to CSV for compliance records.
+- drives the cabinet to an operator-specified setpoint, positive or negative,
+- **measures** rate of change against the **&lt;0.5&deg;C/min** stabilisation
+  criterion (measured and reported, not artificially throttled),
+- establishes and supervises chamber pressure at **0/50/75/100%** of test
+  pressure, with the 0 psi variant skipping supervision entirely,
+- displays the **11&deg;C** target range and records any excursion past it, and
+- logs the run to CSV through the existing recorder for compliance records.
+
+One execution per start — no hold period, no automatic return ramp, and no
+multi-cycle chaining.
 
 It reuses the existing pressure-application function block and solenoid
 control pattern rather than duplicating them — see
-`docs/Stage2_Design_Document.md` Section 6 for exactly what is reused vs. new.
+`docs/Stage2_Design_Document.md` Section 10 for exactly what is reused vs. new,
+and Section 13 for the eight corrections the kickoff document forced on the
+v1.0 draft.
 
 ---
 
@@ -54,7 +60,7 @@ steps specific to that layer.
 
 ```
 Operator (HMI)
-      │  fills in extreme temp / pressure mode / hold time
+      │  fills in setpoint / monitoring channel / pressure mode
       ▼
 frontend/start_dialog_temperature_swing.html
       │  POST /api/temperature-swing/start
@@ -72,7 +78,7 @@ backend/websocket_temperature_swing.py  ──WebSocket──►  frontend/tempe
 ```
 
 CODESYS owns the control logic and all safety-relevant decisions (rate
-enforcement, overshoot tracking, pressure maintenance). The Python layer only
+measurement, target-range tracking, pressure maintenance). The Python layer only
 starts the test and displays live status — it never computes a control
 decision itself, matching the parent project's "CODESYS is the control loop,
 Python is the transport layer" boundary.
@@ -81,6 +87,10 @@ Python is the transport layer" boundary.
 
 ## Implementation checklist (Stage 3 → Stage 4)
 
+- [ ] **Re-draft `codesys/`, `backend/`, and `frontend/` against design v2.0**
+      — remove the hold/return states, adopt the `TempSwing_` variable names,
+      add the monitoring-channel selector and the 0 psi skip path. Do this
+      before any of the import steps below.
 - [ ] Import `codesys/` files into the live `Device.export` project (see
       `codesys/README.md` for exact steps and the two existing symbols
       `FB_TemperatureSwing` depends on that must be confirmed/renamed)
@@ -102,5 +112,7 @@ Python is the transport layer" boundary.
 - `F_LogTemperatureSwingRow` / `F_BuildTemperatureSwingLogPath` are named in
   `FB_TemperatureSwing.st` but not implemented here — follow the existing
   CSV data-recorder pattern already in the project.
-- No multi-cycle (repeated swing) support yet — single extreme per run. The
-  design doc notes how the state machine could loop for that if needed later.
+- No multi-cycle (repeated swing) support — single execution per start, by
+  design. Cycles is present in the Start Dialog but fixed to 1.
+- Ambient-return detection is designed but **not to be implemented** until the
+  proposed 5 °C tolerance is signed off (design doc Sections 9 and 12).
