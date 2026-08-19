@@ -84,7 +84,8 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 
 | Folder | Owns | Stage |
 |---|---|---|
-| [`remote ssh vs code 10.1.6.17 setup guide/`](<remote ssh vs code 10.1.6.17 setup guide/>) | VS Code Remote-SSH onto the Pi, and the GitHub workflow from there | 1 |
+| [`remote ssh vs code 10.1.6.17 setup guide/`](<remote ssh vs code 10.1.6.17 setup guide/>) | VS Code Remote-SSH onto the Left Hand Small Temp Cabinet Pi (10.1.6.17), and the GitHub workflow from there | 1 |
+| [`temperature swing integration/remote ssh vs code 10.1.6.40 setup guide/`](<temperature swing integration/remote ssh vs code 10.1.6.40 setup guide/>) | VS Code Remote-SSH onto the R&D Prototype Pi (10.1.6.40) for Temperature Swing development on tlelean/RnD | 1 (Swing) |
 | [`linux modbus proof of concept and test logs/`](<linux modbus proof of concept and test logs/>) | Pi-side serial bring-up: adapter, permissions, udev symlink, `mbpoll` bench tests | 2 |
 | [`codesys modbus com port investigation and troubleshooting log/`](<codesys modbus com port investigation and troubleshooting log/>) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
 | [`python modbus proof of concept and test logs/`](<python modbus proof of concept and test logs/>) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |

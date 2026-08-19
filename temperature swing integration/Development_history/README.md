@@ -27,9 +27,11 @@ Same workflow as Temperature Cabinet Control Stages 1–8: investigate → docum
 
 ### Terminal setup
 
-Same as Temperature Cabinet Control Stage 1 (`10.1.6.17`), but for the R&D Prototype Pi:
+Same as Temperature Cabinet Control Stage 1 (`10.1.6.17`), but for the R&D Prototype Pi.
 
-**~/.ssh/config**
+**Full setup guide:** See [`../remote ssh vs code 10.1.6.40 setup guide/`](../remote ssh vs code 10.1.6.40 setup guide/)
+
+**Quick reference — ~/.ssh/config**
 ```
 Host rnd-pi
     HostName 10.1.6.40

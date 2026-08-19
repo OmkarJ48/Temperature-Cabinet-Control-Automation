@@ -35,6 +35,7 @@ control pattern rather than duplicating them — see
 
 | Folder | Owns |
 |---|---|
+| [`remote ssh vs code 10.1.6.40 setup guide/`](remote ssh vs code 10.1.6.40 setup guide/) | Remote SSH + GitHub workflow for 10.1.6.40 R&D Prototype Pi (Stage 1 tooling) |
 | [`Development_history/`](Development_history/) | Stage-by-stage development progress: SSH setup, design reviews, PoC logs, hardware test results |
 | [`Stage_2_Design_Review/`](Stage_2_Design_Review/) | Design investigation: existing DLS patterns, findings, design documents |
 | [`docs/`](docs/) | Design document, GVL variable reference, hardware test plan |
