@@ -6,72 +6,78 @@ are not a standalone project.
 
 | File | Purpose |
 |---|---|
-| `GVL_TemperatureSwing.st` | New global variables (append to project GVL) |
-| `E_TemperatureSwingState.st` | State enum from the original Stage 2 design (see note below) |
-| `FB_Temperature_Swing.st` | **Current** state machine — Draft V2, `xStart`/`iStep` interface matching FB_Hold |
+| `GVL_TemperatureSwing.st` | New global variables only — everything else is reused from the main project GVL |
+| `FB_Temperature_Swing.st` | State machine — Draft V2, `xStart`/`iStep` interface matching FB_Hold |
 | `FB_Temperature_Target.st` | Small reusable helper: latches ramp direction, reports setpoint reached |
-| `FB_TemperatureSwing.st` | Superseded — original enum-based design from Stage 2. Kept until V2 is signed off; to be deleted once confirmed unused. |
+
+The earlier enum-based `FB_TemperatureSwing.st` / `E_TemperatureSwingState.st`
+pair has been deleted — superseded by the files above, confirmed with TL.
 
 ## Dependencies on existing project objects
 
-Not included here — already exist in the main project:
+Confirmed by reading the real FBs (FB_Hold, FB_Apply_Test_Pressure,
+FB_Pressure_Release, FB_EStop, FB_CSV_Handler) — nothing here is guessed:
 
-- `FB_Apply_Test_Pressure` — **no inputs**, called every scan. Reads
-  `GVL.alrChannelReading[1]` and `GVL.aiAlarms[1]`, drives `GVL.doUpstream`.
-  Confirmed against the actual FB source TL supplied — the pressure band
-  logic in V1 of this doc was wrong and has been removed.
-- `GVL.sPrompt`, `GVL.xSave`, `GVL.iTestPressure` — existing global variables
-- CSV recorder start trigger — reused pattern, exact call TBC (see open
-  questions below)
+- **Isolate convention:** `TRUE` = closed, `FALSE` = open ("Normally Open"),
+  confirmed by `FB_EStop` forcing all isolates `TRUE` for the safe state.
+- **`FB_Apply_Test_Pressure`** — no inputs, called every scan. Fills via
+  `GVL.doUpstream` off `GVL.alrChannelReading[1]` vs `GVL.aiAlarms[1]`, closes
+  once at the high alarm. It does **not** re-open if pressure keeps rising
+  afterwards — there is no existing FB that relieves pressure caused by
+  heating. See "Pressure supervision" below.
+- **`FB_Pressure_Release` / `FB_Signature_Pressure_Release`** — same
+  continuous no-input pattern, but bleed a channel **down** to a *low* alarm.
+  Not directly reusable for venting an over-pressure caused by expansion.
+- **`GVL.iMainChannelIndex`** — the monitor-channel variable, reused directly
+  from `FB_Hold`. No new channel-index variable needed.
+- **CSV recording** — `FB_CSV_Handler.IDLE` triggers off `GVL.xStart` and
+  closes off `GVL.xSave` on its own. Nothing to call explicitly in this FB.
+- **Hold period convention** — `FB_Hold` stores `iHoldPeriod : INT` (minutes)
+  and builds the timer with `DINT_TO_TIME(iHoldPeriod * 60000)`. Reused here
+  as `GVL.iTemperatureSwing_HoldPeriod`.
 
 ## FB_Temperature_Swing — Draft V2
 
-Per TL review (see commit history), V2 changes from V1:
-1. Delayed-start state removed — handled by the Python frontend, not CODESYS.
+Per TL review, V2 changes from V1:
+1. Delayed-start state removed — handled by the Python frontend.
 2. `FB_Apply_Test_Pressure` call corrected to match the real FB (no inputs).
-3. Pressure supervision (`fbApplyPressure()`) now runs every scan, outside
-   the `CASE`, once a pressurised test is active — not tied to one state —
-   so expanding gas vents continuously through ramp and stabilisation.
+3. Pressure fill/relieve now runs every scan from state 1 onward, not tied
+   to one state, so expanding gas vents continuously through ramp and
+   stabilisation. The relieve half (open `doDownstream` above the alarm) is
+   **new** — no existing FB does this; see above.
 4. Stabilisation simplified to a single 30 s rate window; first window
    passing `< 0.5 °C/min` is accepted (was 2 consecutive 60 s windows).
 5. Ramp-direction / setpoint-reached logic extracted into
    `FB_Temperature_Target` to keep the main state machine simple.
 
 States below are the **proposed structure only** — not yet implemented
-state-by-state. That happens next, one state at a time, once this structure
-is agreed.
+state-by-state. That happens next, one state at a time.
 
 | # | State | Does | Moves on when | Reuses |
 |---|---|---|---|---|
 | 0 | IDLE | Wait for operator Start | `xStart` TRUE | `GVL.sPrompt` + `xStart` (FB_Hold step 0) |
-| 1 | STARTUP | Reset run data, start CSV, set vent-safe solenoid default if Test Pressure = 0 | Always → 3 if Test Pressure = 0, else → 2 | FB_Hold startup pattern; existing CSV trigger |
-| 2 | ESTABLISH_PRESSURE | Wait for chamber to reach alarm pressure | `fbApplyPressure.xDone` | `FB_Apply_Test_Pressure` (called continuously above the CASE) |
+| 1 | STARTUP | Reset run data; if Test Pressure = 0, set vent-safe default (Upstream closed, Downstream open) | Test Pressure = 0 → 3, else → 2 | Isolate-default pattern (FUN_Program_Startup / FB_Hold) |
+| 2 | ESTABLISH_PRESSURE | Wait for chamber to reach alarm pressure | `fbApplyPressure.xDone` | `FB_Apply_Test_Pressure` (running continuously above the CASE) |
 | 3 | CABINET_START | Start the temperature cabinet | Start commanded | `xStartPulse` relay path (EL2869 → Omron CPM1A) |
 | 4 | SEND_SETPOINT | Write setpoint to cabinet, arm `FB_Temperature_Target` | Write confirmed | Existing Modbus TCP write/read-back |
-| 5 | RAMP | Cabinet ramps at its own rate; pressure vents continuously; channel shown white on HMI | `fbTarget.xReached` | `FB_Temperature_Target` |
+| 5 | RAMP | Cabinet ramps at its own rate; pressure fill/relieve continues; channel shown white | `fbTarget.xReached` | `FB_Temperature_Target` |
 | 6 | STABILISE | Wait for first 30 s window with `\|rate\| < 0.5 °C/min`; channel shown orange | First passing window | Continuous rate sampling (above CASE) |
-| 7 | HOLD | Hold at setpoint for operator-configured hold time | Hold timer elapsed | FB_Hold timer pattern |
-| 8 | COMPLETE | Close CSV, leave cabinet running, wait for save | `GVL.xSave` | FB_Hold save-then-stop pattern |
-| 9 | ERROR | Hold rig, wait for acknowledgement | Operator acknowledges | FB_Hold error pattern (E-stop handled centrally by ProgramSelecter) |
+| 7 | HOLD | Hold at setpoint for `iTemperatureSwing_HoldPeriod` minutes | Hold timer elapsed | FB_Hold timer pattern (`DINT_TO_TIME(*60000)`) |
+| 8 | COMPLETE | Leave cabinet running, wait for save; CSV closes automatically | `GVL.xSave` | FB_Hold save-then-stop pattern; `FB_CSV_Handler` |
+| 9 | ERROR | Hold rig, wait for acknowledgement | Operator acknowledges | FB_Hold error pattern (E-stop handled centrally by `FB_EStop`/ProgramSelecter) |
 
-### Open questions (need answers from the RnD project before implementing)
+### Still open
 
-- **Pressure arming point:** currently gated on `iStep >= 2`. Should it arm
-  from state 1 instead, so venting covers the whole run including startup?
-- **Hold time variable:** V2 code uses `GVL.tTemperatureSwing_HoldTime`
-  (TIME). Current `GVL_TemperatureSwing.st` has `rTemperatureSwing_HoldTime`
-  (REAL, minutes) — need to confirm which the Python frontend actually
-  writes, and convert if it's the REAL/minutes one.
-- **Monitor channel index:** `GVL.iTemperatureSwing_ChannelIndex` is still a
-  placeholder. Need the real variable name and whether it's a raw array
-  index or needs an offset (HMI discovery notes mentioned `+ 18`).
-- **Venting direction:** `FB_Apply_Test_Pressure` only drives `doUpstream`
-  off a single high alarm — it does not touch `doDownstream`. Need to
-  confirm this alone is sufficient for venting expanding gas, or whether
-  downstream needs separate handling during RAMP/STABILISE.
-- **File cleanup:** `FB_TemperatureSwing.st` (no underscore, enum-based) is
-  the original Stage 2 design and is superseded by `FB_Temperature_Swing.st`.
-  Confirm it can be deleted once V2 is signed off.
+- **Rate calculation (state 6):** 30 s window structure is in place;
+  `rCurrentRate` itself still needs the actual sampling/delta logic.
+- **Pressure relieve logic:** the venting bang-bang above is new and untested
+  against a real thermal-expansion scenario — worth a bench check once
+  implemented, since it wasn't derived from an existing proven FB.
+- **Cabinet start/setpoint write (states 3–4):** still TODO, need the exact
+  Modbus register map and `xStartPulse` wiring confirmed against the parent
+  Temperature Cabinet Control project.
+- **Error triggers (state 9):** which failures route here (pressure timeout
+  only, or also setpoint-write failure) still to be decided.
 
 ## Import steps
 
@@ -80,4 +86,4 @@ is agreed.
 3. Add `FB_Temperature_Swing.st` and `FB_Temperature_Target.st` as new POUs,
    instantiate in the automation task (`Automation (Core 3)`).
 4. Wire the outputs/inputs once each state is implemented against the real
-   project — see open questions above.
+   project — see "Still open" above.

@@ -1,16 +1,19 @@
 FUNCTION_BLOCK FB_Temperature_Swing
 // ============================================================================
 // DRAFT V2 — structure only, states not yet implemented.
-// Changes from V1 (per TL review):
-//   1. Delayed start removed — handled by the Python frontend.
-//   2. FB_Apply_Test_Pressure corrected: it has no inputs and works off
-//      GVL.aiAlarms[1]. It is a continuous bang-bang block, not a one-shot.
-//   3. Pressure supervision now runs every scan, outside the CASE, so
-//      expanding gas can vent during ramp and stabilisation.
-//   4. Stabilisation simplified: single 30 s window, first valid
-//      < 0.5 degC/min result is enough (was 2 x 60 s).
-//   5. Temperature target detection moved into FB_Temperature_Target to keep
-//      this state machine simple.
+// Confirmed against real project code (FB_Hold, FB_Apply_Test_Pressure,
+// FB_Pressure_Release, FB_EStop, FB_CSV_Handler):
+//   - Isolate convention: TRUE = closed, FALSE = open ("Normally Open").
+//   - FB_Apply_Test_Pressure has no inputs, fills via doUpstream, closes once
+//     at the high alarm — it never re-opens, so it cannot relieve pressure
+//     that keeps rising afterwards (e.g. from heating). No existing FB does
+//     that either; the vent logic below is new, built on the same bang-bang
+//     convention as FB_Apply_Test_Pressure / FB_Pressure_Release.
+//   - CSV recording starts/stops automatically off GVL.xStart / GVL.xSave
+//     (FB_CSV_Handler.IDLE) — nothing to trigger explicitly here.
+//   - Monitor channel: reuse GVL.iMainChannelIndex directly, same as FB_Hold.
+//   - Hold period: INT minutes, converted with DINT_TO_TIME(*60000), same as
+//     FB_Hold's iHoldPeriod — not TIME, not REAL.
 // ============================================================================
 VAR_INPUT
 	xStart					: BOOL;
@@ -21,7 +24,7 @@ VAR_OUTPUT
 END_VAR
 VAR
 	fbApplyPressure			: FB_Apply_Test_Pressure;   // no inputs, call every scan
-	fbTarget				: FB_Temperature_Target;    // new small helper FB
+	fbTarget				: FB_Temperature_Target;    // ramp direction / reached helper
 	rMonitorValue			: LREAL;
 	rCurrentRate			: LREAL;
 	RateWindowTimer			: TON;                      // 30 s rate window
@@ -29,19 +32,26 @@ VAR
 END_VAR
 
 // ============================================================================
-// CONTINUOUS — runs every scan, independent of state
+// CONTINUOUS — runs every scan from state 1 onward, independent of state
 // ============================================================================
-// Pressure supervision. FB_Apply_Test_Pressure vents via doUpstream whenever
-// upstream exceeds the alarm value, so gas expanding with temperature is
-// relieved rather than allowed to build. Only armed once a pressurised test
-// is actually running (iStep >= 2 and Test Pressure > 0).
-IF GVL.iTestPressure > 0 AND iStep >= 2 THEN
+IF GVL.iTestPressure > 0 AND iStep >= 1 THEN
+	// Fill: existing FB, closes doUpstream once at the high alarm.
 	fbApplyPressure();
+
+	// Relieve: NEW logic, not an existing FB. Same bang-bang convention —
+	// open downstream while over the high alarm (thermal expansion venting),
+	// close once back in band. Modelled on FB_Pressure_Release's pattern but
+	// against the upper alarm instead of a low one.
+	IF GVL.alrChannelReading[1] > GVL.aiAlarms[1] THEN
+		GVL.doDownstream := FALSE; // open, vent excess
+	ELSE
+		GVL.doDownstream := TRUE;  // closed, hold
+	END_IF
 END_IF
 
 // Monitor channel + rate, sampled continuously so the value is already valid
 // when the stabilisation state is entered.
-rMonitorValue := GVL.alrChannelReading[GVL.iTemperatureSwing_ChannelIndex];
+rMonitorValue := GVL.alrChannelReading[GVL.iMainChannelIndex];
 // TODO: 30 s window rate calculation -> rCurrentRate (degC/min)
 
 // ============================================================================
@@ -60,23 +70,26 @@ CASE iStep OF
 		END_IF
 
 	// 1: STARTUP
-	// Does: reset run data, start CSV recording. If Test Pressure = 0, set the
-	// vent-safe default (Upstream closed, Downstream open).
+	// Does: reset run data. If Test Pressure = 0, set the vent-safe default
+	// (Upstream closed, Downstream open). CSV recording starts automatically
+	// off GVL.xStart (FB_CSV_Handler) — nothing to call here.
 	// Next: Test Pressure = 0 -> 3, otherwise -> 2.
-	// Reuse: FB_Hold startup pattern; existing CSV recorder trigger.
+	// Reuse: FB_Hold / FUN_Program_Startup pattern for isolate defaults.
 	1:
 		xDone := FALSE;
-		// TODO: CSV start; zero-pressure solenoid default
 		IF GVL.iTestPressure = 0 THEN
+			GVL.doUpstream := TRUE;    // closed
+			GVL.doDownstream := FALSE; // open — nothing to build, vent path clear
 			iStep := 3;
 		ELSE
 			iStep := 2;
 		END_IF
 
 	// 2: ESTABLISH_PRESSURE
-	// Does: bring the chamber up to the alarm pressure before heating starts.
+	// Does: wait for the chamber to reach the alarm pressure before heating
+	// starts. Fill/relieve logic above is already running.
 	// Next: fbApplyPressure.xDone -> 3.
-	// Reuse: FB_Apply_Test_Pressure (already being called continuously above).
+	// Reuse: FB_Apply_Test_Pressure.
 	2:
 		IF fbApplyPressure.xDone THEN
 			iStep := 3;
@@ -91,8 +104,8 @@ CASE iStep OF
 		iStep := 4;
 
 	// 4: SEND_SETPOINT
-	// Does: write the operator setpoint to the cabinet and latch the ramp
-	// direction in fbTarget.
+	// Does: write the operator setpoint to the cabinet and arm fbTarget with
+	// the ramp direction.
 	// Next: write confirmed -> 5.
 	// Reuse: existing Modbus TCP setpoint write/read-back path.
 	4:
@@ -102,10 +115,10 @@ CASE iStep OF
 		iStep := 5;
 
 	// 5: RAMP
-	// Does: cabinet ramps at its own natural rate. Pressure vents continuously
-	// via the block above. Monitor channel shown white on the HMI.
+	// Does: cabinet ramps at its own natural rate. Pressure fill/relieve runs
+	// continuously above. Monitor channel shown white on the HMI.
 	// Next: fbTarget.xReached -> 6.
-	// Reuse: FB_Temperature_Target handles the heating/cooling comparison.
+	// Reuse: FB_Temperature_Target.
 	5:
 		GVL.sPrompt := 'Ramping to setpoint.';
 		fbTarget(xArm := TRUE, rSetpoint := GVL.rTemperatureSwing_Setpoint,
@@ -118,7 +131,7 @@ CASE iStep OF
 	// Does: wait for the first 30 s window with |rate| < 0.5 degC/min.
 	// Monitor channel shown orange on the HMI.
 	// Next: first passing window -> 7.
-	// Reuse: rate is already calculated continuously above.
+	// Reuse: rate already calculated continuously above.
 	6:
 		GVL.sPrompt := 'Stabilising: waiting for rate below 0.5 degC/min.';
 		RateWindowTimer(IN := TRUE, PT := T#30S);
@@ -130,19 +143,20 @@ CASE iStep OF
 		END_IF
 
 	// 7: HOLD
-	// Does: hold at setpoint for the operator-configured hold time.
+	// Does: hold at setpoint for the operator-configured hold period.
 	// Next: hold elapsed -> 8.
-	// Reuse: FB_Hold timer pattern.
+	// Reuse: FB_Hold timer pattern — INT minutes via DINT_TO_TIME(*60000).
 	7:
 		GVL.sPrompt := 'Holding at setpoint.';
-		HoldTimer(IN := TRUE, PT := GVL.tTemperatureSwing_HoldTime);
+		HoldTimer(IN := TRUE, PT := DINT_TO_TIME(GVL.iTemperatureSwing_HoldPeriod * 60000));
 		IF HoldTimer.Q THEN
 			HoldTimer(IN := FALSE);
 			iStep := 8;
 		END_IF
 
 	// 8: COMPLETE
-	// Does: close CSV, leave the cabinet running at setpoint, wait for save.
+	// Does: leave the cabinet running at setpoint, wait for save. CSV closes
+	// automatically off GVL.xSave (FB_CSV_Handler).
 	// Next: GVL.xSave -> xDone, iStep := 0.
 	// Reuse: FB_Hold save-then-stop pattern.
 	8:
@@ -155,8 +169,8 @@ CASE iStep OF
 	// 9: ERROR
 	// Does: hold the rig and wait for operator acknowledgement.
 	// Next: acknowledged -> xDone, iStep := 0.
-	// Reuse: FB_Hold error pattern. E-stop is already handled centrally by
-	// ProgramSelecter.
+	// Reuse: FB_Hold overpressure-handling pattern. E-stop is already handled
+	// centrally by ProgramSelecter / FB_EStop.
 	9:
 		GVL.sPrompt := 'Temperature Swing error — press Stop.';
 		// TODO: acknowledgement / reset path
