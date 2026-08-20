@@ -12,7 +12,7 @@ Both features are proven, integrated, and commissioning across the fleet of five
 **Working branch:** `Omkar_Temperature_Cabinet_Setpoint_Control` (all development; `main` is not used for this work)
 **Status:** ✅ Setpoint control **complete and qualified on hardware**. ✅ Cabinet on/off automation
 **complete, integration-tested, and proven on DLS008**. Now **commissioning across five R&D temperature cabinets** (Left Hand
-Large and Twinsafe complete; Right Hand Large in progress; DLS008 and Right Hand Small to follow) — see Stage 8.
+Large and Twinsafe complete; Right Hand Large, DLS008, and Right Hand Small in progress) — see Stage 8.
 
 ---
 
@@ -425,10 +425,10 @@ software-first conflict-resolution design): [`cabinet on-off automation investig
 
 ## Stage 8 — Commissioning across the R&D temperature cabinet fleet
 
-**Status (17 August 2026): ✅ Design prototyping and validation complete. RS232-to-USB cable (RS 1860518)
+**Status (20 August 2026): ✅ Design prototyping and validation complete. RS232-to-USB cable (RS 1860518)
 arrived and connected across all cabinets. Left Hand Large and Twinsafe commissioning complete (all 4 items done).
-Right Hand Large and DLS008 in progress (panel mount USB and cable connections done; awaiting 37-pin connector
-wiring). Right Hand Small investigation to follow (F4T register-map investigation required first).**
+Right Hand Large, DLS008, and Right Hand Small now in progress (panel mount USB and cable connections done; awaiting 37-pin connector
+wiring to complete).**
 
 **Commissioning details:** See [`commissioning of temperature cabinets/`](<commissioning of temperature cabinets/>) folder for
 complete commissioning procedures, wiring diagrams, test suites, and rollout status.
@@ -451,7 +451,7 @@ into repeatable commissioning on each remaining cabinet.
 | 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026) — all 4 items done** |
 | 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026) — all 4 items done** |
 | 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress** — panel mount USB replaced; cable button switch to relays connection done; **awaiting 37-pin connector wiring** |
-| 4 | Right Hand Small Temperature Cabinet | **Watlow F4T — different controller, register map unproven** | ☐ Not started — needs a separate investigation stage before commissioning, same as the original F4S bring-up |
+| 4 | **Right Hand Small Temperature Cabinet** | Watlow F4T + Omron CPM1A | ▶ **In progress (~80% complete)** — panel mount replaced, button switch to relays connection done, Pi to USB connection made in DLS, RS232 to USB cable connected; **awaiting 37-pin connector wiring to pins 13 & 14** |
 
 ### 8.3 Commissioning checklist — Left Hand Small Temperature Cabinet (DLS008)
 

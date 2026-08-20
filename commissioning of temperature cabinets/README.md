@@ -1,12 +1,12 @@
 # Commissioning of Temperature Cabinets — Cabinet On/Off Automation
 
-**Status (17 August 2026):** RS232-to-USB cable (RS 1860518) arrived and connected across all cabinets.
+**Status (20 August 2026):** RS232-to-USB cable (RS 1860518) arrived and connected across all cabinets. Right Hand Small Temperature Cabinet now in commissioning progress.
 
 - ✅ **Left Hand Large Temperature Cabinet**: Full commissioning complete
 - ✅ **Twinsafe Temperature Cabinet**: Full commissioning complete  
 - ▶ **Right Hand Large Temperature Cabinet**: Panel mount USB replaced; cable button switch to relays connection done; awaiting 37-pin connector wiring to pins 13, 14, and GND
 - ▶ **Left Hand Small Temperature Cabinet (DLS008)**: Cable button switch to relays connection done; awaiting 37-pin connector wiring to pins 13, 14, and GND
-- ⏳ **Right Hand Small Temperature Cabinet**: Requires separate F4T register-map investigation before commissioning
+- ▶ **Right Hand Small Temperature Cabinet**: Panel mount replaced; button switch to relays connection done; Pi to USB connection made in DLS; RS232 to USB cable connected; awaiting 37-pin connector wiring to pins 13 and 14
 
 **Awaiting:** EL1859 digital input/output module and carriage for future I/O expansion (not blocking current commissioning).
 
@@ -236,7 +236,7 @@ Run on each commissioned cabinet:
 | 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** — all 4 items done |
 | 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026)** — all 4 items done |
 | 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress** — panel mount USB replaced; cable button switch to relays connection done; **awaiting 37-pin connector wiring** |
-| 4 | Right Hand Small Temperature Cabinet | **Watlow F4T — different controller, register map unproven** | ☐ Not started — needs a separate investigation stage before commissioning |
+| 4 | **Right Hand Small Temperature Cabinet** | Watlow F4T + Omron CPM1A | ▶ **In progress (~80% complete)** — panel mount replaced, button switch to relays connection done, Pi to USB connection made in DLS, RS232 to USB cable connected; **awaiting 37-pin connector wiring to pins 13 & 14** |
 
 ---
 
@@ -314,9 +314,22 @@ Once complete, will connect RS232 adapter cable and validate comms path.
 
 ---
 
+### Right Hand Small Temperature Cabinet
+
+**Status (20 August 2026):** ▶ **In progress — ~80% complete.**
+
+- ✅ Panel mount replaced
+- ✅ Cable button switch to relays connection done (per two-relay design)
+- ✅ Pi to USB connection made in DLS
+- ✅ RS232 to USB cable connected
+- ⏳ **Awaiting:** 37-pin DI/DO connector wiring to pins 13 and 14 (from DLS output to relay coils)
+
+Following the same 4-item commissioning process as other cabinets. Once pin 13 & 14 wiring is complete, will proceed to manual authority tests M1–M6.
+
+---
+
 ## Next steps
 
-1. **DLS008 & Right Hand Large:** Complete 37-pin connector wiring (pins 13, 14, GND to relays)
-2. **All cabinets:** Run manual authority tests M1–M6 per the test suite
-3. **Right Hand Small:** Conduct F4T register-map investigation (separate track from current commissioning)
-4. **Future:** Install EL1859 module when hardware arrives (future I/O expansion project)
+1. **DLS008, Right Hand Large, & Right Hand Small:** Complete 37-pin connector wiring (pins 13, 14 to relays)
+2. **Right Hand Large & Right Hand Small:** Once wiring complete, run manual authority tests M1–M6 per the test suite
+3. **Future:** Install EL1859 module when hardware arrives (future I/O expansion project)
