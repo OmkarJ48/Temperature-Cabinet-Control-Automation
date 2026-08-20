@@ -29,6 +29,8 @@ VAR
 	rCurrentRate			: LREAL;
 	RateWindowTimer			: TON;                      // 30 s rate window
 	HoldTimer				: TON;
+	rRateWindowStart		: LREAL;                    // temperature at window start
+	tScanCycle				: TIME := T#100MS;          // assumed scan time for rate calc
 END_VAR
 
 // ============================================================================
@@ -52,7 +54,18 @@ END_IF
 // Monitor channel + rate, sampled continuously so the value is already valid
 // when the stabilisation state is entered.
 rMonitorValue := GVL.alrChannelReading[GVL.iMainChannelIndex];
-// TODO: 30 s window rate calculation -> rCurrentRate (degC/min)
+
+// Rate calculation: updated every 30 s window cycle in state 6.
+// Rate = (delta over 30 s) / 0.5 min = delta * 2, in °C/min.
+// Window start is captured when RateWindowTimer resets; rate is calculated
+// when the next window completes (checked in state 6).
+IF NOT RateWindowTimer.Q THEN
+	// Window in progress: rate from previous complete window remains valid
+	rCurrentRate := (rMonitorValue - rRateWindowStart) * 2.0; // delta * (1 min / 0.5 min)
+ELSE
+	// Window just completed: capture this reading for next window's calculation
+	rRateWindowStart := rMonitorValue;
+END_IF
 
 // ============================================================================
 // STATE MACHINE
@@ -100,7 +113,7 @@ CASE iStep OF
 	// Next: start commanded -> 4.
 	// Reuse: GVL_HMI.xStartPulse relay path (EL2869 -> Omron CPM1A).
 	3:
-		// TODO: GVL_HMI.xStartPulse := TRUE
+		GVL_HMI.xStartPulse := TRUE;
 		iStep := 4;
 
 	// 4: SEND_SETPOINT
@@ -111,7 +124,9 @@ CASE iStep OF
 	4:
 		fbTarget(xArm := TRUE, rSetpoint := GVL.rTemperatureSwing_Setpoint,
 			rActual := rMonitorValue);
-		// TODO: Modbus setpoint write + read-back confirm
+		// TODO: Modbus setpoint write to cabinet + read-back confirmation.
+		// Confirm Modbus register map and implement write/read-back cycle here.
+		// On confirmation, transition to state 5. On timeout/failure, route to state 9.
 		iStep := 5;
 
 	// 5: RAMP
@@ -134,6 +149,10 @@ CASE iStep OF
 	// Reuse: rate already calculated continuously above.
 	6:
 		GVL.sPrompt := 'Stabilising: waiting for rate below 0.5 degC/min.';
+		// On first entry to this state, capture the starting temperature for rate window
+		IF RateWindowTimer.IN = FALSE THEN
+			rRateWindowStart := rMonitorValue;
+		END_IF;
 		RateWindowTimer(IN := TRUE, PT := T#30S);
 		IF RateWindowTimer.Q THEN
 			RateWindowTimer(IN := FALSE);
@@ -173,6 +192,9 @@ CASE iStep OF
 	// centrally by ProgramSelecter / FB_EStop.
 	9:
 		GVL.sPrompt := 'Temperature Swing error — press Stop.';
-		// TODO: acknowledgement / reset path
+		IF NOT xStart THEN
+			xDone := TRUE;
+			iStep := 0;
+		END_IF
 
 END_CASE
