@@ -31,6 +31,8 @@ VAR
 	HoldTimer				: TON;
 	rRateWindowStart		: LREAL;                    // temperature at window start
 	tScanCycle				: TIME := T#100MS;          // assumed scan time for rate calc
+	SetpointWriteTimer		: TON;                      // Modbus write confirmation timeout
+	xSetpointWriteArmed		: BOOL;                     // gate for one-time setpoint write
 END_VAR
 
 // ============================================================================
@@ -90,6 +92,8 @@ CASE iStep OF
 	// Reuse: FB_Hold / FUN_Program_Startup pattern for isolate defaults.
 	1:
 		xDone := FALSE;
+		xSetpointWriteArmed := FALSE;
+		xWriteTrigger := FALSE;
 		IF GVL.iTestPressure = 0 THEN
 			GVL.doUpstream := TRUE;    // closed
 			GVL.doDownstream := FALSE; // open — nothing to build, vent path clear
@@ -120,14 +124,45 @@ CASE iStep OF
 	// Does: write the operator setpoint to the cabinet and arm fbTarget with
 	// the ramp direction.
 	// Next: write confirmed -> 5.
-	// Reuse: existing Modbus TCP setpoint write/read-back path.
+	// Reuse: existing Modbus TCP setpoint write/read-back path (gateway regs 0,1,3,4).
 	4:
 		fbTarget(xArm := TRUE, rSetpoint := GVL.rTemperatureSwing_Setpoint,
 			rActual := rMonitorValue);
-		// TODO: Modbus setpoint write to cabinet + read-back confirmation.
-		// Confirm Modbus register map and implement write/read-back cycle here.
-		// On confirmation, transition to state 5. On timeout/failure, route to state 9.
-		iStep := 5;
+
+		// Modbus TCP register map (from f4s_gateway.py):
+		// Reg 0: write — Requested setpoint (×10, signed)
+		// Reg 1: write — Apply trigger (pulse of 1; gateway clears it)
+		// Reg 3: read — Confirmed setpoint read-back (×10, signed)
+		// Reg 4: read — Status (0=OK, 2=WRITE_FAILED, 3=NOT_ACCEPTED, 4=RANGE, 5=COMMS)
+
+		// On first entry, arm the write and start the confirmation timeout
+		IF NOT xSetpointWriteArmed THEN
+			GVL_Modbus.wSetpoint1Write := INT_TO_WORD(REAL_TO_INT(GVL.rTemperatureSwing_Setpoint * 10.0));
+			xWriteTrigger := TRUE;                      // pulse reg 1
+			SetpointWriteTimer(IN := TRUE, PT := T#10S);
+			xSetpointWriteArmed := TRUE;
+		END_IF;
+
+		// Wait for either confirmation (setpoint echoed back) or timeout
+		IF SetpointWriteTimer.Q THEN
+			// Timeout after 10 seconds
+			SetpointWriteTimer(IN := FALSE);
+			xSetpointWriteArmed := FALSE;
+			iStep := 9;                                 // ERROR state
+		ELSIF WORD_TO_INT(GVL_Modbus.wSetpoint1Read) = REAL_TO_INT(GVL.rTemperatureSwing_Setpoint * 10.0) THEN
+			// Confirmation received: read-back matches requested value
+			IF GVL_Modbus.wStatus = 0 THEN
+				// Status OK, transition to RAMP
+				SetpointWriteTimer(IN := FALSE);
+				xSetpointWriteArmed := FALSE;
+				iStep := 5;
+			ELSIF GVL_Modbus.wStatus = 3 OR GVL_Modbus.wStatus = 4 THEN
+				// Device rejected: NOT_ACCEPTED or RANGE
+				SetpointWriteTimer(IN := FALSE);
+				xSetpointWriteArmed := FALSE;
+				iStep := 9;                             // ERROR state
+			END_IF
+		END_IF
 
 	// 5: RAMP
 	// Does: cabinet ramps at its own natural rate. Pressure fill/relieve runs
