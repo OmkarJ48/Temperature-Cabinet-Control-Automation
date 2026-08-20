@@ -26,81 +26,81 @@ are called by `FB_TemperatureSwing`:
 
 ## FB_TemperatureSwing State Machine Breakdown
 
-Each state below lists: what it does, what existing code it reuses, the condition that advances it, and any open questions.
+I've documented each state below with: what I need to implement, what existing code I can reuse, the condition that advances to the next state, and what I'm still unsure about.
 
 ### State 0: IDLE
-**Does:** Wait for operator to start via Start Dialog.  
-**Reuses:** `GVL.sPrompt` + `xStart` pattern (identical to FB_Hold step 0).  
-**Next condition:** `xStart TRUE` → state 1  
-**Unsure:** Nothing — straightforward.
+**I need to:** Wait for the operator to start via the Start Dialog.  
+**I can reuse:** `GVL.sPrompt` + `xStart` pattern (identical to FB_Hold step 0).  
+**I move to state 1 when:** `xStart TRUE`  
+**I'm unsure about:** Nothing — this is straightforward.
 
 ### State 1: DELAYED_START
-**Does:** Wait out configured delayed-start time before test begins.  
-**Reuses:** Existing delay-timer from PR2 or other programs (should exist in program-selector path).  
-**Next condition:** Delay elapsed (or none configured) → state 2  
-**Unsure:** Which variable/FB owns the timer? Placeholder `DelayTimer(PT := T#0S)` needs real source from PR2.
+**I need to:** Wait out any configured delayed-start time before the test begins.  
+**I can reuse:** The existing delay-timer mechanism from PR2 or other programs (should already exist in the program-selector path).  
+**I move to state 2 when:** The delay has elapsed (or none is configured).  
+**I'm unsure about:** Which variable/FB actually owns this timer? The placeholder `DelayTimer(PT := T#0S)` needs the real source from PR2.
 
 ### State 2: STARTUP_AND_CSV_BEGIN
-**Does:** Reset run data, start CSV logging, optionally set zero-pressure solenoid state (Upstream closed, Downstream open).  
-**Reuses:** FB_Hold step 0/1 startup pattern; existing CSV recording start call.  
-**Next condition:** If `GVL.iTestPressure = 0` → state 4; else → state 3  
-**Unsure:** Exact CSV-start call signature and solenoid-set call signature.
+**I need to:** Reset run data, start CSV logging, and optionally set the zero-pressure solenoid state (Upstream closed, Downstream open).  
+**I can reuse:** FB_Hold step 0/1 startup pattern; the existing CSV recording start call.  
+**I move to state 3 or 4 when:** If `GVL.iTestPressure = 0`, skip to state 4; otherwise go to state 3.  
+**I'm unsure about:** The exact CSV-start call signature and solenoid-set call signature.
 
 ### State 3: ESTABLISH_PRESSURE
-**Does:** Bring chamber to requested Test Pressure (skipped if Test Pressure = 0).  
-**Reuses:** `FB_Apply_Test_Pressure` (proven in Hold/PR2).  
-**Next condition:** `fbApplyPressure.xDone` → compute pressure-band limits, then state 4  
-**Unsure:** Does `FB_Apply_Test_Pressure` expose timeout/error outputs (`xError`, `tTimeout`, enum)?
+**I need to:** Bring the chamber to the requested Test Pressure (skipped entirely if Test Pressure = 0).  
+**I can reuse:** `FB_Apply_Test_Pressure` (proven in Hold/PR2 programs).  
+**I move to state 4 when:** `fbApplyPressure.xDone` is true; I also compute the pressure-band limits at this point.  
+**I'm unsure about:** Does `FB_Apply_Test_Pressure` expose timeout/error outputs (`xError`, `tTimeout`, enum)?
 
 ### State 4: CABINET_CONFIGURE_AND_START
-**Does:** Start the temperature cabinet.  
-**Reuses:** Relay-driven `xStartPulse` via EL2869 → Omron CPM1A (proven, commissioned).  
-**Next condition:** Cabinet start commanded → state 5 (immediately; no wait)  
-**Unsure:** Wait for `GVL_HMI.xCabinetRunning` confirmation, or jump straight? Parent project notes run feedback not yet wired.
+**I need to:** Start the temperature cabinet.  
+**I can reuse:** Relay-driven `xStartPulse` via EL2869 → Omron CPM1A (proven, commissioned).  
+**I move to state 5 when:** The cabinet start command is sent (immediately; no wait currently).  
+**I'm unsure about:** Should I wait for `GVL_HMI.xCabinetRunning` confirmation, or jump straight to state 5? The parent project notes that independent run feedback isn't yet wired.
 
 ### State 5: SEND_SETPOINT
-**Does:** Write operator's temperature setpoint (positive or negative) to cabinet.  
-**Reuses:** Existing Modbus TCP write/confirm sequence from parent project (proven in PLC_PRG_TCP.st).  
-**Next condition:** Setpoint write confirmed (read-back match) → state 6  
-**Unsure:** Same write/confirm for all cabinet types (F4S vs F4T)? Need timeout gate?
+**I need to:** Write the operator's temperature setpoint (positive or negative) to the cabinet.  
+**I can reuse:** The existing Modbus TCP write/confirm sequence from the parent project (proven in PLC_PRG_TCP.st).  
+**I move to state 6 when:** The setpoint write is confirmed via read-back match.  
+**I'm unsure about:** Do all cabinet types (F4S vs F4T) use the same write/confirm mechanism? Do I need a timeout gate?
 
 ### State 6: RAMP_AND_SUPERVISE
-**Does:**
-- Cabinet ramps at own natural rate (no artificial ramp control)
-- Sample selected monitor channel at 1 Hz
-- If pressurised, supervise 50–100% pressure band via solenoids
-- Detect when temperature reaches/passes setpoint in commanded direction
+**I need to:**
+- Let the cabinet ramp toward the setpoint at its own natural rate (no artificial ramp control)
+- Sample the selected monitor channel at 1 Hz
+- If pressurised, supervise the 50–100% pressure band via solenoids
+- Detect when the temperature reaches or passes the setpoint in the commanded direction
 
-**Reuses:** FB_Hold's TON-sampling pattern; direct `doUpstream`/`doDownstream` writes (same as `FB_Apply_Test_Pressure`).  
-**Next condition:** Temperature reached/passed setpoint in commanded direction → state 7  
-**Unsure:**
-- Which GVL index holds selected channel? (Placeholder: `GVL.iTemperatureSwing_ChannelIndex`)
-- How to build 60-second rolling buffer for rate calc?
-- How to compute `rCurrentRate` (°C/min) from buffer?
-- Pressure band supervision bang-bang logic?
+**I can reuse:** FB_Hold's TON-sampling pattern; direct `doUpstream`/`doDownstream` writes (same as `FB_Apply_Test_Pressure`).  
+**I move to state 7 when:** The temperature has reached or passed the setpoint in the commanded direction.  
+**I'm unsure about:**
+- Which GVL index variable holds the selected channel? (I used placeholder `GVL.iTemperatureSwing_ChannelIndex`)
+- How do I build the 60-second rolling buffer for the rate calculation?
+- How do I compute `rCurrentRate` (°C/min) from that buffer?
+- What's the exact logic for bang-bang pressure band supervision?
 
 ### State 7: STABILISING
-**Does:** Check if rate of change is below 0.5 °C/min for 2 consecutive 60-second windows (per API 6A F.1.10).  
-**Reuses:** FB_Stability_Check's windowing concept (but it's pressure-only; must build new for temperature rate).  
-**Next condition:** 2 consecutive passing windows → state 8  
-**Unsure:**
-- How to detect window transitions and track 2-window debounce counter?
-- Continue pressure band supervision during stabilisation? (Assumed yes, per spec.)
+**I need to:** Check if the rate of change is below 0.5 °C/min for 2 consecutive 60-second windows (per API 6A F.1.10).  
+**I can reuse:** FB_Stability_Check's windowing concept (but it's pressure-only; I need to build this new for temperature rate).  
+**I move to state 8 when:** I've detected 2 consecutive passing windows.  
+**I'm unsure about:**
+- How do I detect window transitions and track the 2-window debounce counter?
+- Should pressure band supervision continue during stabilisation? (I'm assuming yes per spec, but haven't confirmed.)
 
 ### State 8: COMPLETE
-**Does:** Close CSV logging, leave cabinet at requested setpoint, wait for operator to save/stop.  
-**Reuses:** FB_Hold step 8/9 "await save then stop" pattern.  
-**Next condition:** `GVL.xSave TRUE` → set `xDone := TRUE`, reset `iStep := 0`  
-**Unsure:** Nothing — ambient-return (auto-shutoff at ambient) explicitly out of scope per kickoff doc.
+**I need to:** Close CSV logging, leave the cabinet at the requested setpoint, and wait for the operator to save/stop.  
+**I can reuse:** FB_Hold step 8/9 "await save then stop" pattern.  
+**I move to state 0 when:** `GVL.xSave` is TRUE.  
+**I'm unsure about:** Nothing — ambient-return behaviour (auto-shutoff at ambient) is explicitly out of scope per the kickoff doc.
 
 ### State 9: ERROR
-**Does:** Handle pressure-establishment failure/timeout (other faults caught centrally by ProgramSelecter's E-stop).  
-**Reuses:** FB_Hold step 10 overpressure-handling pattern (adapted).  
-**Next condition:** Operator acknowledges → set `xDone := TRUE`, reset `iStep := 0`  
-**Unsure:**
+**I need to:** Handle pressure-establishment failure/timeout (other faults are caught centrally by ProgramSelecter's E-stop).  
+**I can reuse:** FB_Hold step 10 overpressure-handling pattern (adapted).  
+**I move to state 0 when:** The operator acknowledges the error.  
+**I'm unsure about:**
 - What does `fbApplyPressure` expose on failure? (`xError`, `tTimeout`, enum `eFaultCode`?)
-- Which state(s) jump to ERROR? (Pressure timeout only, or also setpoint-write failures?)
-- Acknowledgement flag? (`GVL.xSave` or new flag?)
+- Which state(s) should jump to ERROR? (Pressure timeout only, or also setpoint-write failures?)
+- What flag should I check for acknowledgement? (`GVL.xSave` or a new flag?)
 
 ## Import steps
 
