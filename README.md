@@ -1,18 +1,17 @@
-# Temperature Cabinet Control & Automation from CODESYS HMI
+# Temperature Cabinet Setpoint Control from CODESYS HMI
 
 **Parent project:** ISO15848-1 Automated R&D Test Rig
 
-Remote supervisory control of R&D temperature cabinets via CODESYS runtime on Raspberry Pi:
-- **Setpoint control:** Operator changes cabinet setpoint from CODESYS HMI instead of the cabinet's front panel
-- **Cabinet on/off automation:** Remote start/stop of cabinet via CODESYS, with local button station authority preserved
+Supervisory setpoint control of the **Left Hand Small Temperature Cabinet** (Watlow F4S controller)
+from a CODESYS runtime on a Raspberry Pi, so an operator can change the cabinet setpoint from a
+CODESYS HMI instead of walking to the cabinet front panel.
 
-Both features are proven, integrated, and commissioning across the fleet of five R&D temperature cabinets.
+The cabinet keeps its own closed-loop PID control at all times. CODESYS never becomes the control
+loop — it reads state and writes a target. That boundary is the whole design.
 
 **Author:** Omkar Joshi — Oliver Valvetek / Oliver Mechatronics / Oliver R&D
 **Working branch:** `Omkar_Temperature_Cabinet_Setpoint_Control` (all development; `main` is not used for this work)
-**Status:** ✅ Setpoint control **complete and qualified on hardware**. ✅ Cabinet on/off automation
-**complete, integration-tested, and proven on DLS008**. Now **commissioning across five R&D temperature cabinets** (Left Hand
-Large and Twinsafe complete; Right Hand Large, DLS008, and Right Hand Small in progress) — see Stage 8.
+**Status:** Modbus proof of concept **complete and qualified on hardware**. Next stage: CODESYS WebVisu HMI.
 
 ---
 
@@ -84,16 +83,15 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 
 | Folder | Owns | Stage |
 |---|---|---|
-| [`remote ssh vs code 10.1.6.17 setup guide/`](<remote ssh vs code 10.1.6.17 setup guide/>) | VS Code Remote-SSH onto the Left Hand Small Temp Cabinet Pi (10.1.6.17), and the GitHub workflow from there | 1 |
-| [`temperature swing integration/remote ssh vs code 10.1.6.40 setup guide/`](<temperature swing integration/remote ssh vs code 10.1.6.40 setup guide/>) | VS Code Remote-SSH onto the R&D Prototype Pi (10.1.6.40) for Temperature Swing development on tlelean/RnD | 1 (Swing) |
+| [`remote ssh vs code 10.1.6.17 setup guide/`](<remote ssh vs code 10.1.6.17 setup guide/>) | VS Code Remote-SSH onto the Pi, and the GitHub workflow from there | 1 |
 | [`linux modbus proof of concept and test logs/`](<linux modbus proof of concept and test logs/>) | Pi-side serial bring-up: adapter, permissions, udev symlink, `mbpoll` bench tests | 2 |
 | [`codesys modbus com port investigation and troubleshooting log/`](<codesys modbus com port investigation and troubleshooting log/>) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
 | [`python modbus proof of concept and test logs/`](<python modbus proof of concept and test logs/>) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |
 | [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
-| [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation — complete — and the as-built, integration-tested two-relay solution | 6 |
+| [`cabinet on-off automation investigation and test logs/`](<cabinet on-off automation investigation and test logs/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 6 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
 | [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 7 |
-| [`temperature swing integration/`](<temperature swing integration/>) | **Module: design complete; backend router implementation complete.** API 6A–compliant Temperature Swing test (ramp → stabilise → hold → return) built on top of the setpoint-control path above: CODESYS state machine, Python OPC UA manager, FastAPI page router, and HMI start/progress pages. All source files ready; awaiting integration into the main RnD backend (see its README for the step-by-step integration checklist) | 9 |
+| [`temperature swing integration/`](<temperature swing integration/>) | **New module, design complete.** API 6A–compliant Temperature Swing test (ramp → stabilise → hold → return) built on top of the setpoint-control path above: CODESYS state machine, Python OPC UA manager, and HMI start/progress pages. Not yet imported into the live project — see its README for the implementation checklist | 8 |
 
 ---
 
@@ -399,191 +397,24 @@ Setpoint control (Stages 1–6) assumes the cabinet is already running. This sta
 separate question: **can the cabinet itself be started and stopped remotely**, without touching
 mains wiring and without taking manual authority away from the operator standing at the panel.
 
-**Status: ✅ Investigation complete. Integration testing complete on the Left Hand Small
-Temperature Cabinet (DLS008).**
-
-The investigation went through several routes before landing on the one that's now built and tested:
+The investigation went through several routes before landing on the one that works:
 
 | Route | What it tried | Outcome |
 |---|---|---|
+| Two-relay design (§6/§7) | Parallel relay across the start contact, series relay in the stop contact | Superseded once a wiring-only route was found — kept as a documented fallback |
 | §15 Option C | EL2869 wired straight into the button station's dry contacts | **Failed on hardware, twice.** The button station switches its low (ground) side; the EL2869 is a sourcing output. No terminal arrangement can make a sourcing output substitute for a low-side contact — a device-type mismatch, not a wiring mistake |
 | §17 F4 digital-input ramp gate | EL2869 into the Watlow F4S's own "Control Outputs Off" digital input | **Proven on hardware.** Gates heating/cooling symmetrically, but the fan keeps running — accepted as a separate, narrower capability (holding the chamber idle until a scheduled start) |
-| §19 Omron CPM1A digital inputs, direct wire | Tracing the button station's `102`/`103` outputs further back found they land on digital inputs of an **Omron CPM1A PLC**, not directly on a relay coil. The Omron's inputs are bidirectional opto-isolated inputs — the same kind of thing the EL2869 sourcing output is a matched pairing for | **Proven on hardware,** but no galvanic isolation between the DLS008 rail and the button station circuit |
-| **§20 Two-relay design onto the Omron inputs (as-built)** | Reintroduced the two interposing relays from §6/§7 (one for start, one for stop, driven by the DLS Start/Stop digital outputs), this time landing their contacts on the Omron `01`/`02` inputs found in §19 instead of a bare latch coil | **✅ Proven on hardware — integration tested on the Left Hand Small Temperature Cabinet.** Galvanic isolation restored, local button station left physically unmodified, local and remote authority confirmed to coexist by test |
+| **§19 Omron CPM1A digital inputs (as-built)** | Tracing the button station's `102`/`103` outputs further back found they land on digital inputs of an **Omron CPM1A PLC**, not directly on a relay coil. The Omron's inputs are bidirectional opto-isolated inputs — the same kind of thing the EL2869 sourcing output is a matched pairing for | **Proven on hardware.** Both remote (CODESYS) and, pending one confirming test, manual (button) start/stop now work through the same pair of Omron inputs |
 
 The key finding that unlocked this: the panel's own as-built drawing and the Omron CPM1A
 datasheet — both added to `docs/` — showed the button station was never wired straight to a bare
-relay coil. It goes through a small PLC first, and that PLC's inputs accept a sourced 24 V signal
-directly — which is what makes the two-relay design in §20 work cleanly: the relay contacts and
-the local button's own contacts land on the same input and OR together safely.
+relay coil. It goes through a small PLC first, and that PLC's inputs accept the EL2869's sourcing
+output directly, which is what the earlier low-side/sourcing mismatch had ruled out for the raw
+relay coil.
 
-Full investigation, wiring diagrams, CODESYS source, the §20 integration test record, and
-remaining open items (channel reallocation for the ramp gate and panel lock, and a researched
-software-first conflict-resolution design): [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>).
-
----
-
-## Stage 8 — Commissioning across the R&D temperature cabinet fleet
-
-**Status (20 August 2026): ✅ Design prototyping and validation complete. RS232-to-USB cable (RS 1860518)
-arrived and connected across all cabinets. Left Hand Large and Twinsafe commissioning complete (all 4 items done).
-Right Hand Large, DLS008, and Right Hand Small now in progress (panel mount USB and cable connections done; awaiting 37-pin connector
-wiring to complete).**
-
-**Commissioning details:** See [`commissioning of temperature cabinets/`](<commissioning of temperature cabinets/>) folder for
-complete commissioning procedures, wiring diagrams, test suites, and rollout status.
-
-### 8.1 Prototyping sign-off
-
-Prototyping is considered done because a **5-second on/off pulse program**, built directly into
-`PLC_PRG` alongside the setpoint state machine, proved the cabinet can be started and stopped
-exactly as an operator requires — both from the physical button station and from CODESYS —
-through the §20 two-relay wiring. `xStartPulse`/`xStopPermit` were driven from the watch window
-with a 5 s hold on each edge, and the cabinet responded correctly on every cycle, matching the
-§20.4 integration test results. **No further prototyping work is planned** — the design now moves
-into repeatable commissioning on each remaining cabinet.
-
-### 8.2 Cabinet rollout order
-
-| # | Cabinet | Controller | Status |
-|---|---|---|---|
-| 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ▶ **In progress — commissioning item 3 remaining** (panel USB done; cable button switch to relays wiring done; **awaiting 37-pin connector wiring to pins 13 & 14**) |
-| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026) — all 4 items done** |
-| 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026) — all 4 items done** |
-| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress** — panel mount USB replaced; cable button switch to relays connection done; **awaiting 37-pin connector wiring** |
-| 4 | **Right Hand Small Temperature Cabinet** | Watlow F4T + Omron CPM1A | ▶ **In progress (~80% complete)** — panel mount replaced, button switch to relays connection done, Pi to USB connection made in DLS, RS232 to USB cable connected; **awaiting 37-pin connector wiring to pins 13 & 14** |
-
-### 8.3 Commissioning checklist — Left Hand Small Temperature Cabinet (DLS008)
-
-| # | Item | Status |
-|---|---|---|
-| 1 | Replace Panel Mount USB | ✅ **Done** |
-| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
-| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ⏳ **Pending** |
-| 4 | Cable button switch to relays and PLC | ✅ **Done** |
-
-**Status detail — Partial completion (17 August 2026):**
-
-**Items 1–2, 4 complete:** Panel mount USB Type A to Type A connected to DLS. Button switch to Omron CPM1A PLC 
-wiring complete (per two-relay design).
-
-**Item 3 pending:** Wire up 37-pin connector pins 13 & 14 (from DLS output to relay coils). Once complete, will 
-have RS232 cable in hand for comms path validation.
-
-**▶ DLS008 commissioning in progress — ~75% complete, awaiting item 3 completion. RS232 cable arrived.**
-
-### 8.4 Commissioning checklist — Left Hand Large Temperature Cabinet
-
-| # | Item | Status |
-|---|---|---|
-| 1 | Replace Panel Mount USB | ✅ **Done** |
-| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
-| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ✅ **Done** |
-| 4 | Cable button switch to relays and PLC | ✅ **Done** |
-
-**Status detail — All items complete (12 August 2026):**
-
-**Items 1–2 (11 August 2026):** Panel mount USB is mounted on the cabinet enclosure. USB wiring
-harness runs from Raspberry Pi USB port to the panel mount, routed inside the cabinet using:
-- Yellow industry-grade wire (1.5 mm) for power distribution bus (clamped to rail with cable ties)
-- Small-gauge black, green, and red wires (DLS pins 13 & 14 connections, same harness)
-- All wires clamped and fastened to existing cabinet wire bundle using cable clamps
-
-**Items 3–4:** Relay wiring to pins 13 & 14 and button wiring to PLC are done per the two-relay design 
-— tested and passed on the Left Hand Small Cabinet (DLS008).
-
-**✅ Left Hand Large commissioning complete (all 4 items done). RS232 cable (RS 1860518) connected.**
-
-### 8.5 Procurement status
-
-| Item | Supplier | Status |
-|---|---|---|
-| 2-Port USB Type A panel mount (RS 282-844) | RS Components | ✅ Procured & fitted |
-| USB Type A 1.8 m / 3 m / 5 m cables | RS Components | ✅ Procured & installed |
-| **RS232 to USB A cable** (RS 1860518) | RS Components | ✅ **Arrived and connected across all cabinets** |
-| Single-core wire (yellow) | RS Components | ✅ Procured & installed |
-| XLR 4-way female/male connectors | RS Components | ✅ Procured |
-| Cable tie mount | RS Components | ✅ Procured & used |
-| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ **On order** — future I/O expansion, not blocking current commissioning |
-| Carriage (EL1859 order) | Beckhoff | ⏳ **On order** — future I/O expansion, not blocking current commissioning |
-
-**Status (17 August 2026):** RS232-to-USB cable (RS 1860518) arrived and connected across all cabinets. 
-Left Hand Large and Twinsafe commissioning complete. Right Hand Large and DLS008 in progress (panel mount USB 
-and cable connections done; awaiting 37-pin connector wiring). Beckhoff EL1859 module and carriage on order 
-for future I/O expansion project.
-
-### 8.6 Commissioning checklist — Twinsafe Temperature Cabinet
-
-| # | Item | Status |
-|---|---|---|
-| 1 | Replace Panel Mount USB | ✅ **Done** |
-| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
-| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ✅ **Done** |
-| 4 | Cable button switch to relays and PLC | ✅ **Done** |
-
-**Status detail — Commissioning complete (13 August 2026):**
-
-**All items complete (13 August 2026):** Panel mount USB mounted on enclosure. USB wiring harness
-routed from Raspberry Pi to panel mount. Relay wiring to pins 13 & 14 complete per two-relay design.
-Button wiring to PLC relays complete. All physical wiring and connectivity identical to Left Hand Large Cabinet.
-
-**RS232 cable status:** RS232 to USB cable **RS 1860518** arrived and connected.
-
-**✅ Twinsafe commissioning complete (all 4 items done). RS232 cable (RS 1860518) connected.**
-
-### 8.7 Commissioning checklist — Right Hand Large Temperature Cabinet
-
-| # | Item | Status |
-|---|---|---|
-| 1 | Replace Panel Mount USB | ✅ **Done** |
-| 2 | Connect USB from Panel Mount to Pi (wiring harness) | ✅ **Done** |
-| 3 | Wire up 37-pin connector pins 13 & 14 to relays | ⏳ **Pending** |
-| 4 | Cable button switch to relays and PLC | ✅ **Done** |
-
-**Status detail (17 August 2026):** Commissioning of the Right Hand Large Temperature Cabinet is in progress.
-
-**Items 1–2, 4 complete:** Panel mount USB replaced. Cable button switch to relays wiring complete.
-
-**Item 3 pending:** Wire up 37-pin connector pins 13 & 14 to relay coils. Once complete, will connect 
-RS232 cable for comms path validation.
-
-**▶ Right Hand Large commissioning in progress — ~75% complete, following the same 4-item process as other cabinets.**
-
----
-
-## Stage 9 (continued) — Temperature Swing Development on R&D Prototype
-
-**New:** Development of Temperature Swing is now underway on a dedicated R&D Prototype Pi (10.1.6.40) following the same workflow as the original Temperature Cabinet Control project (Stages 1–8).
-
-### Stage 1 — Remote SSH + VS Code setup (Complete 18 August 2026)
-
-**Host:** Raspberry Pi 5 at **10.1.6.40** (`PrototypePi5`)  
-**Repository:** `tlelean/RnD` on branch `Omkar_Temperature_Swing_Integration`  
-**Development environment:** VS Code Remote-SSH → `mechatronics@10.1.6.40`  
-**Python venv:** pymodbus==3.12.1 pinned, opcua==0.98.13, fastapi==0.135.1
-
-**Setup complete:**
-- ✅ Remote SSH connection from laptop
-- ✅ RnD repo cloned on correct branch
-- ✅ Python venv with pinned dependencies
-- ✅ Directory structure: backend/, frontend/, codesys/, docs/
-- ✅ All commits pushed
-
-**Next:** Stage 2 (design investigation of existing DLS implementation) — see [`temperature swing integration/Development_history/`](<temperature swing integration/Development_history/>)
-
-### Previous: FastAPI page router implementation (Stage 9 original)
-
-The Temperature Swing module design (CODESYS state machine, Python manager, WebSocket broadcaster, HMI pages) was drafted in Stage 2 of the `temperature swing integration/` folder. A **FastAPI page router** (`temperature_swing.py`) was created that ties the Python manager to the existing DLS backend HTTP routes and WebSocket infrastructure.
-
-**`temperature_swing.py`** — a FastAPI `APIRouter` following DLS conventions:
-- **Three REST routes** — `POST /api/temperature-swing/start`, `GET /api/temperature-swing/status`, `POST /api/temperature-swing/stop`
-- **WebSocket endpoint** — `WS /ws/temperature-swing` for live status broadcast during a running test
-- **Pydantic request/response models** — validated extreme temperature (−45…85 °C), pressure mode ("none"/"50"/"75"/"100"), and hold duration (>0 minutes)
-- **Error handling** — 503 for OPC connection issues, 500 for other exceptions, 400 for invalid input, matching the existing `live_trend.py` / `camera.py` pattern
-- **OPC adapter bridge** — `_OpcNodeAdapter` converts the sync, friendly-name DLS `opc` wrapper to the async, raw-node-id interface `TemperatureSwingManager` expects
-- **Connection manager** — batches WebSocket clients and broadcasts status to all connected HMI clients while a test is active
-
-**Status:** First draft complete; now undergoing Stage 2 design review to align with existing DLS patterns and API 6A requirements before integration into main RnD backend.
+Full investigation, wiring, CODESYS source, and open items (manual-authority confirmation,
+channel reallocation for the ramp gate and panel lock, and a researched software-first
+conflict-resolution design): [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>).
 
 ---
 
@@ -674,8 +505,7 @@ as a layout reference for that work.
 | [`linux modbus proof of concept and test logs/README.md`](<linux modbus proof of concept and test logs/README.md>) | Modbus RTU concepts, serial bring-up, `mbpoll` bench test |
 | [`codesys modbus com port investigation and troubleshooting log/README.md`](<codesys modbus com port investigation and troubleshooting log/README.md>) | Superseded serial-direct approach; network stabilisation and SysCom |
 | [`remote ssh vs code 10.1.6.17 setup guide/README.md`](<remote ssh vs code 10.1.6.17 setup guide/README.md>) | Remote-SSH and Git workflow from the Pi |
-| [`cabinet on-off automation proof of concept and integration/README.md`](<cabinet on-off automation proof of concept and integration/README.md>) | Remote start/stop design investigation — complete. As-built two-relay architecture, integration test results, CODESYS implementation |
-| [`commissioning of temperature cabinets/README.md`](<commissioning of temperature cabinets/README.md>) | Commissioning procedures, watch-window operating guide, manual authority test suite M1–M6, troubleshooting, cabinet rollout status, and per-cabinet progress tracking |
+| [`cabinet on-off automation investigation and test logs/README.md`](<cabinet on-off automation investigation and test logs/README.md>) | Remote start/stop investigation, abandoned routes, as-built Omron CPM1A solution, open items |
 | `docs/Project Kick-Off- Temperature Cabinet Setpoint Control.pdf` | Objective, scope, definition of done |
 | `docs/7168-DWG-100 - REV B - CP1.pdf` | LCA Group panel as-built drawing (DLS008) — terminal numbering, I/O channel maps, enclosure layout |
 | `docs/Omron PLC CP1MA Datasheet.pdf` | CPM1A I/O specifications — confirms bidirectional opto-isolated digital inputs, the fact that made §19 of the cabinet on/off doc work |
