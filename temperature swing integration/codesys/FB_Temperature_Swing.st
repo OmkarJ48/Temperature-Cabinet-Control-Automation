@@ -27,6 +27,7 @@ VAR
 
 	// Timers
 	DelayTimer				: TON;
+	HoldTimer				: TON;    // Hold duration countdown (state 8)
 END_VAR
 
 // Main state machine
@@ -93,7 +94,7 @@ CASE iStep OF
 	// and the same approach the existing 5 to 10% PR2 program uses.
 	// Next: fbApplyPressure.xDone -> 4 (CABINET_CONFIGURE_AND_START).
 	// Unsure: FB_Apply_Test_Pressure's timeout/error behaviour — need to
-	// confirm what it exposes on failure so state 9 can react to it.
+	// confirm what it exposes on failure so state 10 can react to it.
 	3:
 		fbApplyPressure(xStart := TRUE, rTarget := GVL.iTestPressure);
 		IF fbApplyPressure.xDone THEN
@@ -180,7 +181,7 @@ CASE iStep OF
 	// Reuse: conceptually similar to FB_Stability_Check's windowing idea, but
 	// must be built new — same reasoning as step 6. Pressure band supervision
 	// (if pressurised) is assumed to keep running through this state too.
-	// Next: 2 consecutive passing windows -> 8 (COMPLETE).
+	// Next: 2 consecutive passing windows -> 8 (HOLD).
 	// Unsure: whether pressure supervision really should keep running here —
 	// assumed yes (spec says "during the swing", stabilising is still part of
 	// the swing) but not explicitly confirmed.
@@ -193,7 +194,26 @@ CASE iStep OF
 		END_IF
 
 	//=========================================================
-	// 8: COMPLETE
+	// 8: HOLD
+	//=========================================================
+	// Does: hold the cabinet at the requested setpoint for the configured hold
+	// time (per API 6A — operator specifies hold duration in Start Dialog).
+	// Reuse: FB_Hold's timer pattern for the hold duration countdown.
+	// Next: hold time elapsed -> 9 (COMPLETE).
+	// Unsure: should I continue rate monitoring during the hold, or is the test
+	// considered "stabilised" once I exit state 7?
+	8:
+		HoldTimer(IN := TRUE, PT := GVL.rTemperatureSwing_HoldTime);
+		GVL.sPrompt := CONCAT3('Holding at setpoint. Time remaining: ',
+			REAL_TO_STRF(HoldTimer.ET / T#1S, 0, '.'), ' seconds.');
+		// TODO: decide if rate monitoring should continue during hold
+		IF HoldTimer.Q THEN
+			HoldTimer(IN := FALSE);
+			iStep := 9;
+		END_IF
+
+	//=========================================================
+	// 9: COMPLETE
 	//=========================================================
 	// Does: close CSV, leave cabinet running at the requested setpoint (no
 	// auto-vent, no auto-shutoff) and wait for the operator to stop/save.
@@ -203,7 +223,7 @@ CASE iStep OF
 	// valve reaches ambient) is explicitly out of scope for this skeleton per
 	// the kick-off doc — "a sensible ambient-detection method should be
 	// proposed before implementation" — so it isn't handled here yet.
-	8:
+	9:
 		GVL.sPrompt := 'Stabilised. Test complete — press End to finish.';
 		IF GVL.xSave THEN
 			xDone := TRUE;
@@ -211,17 +231,17 @@ CASE iStep OF
 		END_IF
 
 	//=========================================================
-	// 9: ERROR
+	// 10: ERROR
 	//=========================================================
 	// Does: handle pressure-establishment failure/timeout (any other fault is
 	// already caught centrally by ProgramSelecter's E-stop gate before this
 	// FB ever runs).
-	// Reuse: FB_Hold step 10 overpressure-handling pattern, adapted.
+	// Reuse: FB_Hold's error-handling pattern, adapted.
 	// Next: operator acknowledges -> xDone TRUE, iStep := 0.
 	// Unsure: what fbApplyPressure exposes on failure — no error/timeout
 	// output confirmed yet, so this state can't be filled in properly until
 	// that's checked.
-	9:
+	10:
 		GVL.sPrompt := 'Temperature Swing error — see message and press Stop.';
 		// TODO: fault acknowledgement / reset path
 
