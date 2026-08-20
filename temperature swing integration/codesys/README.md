@@ -87,15 +87,21 @@ I've documented each state below with: what I need to implement, what existing c
 - How do I detect window transitions and track the 2-window debounce counter?
 - Should pressure band supervision continue during stabilisation? (I'm assuming yes per spec, but haven't confirmed.)
 
-### State 8: COMPLETE
+### State 8: HOLD
+**I need to:** Hold the cabinet at the requested setpoint for the configured hold time (per API 6A — operator specifies hold duration).  
+**I can reuse:** FB_Hold's timer pattern for the hold duration countdown.  
+**I move to state 9 when:** The hold time has elapsed.  
+**I'm unsure about:** Should I continue rate monitoring during the hold, or is the test considered "stabilised" once I exit state 7?
+
+### State 9: COMPLETE
 **I need to:** Close CSV logging, leave the cabinet at the requested setpoint, and wait for the operator to save/stop.  
 **I can reuse:** FB_Hold step 8/9 "await save then stop" pattern.  
 **I move to state 0 when:** `GVL.xSave` is TRUE.  
 **I'm unsure about:** Nothing — ambient-return behaviour (auto-shutoff at ambient) is explicitly out of scope per the kickoff doc.
 
-### State 9: ERROR
+### State 10: ERROR
 **I need to:** Handle pressure-establishment failure/timeout (other faults are caught centrally by ProgramSelecter's E-stop).  
-**I can reuse:** FB_Hold step 10 overpressure-handling pattern (adapted).  
+**I can reuse:** FB_Hold's error-handling pattern (adapted).  
 **I move to state 0 when:** The operator acknowledges the error.  
 **I'm unsure about:**
 - What does `fbApplyPressure` expose on failure? (`xError`, `tTimeout`, enum `eFaultCode`?)
