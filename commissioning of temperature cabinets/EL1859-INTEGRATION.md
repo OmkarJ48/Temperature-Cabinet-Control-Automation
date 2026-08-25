@@ -7,6 +7,34 @@
 
 ---
 
+## 0. Relay topology confirmed against DLS008's live PLC_PRG and the as-drawn schematic
+
+Before finalising this design, the two-relay topology assumed below was checked against two
+independent sources for the Left Hand Small cabinet (DLS008), the reference for "latest working,
+tested" logic:
+
+- **The as-drawn field wiring schematic** (button station → Relay 1/Relay 2 → Omron COM/01/02).
+  Confirms terminal-for-terminal: Relay 1 common/NO tied to bus 100 and wire 102 → Omron `01`;
+  Relay 2 common fed from the button's own NC2 output, NC contact → wire 103 → Omron `02`. This
+  matches §20.5 of the commissioning README exactly, so the two-relay design — not the abandoned
+  "Option C" direct-to-button-station route — is confirmed as what's physically wired and is what
+  this document's Card 10 allocation (§3.2) is designed around.
+- **The live PLC_PRG source.** One correction came out of this: the start pulse is
+  **`tSTART_PULSE : TIME := T#5S`**, not the 1 second previously written in the commissioning
+  README's quick reference. That value is now corrected throughout both documents. Confirmed with
+  Jason — 5 s stands.
+
+One loose end this did **not** resolve: PLC_PRG's own comment describes `xStopPermit` in
+"Option C" terms ("the button station's own 24 V supply... no relay needed"), which doesn't match
+either the schematic or the M1–M6 test record already in the README (which shows `xStopPermit :=
+TRUE` energising Relay 2 to stop the cabinet). That comment is almost certainly stale text left
+over from an earlier design iteration and not something this change touches — this document does
+not alter start/stop logic, only which physical terminal drives the same two signals — but it's
+worth someone correcting the comment in PLC_PRG itself so the next person reading the source isn't
+misled the way this check nearly was.
+
+---
+
 ## 1. Why this change
 
 Cabinet start/stop currently runs on **EL2869 CH15 / CH16**. Those two channels are allocated in
@@ -193,7 +221,7 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 15. Map EL1859 DI 1 → `xCabinetRunFb` (new). Leave `xCabinetRunning` as-is for now — do not change
     the interlock logic in the same commit as the wiring change. Compare the two in the watch
     window first; switching the logic over to the measured signal is a **separate, later change**.
-16. **No other logic changes.** Same FB, same 1 s start pulse, same 5-minute anti-short-cycle
+16. **No other logic changes.** Same FB, same 5 s start pulse (`tSTART_PULSE := T#5S`), same 5-minute anti-short-cycle
     lockout.
 
 ### Phase 5 — Prove it

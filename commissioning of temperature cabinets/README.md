@@ -144,7 +144,7 @@ parallel, isolated source at the same input.
 
 | Step | Action | Expected |
 |------|--------|----------|
-| 1 | Set `xCabinetOnCmd = TRUE` in **Prepared value** | `xStartPulse` HIGH for 1 second, then FALSE |
+| 1 | Set `xCabinetOnCmd = TRUE` in **Prepared value** | `xStartPulse` HIGH for 5 seconds, then FALSE |
 | 2 | Listen | Fan starts (relay 1 energizes, supplies 24V to Omron `01`) |
 | 3 | Wait 5–10s | Compressor starts after fan |
 | 4 | Set `xCabinetOnCmd = FALSE` | `xStopPermit` FALSE; `xStartPulse` FALSE |
@@ -194,14 +194,14 @@ Run on each commissioned cabinet:
 
 | Parameter | Value | Reason |
 |-----------|-------|--------|
-| Start pulse width | 1 second | Longer than relay pickup (~50 ms) |
+| Start pulse width | 5 seconds (`tSTART_PULSE : TIME := T#5S` in PLC_PRG) | Long enough for the latch relay to reliably pick up — relay pickup is ~50 ms, so this is deliberate headroom, not the minimum |
 | Anti-short-cycle lockout | 5 minutes | Compressor soft-start protection |
 
 **Watch-window variables:**
 
 | Variable | TRUE | FALSE |
 |----------|------|-------|
-| `xStartPulse` | Start active (~1s pulse) | Start idle |
+| `xStartPulse` | Start active (5s pulse) | Start idle |
 | `xStopPermit` | Stop path open; run allowed | Stop path broken; must stop |
 | `xCabinetOnCmd` | Request run | Request stop |
 | `tOffLockRemain` | > 0s (restart blocked) | = 0s (restart allowed) |
