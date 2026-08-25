@@ -1391,7 +1391,7 @@ circuits, and confusing them cost several days:
 | Can it change the setpoint? | **No — never could.** | Yes — this is the actual exposure |
 
 No amount of work on the button station could ever have satisfied §18.1, because the button
-station has no path to the setpoint. §17.8.4 records the wiring dead-end that resulted.
+station has no path to the setpoint. §17.8.4 records the wiring constraint that finding surfaced.
 
 ## 18.3 The F4S has this built in — two independent mechanisms
 
@@ -1519,9 +1519,11 @@ CPM1A datasheet, both added to `docs/`) found that assumption was wrong: **the b
 on a relay coil. `102` → CPM1A input `0CH.00`. `103` → CPM1A input `0CH.01`. `COM0` is the shared
 input common for that PLC.
 
-This is the fact that resolves the §17.8.4 dead-end. §15 Option C failed because it tried to make
-an EL2869 **sourcing** output substitute for a **low-side (ground) switched** button contact — a
-device-type mismatch with no fix at any terminal. The Omron's digital inputs are a different kind
+This is the fact that resolves the §17.8.4 constraint. §15 Option C tried to make an EL2869
+**sourcing** output substitute for a **low-side (ground) switched** button contact, and that test
+is what surfaced the device-type mismatch — no fix exists at any terminal for that pairing, which
+is exactly the finding that sent the investigation further back into the panel. The Omron's
+digital inputs are a different kind
 of thing entirely: **bidirectional opto-isolated inputs**. Per the CPM1A datasheet (`docs/Omron
 PLC CP1MA Datasheet.pdf`, I/O Specifications): *"The polarity of the input power supply can be
 either positive or negative."* A sourced 24 V signal from the EL2869 and a sourced 24 V signal
@@ -1750,8 +1752,8 @@ originally-assumed latch coil. This gives the best of both findings:
   circuit, and a design that is fully reversible (unplug two relays, panel is as it was).
 - From §19: the correct termination point — the Omron CPM1A's `01`/`02` digital inputs — so the
   relay contacts and the local button's own contacts land on the **same** input and OR together
-  safely, instead of trying to interrupt a low-side contact the EL2869 was never able to switch
-  (the §15 Option C dead-end).
+  safely, instead of trying to interrupt a low-side contact the EL2869 was never able to switch —
+  the device-type mismatch §15 Option C's hardware test identified.
 
 ## 20.2 Wiring — as tested, from the reference diagram
 
