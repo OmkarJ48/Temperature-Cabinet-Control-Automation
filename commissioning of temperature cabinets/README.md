@@ -1,14 +1,18 @@
 # Commissioning of Temperature Cabinets — Cabinet On/Off Automation
 
-**Status (20 August 2026):** RS232-to-USB cable (RS 1860518) arrived and connected across all cabinets. Right Hand Small Temperature Cabinet now in commissioning progress.
+**Status (25 August 2026):** Right Hand Large Temperature Cabinet commissioning complete — three of five cabinets now fully commissioned. Beckhoff EL1859 16-channel Digital Input/Output module received.
 
 - ✅ **Left Hand Large Temperature Cabinet**: Full commissioning complete
-- ✅ **Twinsafe Temperature Cabinet**: Full commissioning complete  
-- ▶ **Right Hand Large Temperature Cabinet**: Panel mount USB replaced; cable button switch to relays connection done; awaiting 37-pin connector wiring to pins 13, 14, and GND
+- ✅ **Twinsafe Temperature Cabinet**: Full commissioning complete
+- ✅ **Right Hand Large Temperature Cabinet**: Full commissioning complete
 - ▶ **Left Hand Small Temperature Cabinet (DLS008)**: Cable button switch to relays connection done; awaiting 37-pin connector wiring to pins 13, 14, and GND
 - ▶ **Right Hand Small Temperature Cabinet**: Panel mount replaced; button switch to relays connection done; Pi to USB connection made in DLS; RS232 to USB cable connected; awaiting 37-pin connector wiring to pins 13 and 14
 
-**Awaiting:** EL1859 digital input/output module and carriage for future I/O expansion (not blocking current commissioning).
+**EL1859 received.** The Beckhoff EL1859 16-channel Digital Input/Output module has arrived and is
+available for the I/O expansion work (JOB 4 in [`ROLLOUT-CHECKLIST.md`](../ROLLOUT-CHECKLIST.md)) —
+moving cabinet start/stop off 37-way pins 36/37 and wiring independent run-status feedback into a DI
+channel. It is **not a prerequisite** for the two remaining cabinet commissionings, which continue on
+the existing EL2869 CH15/CH16 route.
 
 ---
 
@@ -235,12 +239,12 @@ Run on each commissioned cabinet:
 | 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ▶ **In progress** — panel USB done, cable button switch to relays done; **awaiting 37-pin connector wiring** (items 3–4 of checklist remaining) |
 | 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** — all 4 items done |
 | 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026)** — all 4 items done |
-| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ▶ **In progress** — panel mount USB replaced; cable button switch to relays connection done; **awaiting 37-pin connector wiring** |
+| 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (25 August 2026)** — all 4 items done |
 | 4 | **Right Hand Small Temperature Cabinet** | Watlow F4T + Omron CPM1A | ▶ **In progress (~80% complete)** — panel mount replaced, button switch to relays connection done, Pi to USB connection made in DLS, RS232 to USB cable connected; **awaiting 37-pin connector wiring to pins 13 & 14** |
 
 ---
 
-## Procurement status (17 August 2026)
+## Procurement status (25 August 2026)
 
 | Item | Supplier | Status |
 |---|---|---|
@@ -250,8 +254,8 @@ Run on each commissioned cabinet:
 | Single-core wire (yellow) | RS Components | ✅ Procured & installed |
 | XLR 4-way female/male connectors | RS Components | ✅ Procured |
 | Cable tie mount | RS Components | ✅ Procured & used |
-| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ⏳ On order — future I/O expansion, not blocking current commissioning |
-| Carriage (EL1859 order) | Beckhoff | ⏳ On order — future I/O expansion, not blocking current commissioning |
+| **EL1859 16-channel Digital Input/Output module** | Beckhoff | ✅ **Received (25 August 2026)** — held for I/O expansion (JOB 4); not blocking current commissioning |
+| Carriage (EL1859 order) | Beckhoff | ✅ **Received (25 August 2026)** |
 
 ---
 
@@ -292,13 +296,19 @@ All physical wiring and connectivity identical to Left Hand Large Cabinet. RS232
 
 ### Right Hand Large Temperature Cabinet
 
-**Status (17 August 2026):** ▶ **In progress.**
+**Status (25 August 2026):** ✅ **Commissioning complete.**
 
-- ✅ Panel mount USB replaced
-- ✅ Cable button switch to relays connection done
-- ⏳ **Awaiting:** 37-pin connector wiring to pins 13, 14, and GND of relays
+All four items of the commissioning checklist are done:
+1. ✅ Panel mount USB replaced and mounted on enclosure
+2. ✅ USB wiring harness routed from Raspberry Pi to panel mount
+3. ✅ 37-pin connector wiring to pins 13, 14 and GND complete — relay coils driven per the two-relay design
+4. ✅ Button switch to PLC relays wiring complete
 
-Following the same 4-item commissioning process as Left Hand Large and Twinsafe Cabinets.
+Same 4-item process and same two-relay topology as the Left Hand Large and Twinsafe cabinets, so the
+local button station remains electrically unmodified and retains manual authority. RS232 cable
+(RS 1860518) connected for the comms path.
+
+Manual authority tests M1–M6 to be recorded against this cabinet on the checklist below.
 
 ---
 
@@ -330,6 +340,13 @@ Following the same 4-item commissioning process as other cabinets. Once pin 13 &
 
 ## Next steps
 
-1. **DLS008, Right Hand Large, & Right Hand Small:** Complete 37-pin connector wiring (pins 13, 14 to relays)
-2. **Right Hand Large & Right Hand Small:** Once wiring complete, run manual authority tests M1–M6 per the test suite
-3. **Future:** Install EL1859 module when hardware arrives (future I/O expansion project)
+1. **DLS008 & Right Hand Small:** Complete 37-pin connector wiring (pins 13, 14 to relays) — the only
+   two cabinets still outstanding
+2. **Right Hand Small:** Once wiring complete, run manual authority tests M1–M6 per the test suite
+3. **All commissioned cabinets:** Record M1–M6 results per cabinet and close out the 12-item handover
+   verification
+4. **EL1859 (hardware now in hand):** JOB 4 of [`ROLLOUT-CHECKLIST.md`](../ROLLOUT-CHECKLIST.md) —
+   fit to the EK1100 coupler, scan the bus in CODESYS, move cabinet start/stop off 37-way pins 36/37
+   onto EL1859 DO channels, and wire the latch auxiliary contact into an EL1859 DI channel to give
+   independent run-status feedback (currently `xCabinetRunning` is a commanded-state proxy only).
+   Re-run M1–M6 after the move — behaviour must be identical
