@@ -2,7 +2,9 @@
 
 **Target cabinet for first fit:** Left Hand Large Temperature Cabinet
 **Module:** Beckhoff **EL1859** — EtherCAT digital combi terminal, 8× DI 24 V DC + 8× DO 24 V DC, 0.5 A per output
-**Status:** Design issued for build. **Not yet fitted.**
+**Status:** **Fitted and wired.** EL1859 installed as Card 10 on the Left Hand Large DLS rail;
+pins 13/14/15 re-landed per §3.3; carriage received and terminal in service. Test record in §5
+to be completed and signed off against measured values.
 **Author:** Omkar Joshi · **Reviewed by:** _________ · **Date:** 25 August 2026
 
 ---
@@ -37,12 +39,12 @@ misled the way this check nearly was.
 
 ## 1. Why this change
 
-Cabinet start/stop currently runs on **EL2869 CH15 / CH16**. Those two channels are allocated in
-`IO_Schedule.xlsx` to `3 Way BV03` and `3 Way BV02`, and the 37-way pins the field wiring uses are
-allocated as **digital inputs**. The arrangement works and is tested, but it is borrowed — the
-IO Schedule itself labels the two rows *"Temporary Temp Cab Start"* and *"Temporary Temp Cab Stop"*.
+Cabinet start/stop previously ran on **EL2869 CH15 / CH16** (temporary allocation). Those two channels were allocated in
+`IO_Schedule.xlsx` to `3 Way BV03` and `3 Way BV02`, and the 37-way pins the field wiring used were
+allocated as **digital inputs**. The arrangement worked and was tested, but it was borrowed — the
+IO Schedule itself labeled the two rows *"Temporary Temp Cab Start"* and *"Temporary Temp Cab Stop"*.
 
-The EL1859 makes it permanent and schedule-legal:
+The EL1859 retrofit makes it permanent and schedule-legal:
 
 - cabinet start/stop gets its **own card** with its own row block in the IO Schedule;
 - **EL2869 CH15/CH16 are handed back** to the valve functions they are allocated to;
