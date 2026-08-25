@@ -12,7 +12,7 @@ loop — it reads state and writes a target. That boundary is the whole design.
 **Author:** Omkar Joshi — Oliver Valvetek / Oliver Mechatronics / Oliver R&D
 **Working branch:** `Omkar_Temperature_Cabinet_Setpoint_Control` (all development; `main` is not used for this work)
 **Status:** Modbus proof of concept **complete and qualified on hardware**. Cabinet on/off automation
-rolling out — **3 of 5 temperature cabinets fully commissioned** (25 August 2026). Next stage:
+rolling out — **3 of 5 temperature cabinets fully commissioned** (25 August 2026). **Left Hand Large Temperature Cabinet upgraded with EL1859 module integration** (25 August 2026). Next stage:
 CODESYS WebVisu HMI.
 
 ---
@@ -436,15 +436,14 @@ every case.
 
 | # | Cabinet | Status |
 |---|---|---|
-| 1 | Left Hand Large Temperature Cabinet | ✅ Complete (12 August 2026) |
+| 1 | Left Hand Large Temperature Cabinet | ✅ Complete (12 August 2026) · **EL1859 integrated (25 August 2026)** |
 | 2 | Twinsafe Temperature Cabinet | ✅ Complete (13 August 2026) |
 | 3 | **Right Hand Large Temperature Cabinet** | ✅ **Complete (25 August 2026)** |
 | 4 | Left Hand Small Temperature Cabinet (DLS008) | ▶ In progress — awaiting 37-pin connector wiring |
 | 5 | Right Hand Small Temperature Cabinet | ▶ In progress (~80%) — awaiting 37-pin connector wiring to pins 13 & 14 |
 
 **Hardware update:** the **Beckhoff EL1859** 16-channel digital combi terminal (8× DI + 8× DO, 24 V DC)
-and its carriage have now been **received**, and the integration design is issued for build on the
-Left Hand Large cabinet. It is not needed for the two outstanding commissionings — those complete on
+has been **successfully integrated on the Left Hand Large Temperature Cabinet** (25 August 2026). It is not needed for the two outstanding commissionings — those complete on
 the existing EL2869 CH15/CH16 route — but it makes the cabinet start/stop permanent rather than
 borrowed, by:
 

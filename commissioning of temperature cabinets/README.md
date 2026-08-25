@@ -1,8 +1,8 @@
 # Commissioning of Temperature Cabinets — Cabinet On/Off Automation
 
-**Status (25 August 2026):** Right Hand Large Temperature Cabinet commissioning complete — three of five cabinets now fully commissioned. Beckhoff EL1859 16-channel Digital Input/Output module received.
+**Status (25 August 2026):** Right Hand Large Temperature Cabinet commissioning complete — three of five cabinets now fully commissioned. **Left Hand Large Temperature Cabinet upgraded with EL1859 16-channel Digital Input/Output module fully integrated.**
 
-- ✅ **Left Hand Large Temperature Cabinet**: Full commissioning complete
+- ✅ **Left Hand Large Temperature Cabinet**: Full commissioning complete; **EL1859 module integrated (25 August 2026)**
 - ✅ **Twinsafe Temperature Cabinet**: Full commissioning complete
 - ✅ **Right Hand Large Temperature Cabinet**: Full commissioning complete
 - ▶ **Left Hand Small Temperature Cabinet (DLS008)**: Cable button switch to relays connection done; awaiting 37-pin connector wiring to pins 13, 14, and GND
@@ -245,7 +245,7 @@ Run on each commissioned cabinet:
 | # | Cabinet | Controller | Status |
 |---|---|---|---|
 | 0 | **Left Hand Small Temperature Cabinet (DLS008)** | Watlow F4S + Omron CPM1A | ▶ **In progress** — panel USB done, cable button switch to relays done; **awaiting 37-pin connector wiring** (items 3–4 of checklist remaining) |
-| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)** — all 4 items done |
+| 1 | **Left Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (12 August 2026)**; **EL1859 module integration complete (25 August 2026)** |
 | 2 | **Twinsafe Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (13 August 2026)** — all 4 items done |
 | 3 | **Right Hand Large Temperature Cabinet** | *confirm on survey* | ✅ **Commissioning complete (25 August 2026)** — all 4 items done |
 | 4 | **Right Hand Small Temperature Cabinet** | Watlow F4T + Omron CPM1A | ▶ **In progress (~80% complete)** — panel mount replaced, button switch to relays connection done, Pi to USB connection made in DLS, RS232 to USB cable connected; **awaiting 37-pin connector wiring to pins 13 & 14** |
@@ -271,13 +271,20 @@ Run on each commissioned cabinet:
 
 ### Left Hand Large Temperature Cabinet
 
-**Status (12 August 2026):** ✅ **Commissioning complete.**
+**Status (12 August 2026):** ✅ **Commissioning complete.** **Updated (25 August 2026): EL1859 module integration complete.**
 
 All four items of the commissioning checklist are done:
 1. ✅ Panel mount USB mounted on enclosure
 2. ✅ USB wiring harness routed from Raspberry Pi to panel mount
 3. ✅ Relay wiring to pins 13 & 14 complete per two-relay design
 4. ✅ Button wiring to PLC relays complete
+
+**EL1859 Integration (25 August 2026):**
+- ✅ EL1859 module physically installed on DLS rail (replacing EL1409 channel allocation)
+- ✅ Three digital input wires relocated from EL1409 to EL1859 (Pneumatic Open, Pneumatic Close, E-Stop)
+- ✅ Start/Stop control relays mapped to EL1859 DO channels (DI allocation: Run Feedback, 3× input signals from relocated wires)
+- ✅ CODESYS IO mapping updated to reflect new EL1859 channel allocations
+- ✅ Cabinet start/stop and run feedback functionality verified with new module
 
 Physical wiring harness uses:
 - Yellow industry-grade wire (1.5 mm) for power distribution bus (clamped to rail with cable ties)
