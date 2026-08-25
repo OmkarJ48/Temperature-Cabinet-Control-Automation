@@ -3,7 +3,7 @@
 **Target cabinet for first fit:** Left Hand Large Temperature Cabinet
 **Module:** Beckhoff **EL1859** — EtherCAT digital combi terminal, 8× DI 24 V DC + 8× DO 24 V DC, 0.5 A per output
 **Status:** **Fitted and wired.** EL1859 installed as Card 10 on the Left Hand Large DLS rail;
-pins 13/14/15 re-landed per §3.3; carriage received and terminal in service. Test record in §5
+pins 13/14 re-landed per §3.3; carriage received and terminal in service. Test record in §5
 to be completed and signed off against measured values.
 **Author:** Omkar Joshi · **Reviewed by:** _________ · **Date:** 25 August 2026
 
@@ -47,13 +47,10 @@ IO Schedule itself labeled the two rows *"Temporary Temp Cab Start"* and *"Tempo
 The EL1859 retrofit makes it permanent and schedule-legal:
 
 - cabinet start/stop gets its **own card** with its own row block in the IO Schedule;
-- **EL2869 CH15/CH16 are handed back** to the valve functions they are allocated to;
-- the spare DI half of the same terminal provides **measured run feedback**, closing the standing
-  risk that `xCabinetRunning` is only a commanded-state proxy and cannot detect a cabinet that
-  failed to start.
+- **EL2869 CH15/CH16 are handed back** to the valve functions they are allocated to.
 
-One EL1859 per DLS. Each cabinet has its own DLS, so two DO and one DI per module — six DO and
-seven DI spare for future expansion.
+One EL1859 per DLS. Each cabinet has its own DLS, so two DO per module — six DO spare and the
+full DI bank spare for future expansion.
 
 ---
 
@@ -101,7 +98,7 @@ allocation** problem, not a damage problem.
 
 **Nothing on the field side moves.** The relays, the Omron CPM1A, the button station and the
 37-way pin numbers all stay exactly as commissioned and tested. Only the *inside-panel end* of
-pins 13, 14 and 15 is re-landed onto the new terminal.
+pins 13 and 14 is re-landed onto the new terminal.
 
 That is deliberate: it means the M1–M6 manual authority results already recorded for this cabinet
 stay valid by construction, and the re-test is a confirmation rather than a fresh qualification.
@@ -111,12 +108,10 @@ UNCHANGED ───────────────────────�
   -202X3 pin 13 ── Relay 1 coil + ── Relay 1 NO 14 ── wire 102 ── Omron 01  (START)
   -202X3 pin 14 ── Relay 2 coil + ── Relay 2 NC 22 ── wire 103 ── Omron 02  (STOP)
   -202X3 pin 20 ── both relay coil 0 V returns
-  -202X3 pin 15 ── cabinet run latch auxiliary contact ── fed from pin 19 (24 V)
 
 CHANGES ───────────────────────────────────────────────────────────────►
   pin 13 internal wire:  -215K1 I11  ──►  EL1859 DO 1
   pin 14 internal wire:  -215K1 I12  ──►  EL1859 DO 2
-  pin 15 internal wire:  -215K1 I13  ──►  EL1859 DI 1
   EL2869 CH15 / CH16:    released back to 3 Way BV03 / 3 Way BV02
 ```
 
@@ -129,8 +124,7 @@ Follows the same convention as every other card block in `IO_Schedule.xlsx`.
 | 10 | DO 1 | Temp Cab Start (Relay 1 coil) | DO 24 V | Off | 13 | `DLS.GVL_HMI.xStartPulse` |
 | 10 | DO 2 | Temp Cab Stop (Relay 2 coil) | DO 24 V | Off | 14 | `DLS.GVL_HMI.xStopPermit` |
 | 10 | DO 3–8 | Spare | DO 24 V | Off | — | — |
-| 10 | DI 1 | Temp Cab Run Feedback (latch aux contact) | DI 24 V | Open | 15 | `DLS.GVL_HMI.xCabinetRunFb` |
-| 10 | DI 2–8 | Spare | DI 24 V | — | — | — |
+| 10 | DI 1–8 | Spare | DI 24 V | — | — | — |
 
 Released by this change, back to their IO Schedule allocation:
 
@@ -198,58 +192,47 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 ### Phase 3 — Re-land the wiring (supply isolated again)
 
 9. Isolate the 24 V supply again.
-10. Re-land three internal wires, one at a time, labelling each with a ferrule as it moves:
+10. Re-land two internal wires, one at a time, labelling each with a ferrule as it moves:
 
     | Wire | From | To |
     |---|---|---|
     | 21603 (pin 13) | `-215K1` I11 | **EL1859 DO 1** |
     | 21604 (pin 14) | `-215K1` I12 | **EL1859 DO 2** |
-    | 21605 (pin 15) | `-215K1` I13 | **EL1859 DI 1** |
 
     If the pin 13/14 wires were found *already lifted* from `-215K1` (see §2), land whatever
     conductor is actually feeding those pins onto the EL1859 instead, and remove the redundant
     EL2869 CH15/CH16 conductors entirely — do not leave a disconnected live-capable tail in the
     panel.
 11. Confirm `-202X3` **pin 20** still has continuity to the 0 V rail (relay coil return).
-12. Land the cabinet run latch auxiliary contact in the cabinet panel: **pin 19 (24 V) → aux
-    contact → pin 15**. Volt-free contact only; if the available contact is not volt-free, stop
-    and re-scope this part rather than improvising.
 
 ### Phase 4 — CODESYS mapping
 
-13. Re-map `xStartPulse` → EL1859 DO 1 and `xStopPermit` → EL1859 DO 2.
-14. **Delete** the EL2869 CH15/CH16 mapping rows so nothing can still drive them, and re-map those
+12. Re-map `xStartPulse` → EL1859 DO 1 and `xStopPermit` → EL1859 DO 2.
+13. **Delete** the EL2869 CH15/CH16 mapping rows so nothing can still drive them, and re-map those
     two channels to `3 Way BV03` / `3 Way BV02` per the IO Schedule.
-15. Map EL1859 DI 1 → `xCabinetRunFb` (new). Leave `xCabinetRunning` as-is for now — do not change
-    the interlock logic in the same commit as the wiring change. Compare the two in the watch
-    window first; switching the logic over to the measured signal is a **separate, later change**.
-16. **No other logic changes.** Same FB, same 5 s start pulse (`tSTART_PULSE := T#5S`), same 5-minute anti-short-cycle
+14. **No other logic changes.** Same FB, same 5 s start pulse (`tSTART_PULSE := T#5S`), same 5-minute anti-short-cycle
     lockout.
 
 ### Phase 5 — Prove it
 
-17. Coil check: command start, measure **24 ±2 V across Relay 1 coil**; command stop, same across
+15. Coil check: command start, measure **24 ±2 V across Relay 1 coil**; command stop, same across
     Relay 2. Relays must retain their integral freewheel diodes — the EL1859's outputs need that
     inductive-spike protection just as the EL2869's did.
-18. Run the full **M1–M6 manual authority suite** (§20.7 of the commissioning README).
+16. Run the full **M1–M6 manual authority suite** (§20.7 of the commissioning README).
     **Acceptance criterion: behaviour identical to the EL2869 route. If anything differs, the
     mapping is wrong, not the wiring.**
-19. Fail-safe drill **F1**: power the DLS down with the cabinet running → red button must still
+17. Fail-safe drill **F1**: power the DLS down with the cabinet running → red button must still
     stop the cabinet.
-20. Run-feedback check: start locally by hand, confirm `xCabinetRunFb` goes TRUE; stop, confirm it
-    goes FALSE. Then the real test of why this channel exists — command a start with the cabinet
-    isolated so it *cannot* start, and confirm `xCabinetRunFb` stays FALSE while `xCabinetRunning`
-    goes TRUE. That difference is the failure the DI was added to catch.
 
 ### Phase 6 — Paperwork, in the same change
 
-21. `IO_Schedule.xlsx`: add the **EL1859 (Card 10)** sheet; return card 4 CH15/CH16 to
-    `3 Way BV03` / `3 Way BV02`; update 37-way rows 13, 14 and 15 from *DI Spare / Temporary* to
+18. `IO_Schedule.xlsx`: add the **EL1859 (Card 10)** sheet; return card 4 CH15/CH16 to
+    `3 Way BV03` / `3 Way BV02`; update 37-way rows 13 and 14 from *DI Spare / Temporary* to
     their permanent names, types and CODESYS tags.
-22. Mark up **7168-DWG-100 for REV C**: new terminal `-219K1` on the rail, pins 13/14/15 re-landed,
+19. Mark up **7168-DWG-100 for REV C**: new terminal `-219K1` on the rail, pins 13/14 re-landed,
     EL2869 CH15/CH16 released. The current REV B does not show the temp-cab start/stop at all, so
     this is the change that puts it on the drawing for the first time.
-23. Record the results below and update the commissioning README.
+20. Record the results below and update the commissioning README.
 
 ---
 
@@ -272,8 +255,6 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 | 12 | M5 lockout blocks restart | Blocked | ☐ | |
 | 13 | M6 restart after lockout | Starts | ☐ | |
 | 14 | F1 DLS off, red button | Cabinet stops | ☐ | |
-| 15 | Run feedback follows real state | TRUE only when running | ☐ | |
-| 16 | Failed-start case | `xCabinetRunFb` FALSE | ☐ | |
 
 **Signed off:** ________________  **Date:** __________
 
@@ -287,9 +268,7 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 | 2 | Confirm E-bus current budget; order EL9410 if short | — | Blocks Phase 1 |
 | 3 | Confirm EL1859 terminal point numbering from the housing diagram | — | Blocks Phase 3 |
 | 4 | Confirm new card designator `-219K1` with the drawing owner | — | Before labelling |
-| 5 | Confirm the cabinet run latch aux contact is volt-free | — | Blocks §Phase 3 step 12 |
-| 6 | Switch interlock logic from `xCabinetRunning` to `xCabinetRunFb` | — | **Separate change, after this one is proven** |
-| 7 | Repeat on remaining cabinets once proven here | — | One EL1859 per DLS |
+| 5 | Repeat on remaining cabinets once proven here | — | One EL1859 per DLS |
 
 ---
 

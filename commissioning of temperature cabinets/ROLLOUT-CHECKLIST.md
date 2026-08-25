@@ -127,8 +127,6 @@ Two interposing relays per cabinet, matching the proven RL15 / RL16 pair.
 - [ ] Move the cabinet stop signal off **37-way connector pin 37** onto an EL1859 DO channel
 - [ ] Re-map `GVL_HMI.xStartPulse` and `GVL_HMI.xStopPermit` in the CODESYS I/O mapping to the new
       EL1859 channels
-- [ ] Wire any run-status feedback into an EL1859 **DI** channel while the terminal is open — this
-      closes the "no independent run feedback" gap recorded in §19.6 and §4 of the on/off log
 - [ ] Update `IO_Schedule.xlsx` to reflect the new channel allocation, and resolve the pin 36/37
       conflict flagged in §5 below
 
@@ -178,8 +176,7 @@ These are known, recorded, and must be closed — not discovered again per cabin
 |---|---|---|---|
 | 1 | **Pin 36 / 37 allocation conflict.** `IO_Schedule.xlsx` lists 37-way pins 36/37 as DO *"3 Way BV01"* and *"3 Way BV02"*, but the same channels are in use for cabinet start/stop (EL2869 CH15/CH16). Two functions are claiming the same physical route | **High** — a rig integration change could silently take the cabinet start/stop offline | Resolve during Job 4: the EL1859 move frees pins 36/37 back to the I/O schedule. Update the schedule in the same change |
 | 2 | **Manual authority confirmation** (on/off log §19.4). Conflicting reports on record for whether the button's NO4/NC2 outputs are currently landed alongside CH15/CH16 | **High** — safety-relevant; operator must always be able to stop the cabinet by hand | Close with the Job 3 four-case acceptance test, on every cabinet, and record the result |
-| 3 | **No independent run feedback.** `xCabinetRunning` is a commanded-state proxy, not a measured status | Medium — CODESYS cannot detect a cabinet that failed to start | Wire the latch auxiliary contact to an EL1859 DI channel during Job 4 |
-| 4 | RH cabinet controller is unidentified | Medium — unknown scope | Survey before scheduling cabinet 4 |
+| 3 | RH cabinet controller is unidentified | Medium — unknown scope | Survey before scheduling cabinet 4 |
 
 ---
 

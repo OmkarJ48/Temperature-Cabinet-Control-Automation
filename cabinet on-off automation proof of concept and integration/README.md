@@ -319,7 +319,7 @@ Add to `GVL_HMI` (operator-facing, kept separate from `GVL_Modbus` so the driver
 {attribute 'qualified_only'}
 VAR_GLOBAL
     xCabinetOnCmd    : BOOL;   (* operator/remote request: TRUE = run *)
-    xCabinetRunning  : BOOL;   (* feedback, if a DI is fitted *)
+    xCabinetRunning  : BOOL;   (* commanded-state proxy, not a measurement *)
     xStartPulse      : BOOL;   (* -> EL2869 ch A, parallels green button *)
     xStopPermit      : BOOL;   (* -> EL2869 ch B, TRUE = allow run      *)
     tOffLockRemain   : TIME;   (* anti-short-cycle countdown           *)
@@ -499,7 +499,7 @@ def cabinet_state(host="10.1.6.17") -> bool:
         return c.read_holding_registers(6, count=1, device_id=1).registers[0] == 1
 ```
 
-A request is not a confirmation. Register 6 echoes what was *asked for*; proof that the cabinet actually started is the fan, or a DI fitted to the latch auxiliary contact.
+A request is not a confirmation. Register 6 echoes what was *asked for*; proof that the cabinet actually started is the fan.
 
 ---
 
@@ -540,8 +540,7 @@ Run with the cabinet empty — no valve under test — until T8 passes.
 1. **Momentary or maintained buttons?** (§5) — blocks the wiring design
 2. **Where do wires `102` and `103` terminate?** — confirms the latch circuit
 3. **EL2869 per-channel current rating** vs chosen relay coil — verify against the Beckhoff datasheet before ordering
-4. **Is a run-feedback DI wanted?** A spare EL1409 channel on the latch auxiliary contact would turn `xCabinetRunning` from an assumption into a measurement. Recommended — without it, the system commands but never confirms, which is the exact weakness the setpoint work fixed with read-back
-5. **JTS/DLS008 schematic** still not in the repo — would confirm §3 without a physical trace
+4. **JTS/DLS008 schematic** still not in the repo — would confirm §3 without a physical trace
 
 ---
 
@@ -1572,7 +1571,7 @@ accordingly — **proven repeatedly on hardware, both signals independently.**
 ```iec61131
 xStartPulse    : BOOL;   (* -> EL2869 CH15 -> wire 102 -> Omron 0CH.00 (start) *)
 xStopPermit    : BOOL;   (* -> EL2869 CH16 -> wire 103 -> Omron 0CH.01 (stop)  *)
-xCabinetRunning : BOOL;  (* commanded-state proxy; no independent run feedback wired yet *)
+xCabinetRunning : BOOL;  (* commanded-state proxy — reflects what was asked for, not a measurement *)
 ```
 
 `PLC_PRG_TCP.st`, STEP 0:
@@ -1684,24 +1683,17 @@ original panel builder).
 1. **Stop-priority mutual exclusion** (already implemented, §19.3): if both are commanded, stop
    wins. Trivial and unconditionally safe.
 2. **Hold time, not pulse width.** Because the Omron does its own latching, CODESYS does not need
-   to guess a pulse width the way the abandoned Option C model did. A command should simply be
+   to guess a pulse width the way the superseded Option C model did. A command should simply be
    held at the level intended and released deliberately — there is no minimum "catch" duration to
    tune, which removes an entire class of the timing bugs seen in §17.8.4 and in today's
    `TON`/`TP` chain.
-3. **Run-feedback loop (highest-value next step).** `xCabinetRunning` today is a *commanded-state
-   proxy*, not a measurement — CODESYS has no way to know if a manual button press changed the
-   actual state underneath it. Wiring one spare Omron output (or a spare EL1409 digital input,
-   already used for exactly this purpose in §4 Option 1) back to CODESYS closes the loop: CODESYS
-   can then detect "the cabinet's actual state disagrees with what I last commanded," which is the
-   direct signature of a manual override, and react (suppress a conflicting automatic command, log
-   the event, or surface it on the HMI) instead of blindly re-asserting a stale command.
-4. **Rate-limit automatic commands**, once the scheduler (§19.5) is reconnected, so a schedule
+3. **Rate-limit automatic commands**, once the scheduler (§19.5) is reconnected, so a schedule
    edit or RTC step cannot re-fire start/stop against a state the operator just changed by hand —
-   the same principle as the anti-short-cycle timer removed from §19.3, but keyed off the
-   feedback in point 3 rather than a blind fixed duration.
+   the same principle as the anti-short-cycle timer removed from §19.3, keyed off the commanded
+   state already tracked in `xCabinetRunning`.
 
 None of this requires new relays, new wiring, or touching the button station again — it is entirely
-CODESYS-side logic once the feedback wire in point 3 exists.
+CODESYS-side logic.
 
 ### 19.6.3 Fallback — hardware relay, condensed from §6/§7
 

@@ -9,9 +9,9 @@
 - ▶ **Right Hand Small Temperature Cabinet**: Panel mount replaced; button switch to relays connection done; Pi to USB connection made in DLS; RS232 to USB cable connected; awaiting 37-pin connector wiring to pins 13 and 14
 
 **EL1859 received.** The Beckhoff EL1859 16-channel Digital Input/Output module has arrived. It gives
-cabinet start/stop its own card and adds measured run feedback, releasing EL2869 CH15/CH16 back to
-the valve functions they are allocated to in the IO Schedule. Design issued for build on the Left
-Hand Large cabinet: **[`EL1859-INTEGRATION.md`](EL1859-INTEGRATION.md)**.
+cabinet start/stop its own card, releasing EL2869 CH15/CH16 back to the valve functions they are
+allocated to in the IO Schedule. Design issued for build on the Left Hand Large cabinet:
+**[`EL1859-INTEGRATION.md`](EL1859-INTEGRATION.md)**.
 
 It is **not a prerequisite** for the two remaining cabinet commissionings, which continue on the
 existing EL2869 CH15/CH16 route.
@@ -282,9 +282,9 @@ All four items of the commissioning checklist are done:
 **EL1859 Integration (25 August 2026):**
 - ✅ EL1859 module physically installed on DLS rail (replacing EL1409 channel allocation)
 - ✅ Three digital input wires relocated from EL1409 to EL1859 (Pneumatic Open, Pneumatic Close, E-Stop)
-- ✅ Start/Stop control relays mapped to EL1859 DO channels (DI allocation: Run Feedback, 3× input signals from relocated wires)
+- ✅ Start/Stop control relays mapped to EL1859 DO channels (DI allocation: 3× input signals from relocated wires)
 - ✅ CODESYS IO mapping updated to reflect new EL1859 channel allocations
-- ✅ Cabinet start/stop and run feedback functionality verified with new module
+- ✅ Cabinet start/stop functionality verified with new module
 
 Physical wiring harness uses:
 - Yellow industry-grade wire (1.5 mm) for power distribution bus (clamped to rail with cable ties)
@@ -360,8 +360,7 @@ Following the same 4-item commissioning process as other cabinets. Once pin 13 &
 2. **Right Hand Small:** Once wiring complete, run manual authority tests M1–M6 per the test suite
 3. **All commissioned cabinets:** Record M1–M6 results per cabinet and close out the 12-item handover
    verification
-4. **EL1859 (hardware now in hand):** JOB 4 of [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) —
-   fit to the EK1100 coupler, scan the bus in CODESYS, move cabinet start/stop off 37-way pins 36/37
-   onto EL1859 DO channels, and wire the latch auxiliary contact into an EL1859 DI channel to give
-   independent run-status feedback (currently `xCabinetRunning` is a commanded-state proxy only).
-   Re-run M1–M6 after the move — behaviour must be identical
+4. **EL1859 rollout to the remaining cabinets:** JOB 4 of [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md)
+   is proven on the Left Hand Large cabinet — repeat the fit, bus scan, and DO channel move for the
+   rest of the fleet once each cabinet's own commissioning reaches that stage. Re-run M1–M6 after
+   each move — behaviour must be identical
