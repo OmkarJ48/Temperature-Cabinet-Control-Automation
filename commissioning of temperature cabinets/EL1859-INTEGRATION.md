@@ -3,8 +3,9 @@
 **Target cabinet for first fit:** Left Hand Large Temperature Cabinet
 **Module:** Beckhoff **EL1859** — EtherCAT digital combi terminal, 8× DI 24 V DC + 8× DO 24 V DC, 0.5 A per output
 **Status:** **Fitted and wired.** EL1859 installed as Card 10 on the Left Hand Large DLS rail;
-pins 13/14 re-landed per §3.3; carriage received and terminal in service. Test record in §5
-to be completed and signed off against measured values.
+pins 13/14 re-landed per §3.3, and the three EL1409 inputs covered in §3.2a relocated onto
+EL1859 DI 1–3; carriage received and terminal in service. Test record in §5 to be completed and
+signed off against measured values.
 **Author:** Omkar Joshi · **Reviewed by:** _________ · **Date:** 25 August 2026
 
 ---
@@ -47,10 +48,13 @@ IO Schedule itself labeled the two rows *"Temporary Temp Cab Start"* and *"Tempo
 The EL1859 retrofit makes it permanent and schedule-legal:
 
 - cabinet start/stop gets its **own card** with its own row block in the IO Schedule;
-- **EL2869 CH15/CH16 are handed back** to the valve functions they are allocated to.
+- **EL2869 CH15/CH16 are handed back** to the valve functions they are allocated to;
+- three digital inputs already carried on **EL1409** (Pneumatic Open Position, Pneumatic Close
+  Position, E-Stop) move onto the same new terminal, so the cabinet's digital I/O sits on one
+  card instead of being split across two. See §3.2a.
 
-One EL1859 per DLS. Each cabinet has its own DLS, so two DO per module — six DO spare and the
-full DI bank spare for future expansion.
+One EL1859 per DLS. Each cabinet has its own DLS, so two DO and three DI per module in active
+use — six DO spare and five DI spare for future expansion.
 
 ---
 
@@ -113,18 +117,24 @@ CHANGES ────────────────────────
   pin 13 internal wire:  -215K1 I11  ──►  EL1859 DO 1
   pin 14 internal wire:  -215K1 I12  ──►  EL1859 DO 2
   EL2869 CH15 / CH16:    released back to 3 Way BV03 / 3 Way BV02
+  EL1409 ch 1–3:         Pneumatic Open / Close, E-Stop ──►  EL1859 DI 1–3 (§3.2a — separate
+                         from the 37-way pins covered above)
 ```
 
 ### 3.2 Channel allocation — new Card 10
 
-Follows the same convention as every other card block in `IO_Schedule.xlsx`.
+Follows the same convention as every other card block in `IO_Schedule.xlsx`. The sheet lists the
+DI bank before the DO bank, so this table follows the same order.
 
 | Card | Ch | Description | Type | Default state | `-202X3` pin | CODESYS tag |
 |---|---|---|---|---|---|---|
+| 10 | DI 1 | Pneumatic Open Position (from EL1409 ch 1) | DI 24 V | — | TBC — see §3.2a | — |
+| 10 | DI 2 | Pneumatic Close Position (from EL1409 ch 2) | DI 24 V | — | TBC — see §3.2a | — |
+| 10 | DI 3 | E-Stop (from EL1409 ch 3) | DI 24 V | NO | TBC — see §3.2a | — |
+| 10 | DI 4–8 | Spare | DI 24 V | — | — | — |
 | 10 | DO 1 | Temp Cab Start (Relay 1 coil) | DO 24 V | Off | 13 | `DLS.GVL_HMI.xStartPulse` |
 | 10 | DO 2 | Temp Cab Stop (Relay 2 coil) | DO 24 V | Off | 14 | `DLS.GVL_HMI.xStopPermit` |
 | 10 | DO 3–8 | Spare | DO 24 V | Off | — | — |
-| 10 | DI 1–8 | Spare | DI 24 V | — | — | — |
 
 Released by this change, back to their IO Schedule allocation:
 
@@ -132,6 +142,21 @@ Released by this change, back to their IO Schedule allocation:
 |---|---|---|
 | 4 (EL2869) | CH15 | `3 Way BV03` |
 | 4 (EL2869) | CH16 | `3 Way BV02` |
+
+### 3.2a EL1409 inputs relocated to EL1859 DI 1–3
+
+Three EL1409 channels — Pneumatic Open Position, Pneumatic Close Position, and E-Stop — move onto
+EL1859 DI 1–3. Unlike pins 13/14, these three signals are **not** on the `-202X3` 37-way connector
+covered by §2: `IO_Schedule.xlsx`'s EL1409 sheet marks the source channels 1–3 as "MOVED TO
+EL1859 DI 1/2/3" but does not carry a 37-way pin cross-reference for them, and none of the
+`-202X3` rows in the 37-way sheet are labelled Pneumatic Open/Close or E-Stop for this cabinet —
+they must be landed directly, EL1409 input to EL1859 input, inside the panel.
+
+**On Left Hand Large this wiring is already done** (see Status, above). What is not yet done is recording
+the exact EL1409 terminal points (and internal wire numbers, if ferruled) that were actually used
+for channels 1, 2 and 3, so the pin/wire column in §3.2 can be filled in against fact rather than
+left as *TBC*. Open item 5 (§6) tracks closing this. When repeating this job on another cabinet,
+trace and record those terminal points **before** landing anything — do not wire from assumption.
 
 ### 3.3 Rail position
 
@@ -150,7 +175,8 @@ before it is stencilled, so the REV C markup and the physical label agree.
 
 ## 4. Build procedure
 
-Work in this order. Steps 1–3 and 8–10 are dead-panel work.
+Work in this order. Steps 1–6 and 9–12 are dead-panel work (supply isolated); steps 7–8 and
+13–20 are done live, with the EL1859 powered.
 
 ### Phase 0 — Before opening the panel
 
@@ -203,36 +229,48 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
     conductor is actually feeding those pins onto the EL1859 instead, and remove the redundant
     EL2869 CH15/CH16 conductors entirely — do not leave a disconnected live-capable tail in the
     panel.
-11. Confirm `-202X3` **pin 20** still has continuity to the 0 V rail (relay coil return).
+11. Re-land the three EL1409 inputs onto EL1859 DI 1–3, per §3.2a: EL1409 channel 1 (Pneumatic
+    Open Position) → EL1859 DI 1, channel 2 (Pneumatic Close Position) → EL1859 DI 2, channel 3
+    (E-Stop) → EL1859 DI 3. Confirm the physical terminal points against the housing diagram
+    before landing anything — §3.2a's open item must be closed first.
+12. Confirm `-202X3` **pin 20** still has continuity to the 0 V rail (relay coil return).
 
 ### Phase 4 — CODESYS mapping
 
-12. Re-map `xStartPulse` → EL1859 DO 1 and `xStopPermit` → EL1859 DO 2.
-13. **Delete** the EL2869 CH15/CH16 mapping rows so nothing can still drive them, and re-map those
+13. Re-map `xStartPulse` → EL1859 DO 1 and `xStopPermit` → EL1859 DO 2.
+14. **Delete** the EL2869 CH15/CH16 mapping rows so nothing can still drive them, and re-map those
     two channels to `3 Way BV03` / `3 Way BV02` per the IO Schedule.
-14. **No other logic changes.** Same FB, same 5 s start pulse (`tSTART_PULSE := T#5S`), same 5-minute anti-short-cycle
+15. Re-map whichever CODESYS tags previously read EL1409 channels 1–3 to EL1859 DI 1–3 instead.
+    Check `GVL_HMI` / `GVL_Modbus` for the existing tag names before re-pointing them, and confirm
+    nothing else in the project still reads the old EL1409 channels.
+16. **No other logic changes.** Same FB, same 5 s start pulse (`tSTART_PULSE := T#5S`), same 5-minute anti-short-cycle
     lockout.
 
 ### Phase 5 — Prove it
 
-15. Coil check: command start, measure **24 ±2 V across Relay 1 coil**; command stop, same across
+17. Coil check: command start, measure **24 ±2 V across Relay 1 coil**; command stop, same across
     Relay 2. Relays must retain their integral freewheel diodes — the EL1859's outputs need that
     inductive-spike protection just as the EL2869's did.
-16. Run the full **M1–M6 manual authority suite** (§20.7 of the commissioning README).
+18. Run the full **M1–M6 manual authority suite** (§20.7 of the commissioning README).
     **Acceptance criterion: behaviour identical to the EL2869 route. If anything differs, the
     mapping is wrong, not the wiring.**
-17. Fail-safe drill **F1**: power the DLS down with the cabinet running → red button must still
+19. Fail-safe drill **F1**: power the DLS down with the cabinet running → red button must still
     stop the cabinet.
+20. Relocated-input check: exercise the pneumatic open and close positions and confirm EL1859 DI 1
+    / DI 2 track them; trigger the E-Stop and confirm EL1859 DI 3 follows. Compare against the
+    same signals read on the old EL1409 channels before they're decommissioned, so the comparison
+    is against a known-good reference rather than an assumption.
 
 ### Phase 6 — Paperwork, in the same change
 
-18. `IO_Schedule.xlsx`: add the **EL1859 (Card 10)** sheet; return card 4 CH15/CH16 to
+21. `IO_Schedule.xlsx`: add the **EL1859 (Card 10)** sheet; return card 4 CH15/CH16 to
     `3 Way BV03` / `3 Way BV02`; update 37-way rows 13 and 14 from *DI Spare / Temporary* to
-    their permanent names, types and CODESYS tags.
-19. Mark up **7168-DWG-100 for REV C**: new terminal `-219K1` on the rail, pins 13/14 re-landed,
-    EL2869 CH15/CH16 released. The current REV B does not show the temp-cab start/stop at all, so
-    this is the change that puts it on the drawing for the first time.
-20. Record the results below and update the commissioning README.
+    their permanent names, types and CODESYS tags; mark the EL1409 sheet's channels 1–3 as moved.
+22. Mark up **7168-DWG-100 for REV C**: new terminal `-219K1` on the rail, pins 13/14 re-landed,
+    EL2869 CH15/CH16 released, EL1409 channels 1–3 re-landed onto EL1859 DI 1–3. The current
+    REV B does not show the temp-cab start/stop at all, so this is the change that puts it on the
+    drawing for the first time.
+23. Record the results below and update the commissioning README.
 
 ---
 
@@ -241,6 +279,7 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 | # | Check | Expected | Result | Notes |
 |---|---|---|---|---|
 | 0 | Wires 21603/21604 traced at `-215K1` | Finding recorded | ☐ | Connected / lifted: ________ |
+| 0a | EL1409 channel 1–3 terminal points traced and recorded (§3.2a) | Finding recorded | ☐ | |
 | 1 | E-bus budget within 2000 mA | Pass | ☐ | Measured/calculated: ______ |
 | 2 | EL1859 power contacts | 24 V ±2 V | ☐ | |
 | 3 | Bus scan shows EL1859 at position 10 | Match | ☐ | |
@@ -255,6 +294,8 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 | 12 | M5 lockout blocks restart | Blocked | ☐ | |
 | 13 | M6 restart after lockout | Starts | ☐ | |
 | 14 | F1 DLS off, red button | Cabinet stops | ☐ | |
+| 15 | EL1859 DI 1/DI 2 track pneumatic open/close position | Matches EL1409 reference | ☐ | |
+| 16 | EL1859 DI 3 follows E-Stop | Matches EL1409 reference | ☐ | |
 
 **Signed off:** ________________  **Date:** __________
 
@@ -268,7 +309,8 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 | 2 | Confirm E-bus current budget; order EL9410 if short | — | Blocks Phase 1 |
 | 3 | Confirm EL1859 terminal point numbering from the housing diagram | — | Blocks Phase 3 |
 | 4 | Confirm new card designator `-219K1` with the drawing owner | — | Before labelling |
-| 5 | Repeat on remaining cabinets once proven here | — | One EL1859 per DLS |
+| 5 | Record the EL1409 channel 1–3 terminal points for Pneumatic Open, Pneumatic Close and E-Stop against what was actually landed (§3.2a) | — | Wiring is done; this backfills the pin/wire reference in §3.2 and closes test record row 0a |
+| 6 | Repeat on remaining cabinets once proven here | — | One EL1859 per DLS |
 
 ---
 
