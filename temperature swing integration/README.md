@@ -57,7 +57,7 @@ frontend/start_dialog_temperature_swing.html
 backend/temperature_swing_manager.py  ──OPC UA write──►  codesys/GVL_TemperatureSwing.st
                                                                   │
                                                                   ▼
-                                                    codesys/FB_TemperatureSwing.st
+                                                    codesys/FB_Temperature_Swing.st
                                                     (state machine, rate calc,
                                                      pressure establish/maintain)
                                                                   │
@@ -78,7 +78,7 @@ Python is the transport layer" boundary.
 
 - [ ] Import `codesys/` files into the live `Device.export` project (see
       `codesys/README.md` for exact steps and the two existing symbols
-      `FB_TemperatureSwing` depends on that must be confirmed/renamed)
+      `FB_Temperature_Swing` depends on that must be confirmed/renamed)
 - [ ] Copy `backend/` files into `apps/dls/backend/automation/` in the main
       RnD repository and wire the FastAPI routes (see `backend/README.md`)
 - [ ] Copy `frontend/` files into `apps/dls/frontend/pages/` and add the
@@ -95,7 +95,7 @@ Python is the transport layer" boundary.
   not included** — they already exist in the live project; this design
   assumes their current signatures.
 - `F_LogTemperatureSwingRow` / `F_BuildTemperatureSwingLogPath` are named in
-  `FB_TemperatureSwing.st` but not implemented here — follow the existing
+  `FB_Temperature_Swing.st` but not implemented here — follow the existing
   CSV data-recorder pattern already in the project.
 - No multi-cycle (repeated swing) support yet — single extreme per run. The
   design doc notes how the state machine could loop for that if needed later.

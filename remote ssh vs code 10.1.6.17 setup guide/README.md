@@ -90,7 +90,7 @@ source venv/bin/activate
 # (you should see (venv) at the start of your prompt)
 
 # Install Python dependencies
-pip3 install -r "python modbus proof of concept and test logs/requirements.txt"
+pip3 install -r requirements.txt
 
 # Verify pymodbus version (must be exactly 3.12.1)
 pip3 list | grep pymodbus

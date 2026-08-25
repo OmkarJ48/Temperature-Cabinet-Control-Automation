@@ -10,7 +10,7 @@ are not a standalone project.
 | `FB_Temperature_Swing.st` | State machine — Draft V2, `xStart`/`iStep` interface matching FB_Hold |
 | `FB_Temperature_Target.st` | Small reusable helper: latches ramp direction, reports setpoint reached |
 
-The earlier enum-based `FB_TemperatureSwing.st` / `E_TemperatureSwingState.st`
+The earlier enum-based `FB_Temperature_Swing.st` / `E_TemperatureSwingState.st`
 pair has been deleted — superseded by the files above, confirmed with TL.
 
 ## Dependencies on existing project objects

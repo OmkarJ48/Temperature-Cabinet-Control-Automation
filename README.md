@@ -32,6 +32,26 @@ Exchange four values between the working Python serial layer and CODESYS:
 
 ---
 
+## Verification status
+
+The prototype is proven and verified end to end on **DLS008, the Left Hand Small Temperature
+Cabinet** — Raspberry Pi at **10.1.6.17**, `ssh pi@10.1.6.17`. Every layer from the RTU serial
+link through the Python gateway, the CODESYS TCP mapping, the setpoint state machine, and the
+cabinet on/off automation has been qualified against real hardware, and the results are recorded
+stage by stage below.
+
+I am now taking that same proven architecture onto the rest of the cabinet fleet, starting with
+the **Left Hand Large Temperature Cabinet** — Raspberry Pi at **10.1.6.15**, `ssh pi@10.1.6.15`.
+Each cabinet gets the identical treatment DLS008 had: I prove the physical serial link first, then
+the gateway, then the CODESYS mapping, then the on/off automation, then commissioning sign-off —
+one layer at a time, so any issue found at a given stage stays isolated to the layer that owns it
+rather than getting chased across the whole stack. Every test, drill, and any bug I debug and
+correct along the way is recorded per cabinet in
+[`commissioning of temperature cabinets/`](<commissioning of temperature cabinets/>), so the
+rollout stays auditable and repeatable across the fleet.
+
+---
+
 ## Architecture as built
 
 ```
@@ -90,10 +110,9 @@ Each folder owns exactly one leg of the architecture, in the order I built them.
 | [`codesys modbus com port investigation and troubleshooting log/`](<codesys modbus com port investigation and troubleshooting log/>) | ⚠️ **Superseded.** CODESYS-native Modbus RTU over the COM port. Kept as the physical-link investigation record | 3 |
 | [`python modbus proof of concept and test logs/`](<python modbus proof of concept and test logs/>) | The Python gateway, its RTU link to the F4S, and standalone test scripts | 4 |
 | [`codesys modbus proof of concept and test logs/`](<codesys modbus proof of concept and test logs/>) | CODESYS side of the gateway: device tree, channel table, I/O mapping, ST source, test logs | 5 |
-| [`cabinet on-off automation proof of concept and integration/`](<cabinet on-off automation proof of concept and integration/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 6 |
-| [`commissioning of temperature cabinets/`](<commissioning of temperature cabinets/>) | **Rollout record.** Two-relay as-built wiring, manual authority tests M1–M6, per-cabinet commissioning status, procurement tracker, troubleshooting | 7 |
+| [`cabinet on-off automation proof of concept and integration/`](<cabinet on-off automation proof of concept and integration/>) | Remote start/stop of the cabinet itself (separate from setpoint control): wiring investigation, abandoned routes, and the as-built solution | 7 |
+| [`commissioning of temperature cabinets/`](<commissioning of temperature cabinets/>) | **Rollout record.** Two-relay as-built wiring, manual authority tests M1–M6, per-cabinet commissioning status, procurement tracker, troubleshooting, and [`ROLLOUT-CHECKLIST.md`](<commissioning of temperature cabinets/ROLLOUT-CHECKLIST.md>) — the four-job build sequence and cabinet-by-cabinet rollout order | 8 |
 | `docs/` | Project kick-off document, panel as-built drawing, Omron CPM1A datasheet, Watlow F4 user manual | — |
-| [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | **Forward work.** Procurement list, the four-job build sequence (USB A-A panel connector → harness → relays → EL1859), and the cabinet-by-cabinet rollout order | 8 |
 | [`temperature swing integration/`](<temperature swing integration/>) | **New module, design complete.** API 6A–compliant Temperature Swing test (ramp → stabilise → hold → return) built on top of the setpoint-control path above: CODESYS state machine, Python OPC UA manager, and HMI start/progress pages. Not yet imported into the live project — see its README for the implementation checklist | 9 |
 
 ---
@@ -465,7 +484,7 @@ side unchanged is what lets the already-recorded M1–M6 manual authority result
 Full as-built wiring, the M1–M6 test suite, per-cabinet detail, procurement tracker and
 troubleshooting: [`commissioning of temperature cabinets/README.md`](<commissioning of temperature cabinets/README.md>).
 Card and pin allocation: [`commissioning of temperature cabinets/IO_Schedule.xlsx`](<commissioning of temperature cabinets/IO_Schedule.xlsx>).
-Forward plan and job sequence: [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md).
+Forward plan and job sequence: [`commissioning of temperature cabinets/ROLLOUT-CHECKLIST.md`](<commissioning of temperature cabinets/ROLLOUT-CHECKLIST.md>).
 
 ---
 
@@ -476,7 +495,7 @@ Forward plan and job sequence: [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md).
 cd ~/Temperature-Cabinet-Setpoint-Control-from-CODESYS-HMI
 git checkout Omkar_Temperature_Cabinet_Setpoint_Control
 source venv/bin/activate
-pip3 install -r "python modbus proof of concept and test logs/requirements.txt"   # pymodbus must be 3.12.1
+pip3 install -r requirements.txt   # pymodbus must be 3.12.1
 
 # 1. Confirm the serial adapter and the F4S itself
 ls -l /dev/ttyWatlowF4S
@@ -558,7 +577,7 @@ as a layout reference for that work.
 | [`remote ssh vs code 10.1.6.17 setup guide/README.md`](<remote ssh vs code 10.1.6.17 setup guide/README.md>) | Remote-SSH and Git workflow from the Pi |
 | [`cabinet on-off automation proof of concept and integration/README.md`](<cabinet on-off automation proof of concept and integration/README.md>) | Remote start/stop investigation, abandoned routes, as-built Omron CPM1A solution, open items |
 | [`commissioning of temperature cabinets/README.md`](<commissioning of temperature cabinets/README.md>) | Two-relay as-built wiring, M1–M6 manual authority tests, per-cabinet commissioning status, procurement tracker |
-| [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) | Procurement list, four-job build sequence, cabinet-by-cabinet rollout order, open risks |
+| [`commissioning of temperature cabinets/ROLLOUT-CHECKLIST.md`](<commissioning of temperature cabinets/ROLLOUT-CHECKLIST.md>) | Procurement list, four-job build sequence, cabinet-by-cabinet rollout order, open risks |
 | `docs/Project Kick-Off- Temperature Cabinet Setpoint Control.pdf` | Objective, scope, definition of done |
 | `docs/7168-DWG-100 - REV B - CP1.pdf` | LCA Group panel as-built drawing (DLS008) — terminal numbering, I/O channel maps, enclosure layout |
 | `docs/Omron PLC CP1MA Datasheet.pdf` | CPM1A I/O specifications — confirms bidirectional opto-isolated digital inputs, the fact that made §19 of the cabinet on/off doc work |

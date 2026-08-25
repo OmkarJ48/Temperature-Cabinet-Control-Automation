@@ -19,8 +19,8 @@ folder in older clones or branches is stale — delete it.
 > raw *unsigned* word against `0..2000`, so every negative setpoint (−1.0 °C
 > arrives as `65526`) was rejected as out-of-range. It now converts to signed
 > before validating, against `SP_MIN_X10 = -400 .. SP_MAX_X10 = 2000`, which is
-> what this README always claimed. See
-> [Range investigation](<../codesys modbus proof of concept and test logs/docs/RANGE_INVESTIGATION.md>).
+> what this README always claimed. Full three-layer writeup (CODESYS, gateway, F4S device limits)
+> in the root [`README.md`](<../README.md>), "The signedness bug — and the fix".
 
 ## Daily Startup Runbook (Read This First)
 

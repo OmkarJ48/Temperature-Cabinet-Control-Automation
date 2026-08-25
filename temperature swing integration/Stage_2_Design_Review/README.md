@@ -29,7 +29,7 @@ kickoff document. See [`../docs/Stage2_Design_Document.md`](../docs/Stage2_Desig
 
 ## Key Questions for Stage 2 — all answered
 
-1. **Program Architecture** — How do existing DLS programs (Holds, PR2, etc.) structure their state machines? → Condition-based state machines with a safety exit from any state; reused as the pattern for `FB_TemperatureSwing`.
+1. **Program Architecture** — How do existing DLS programs (Holds, PR2, etc.) structure their state machines? → Condition-based state machines with a safety exit from any state; reused as the pattern for `FB_Temperature_Swing`.
 2. **Pressure Control** — What does `FB_Apply_Test_Pressure` do? How is 50–100% pressure maintained? → Establishment block reused unmodified; maintenance is the existing bang-bang upstream/downstream solenoid pattern, ±0.5 psi deadband.
 3. **Start Dialog** — What fields exist and how is it integrated? → Existing fields reused; Temperature Swing adds setpoint, monitoring channel, pressure mode, with Cycles fixed to 1.
 4. **Pressure Display** — Where should Temperature Swing status go? → Existing page extended with prompt bar, white→orange channel highlighting, and a °C/min readout. No new page architecture.
@@ -59,7 +59,7 @@ Full reconciliation table (8 corrections against the v1.0 draft) is in
 
 ---
 
-**Next:** Stage 3 — re-draft `FB_TemperatureSwing.st` against design v2.0. The
+**Next:** Stage 3 — re-draft `FB_Temperature_Swing.st` against design v2.0. The
 existing files in `../codesys/`, `../backend/`, and `../frontend/` are v1.0-era
 drafts (they still contain hold states and v1.0 variable names) and must be
 rewritten, not patched.

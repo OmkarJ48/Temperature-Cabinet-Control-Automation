@@ -360,7 +360,7 @@ Following the same 4-item commissioning process as other cabinets. Once pin 13 &
 2. **Right Hand Small:** Once wiring complete, run manual authority tests M1–M6 per the test suite
 3. **All commissioned cabinets:** Record M1–M6 results per cabinet and close out the 12-item handover
    verification
-4. **EL1859 (hardware now in hand):** JOB 4 of [`ROLLOUT-CHECKLIST.md`](../ROLLOUT-CHECKLIST.md) —
+4. **EL1859 (hardware now in hand):** JOB 4 of [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md) —
    fit to the EK1100 coupler, scan the bus in CODESYS, move cabinet start/stop off 37-way pins 36/37
    onto EL1859 DO channels, and wire the latch auxiliary contact into an EL1859 DI channel to give
    independent run-status feedback (currently `xCabinetRunning` is a commanded-state proxy only).

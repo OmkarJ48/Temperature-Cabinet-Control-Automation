@@ -11,7 +11,7 @@ the remaining temperature cabinets.
 > Modbus RTU to the Watlow F4S (reg 100 read / reg 300 write, 19200 8N1, slave 1), the Python
 > gateway owning the serial port, CODESYS talking Modbus TCP only, and remote start/stop landing on
 > the cabinet's own Omron CPM1A digital inputs. See the root `README.md` and
-> `cabinet on-off automation investigation and test logs/README.md` §19.
+> `cabinet on-off automation proof of concept and integration/README.md` §19.
 > **This checklist changes how those signals are carried and connectorised — not what they are.**
 
 ---

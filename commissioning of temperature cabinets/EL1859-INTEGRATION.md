@@ -298,7 +298,7 @@ Work in this order. Steps 1–3 and 8–10 are dead-panel work.
 | Document | Relevance |
 |---|---|
 | `README.md` (this folder) | Two-relay as-built wiring, M1–M6 suite, per-cabinet status |
-| `../ROLLOUT-CHECKLIST.md` | JOB 4 and the open risks this change closes |
+| `ROLLOUT-CHECKLIST.md` | JOB 4 and the open risks this change closes |
 | `IO_Schedule.xlsx` | Card and 37-way pin allocation |
 | `../docs/7168-DWG-100 - REV B - CP1.pdf` | Sheets 216/217/218 — `-202X3` pin-to-card map; sheet 200 — 24 V supply `-200G1`; sheet 106 — `-202X3` on the gland plate |
 | `../docs/Omron PLC CP1MA Datasheet.pdf` | CPM1A input type — why a sourcing output works here |

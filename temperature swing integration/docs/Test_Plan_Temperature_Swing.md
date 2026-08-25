@@ -4,7 +4,7 @@ Run only after Stage 3 (offline development in CODESYS simulation) passes.
 
 ## Pre-requisites
 
-- [ ] `FB_TemperatureSwing.st` compiles with no warnings
+- [ ] `FB_Temperature_Swing.st` compiles with no warnings
 - [ ] GVL variables online-forced and readable via OPC UA
 - [ ] `temperature_swing_manager.py` connects and reads status without error
 - [ ] Start Dialog writes reach CODESYS (verified via online watch)

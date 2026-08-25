@@ -159,7 +159,7 @@ Re-draft the deliverable source files against design v2.0. The existing files in
 `../codesys/`, `../backend/`, and `../frontend/` are v1.0-era drafts carrying the
 removed hold state and the old variable names — they are rewritten, not patched.
 
-- [ ] `FB_TemperatureSwing.st` — 12-state machine per design Section 2
+- [ ] `FB_Temperature_Swing.st` — 12-state machine per design Section 2
 - [ ] `E_TemperatureSwingState.st` — state enum
 - [ ] `GVL_TemperatureSwing.st` — variables per design Section 11
 - [ ] Start Dialog HTML — setpoint, monitoring channel, pressure mode, Cycles fixed to 1

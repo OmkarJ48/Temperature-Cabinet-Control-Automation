@@ -63,7 +63,7 @@ IDLE
 setpoint deviation -> transition directly to `IDLE`, log as aborted, close solenoids.
 
 State encoding and transition table are implemented in
-[`codesys/FB_TemperatureSwing.st`](../codesys/FB_TemperatureSwing.st).
+[`codesys/FB_Temperature_Swing.st`](../codesys/FB_Temperature_Swing.st).
 
 ---
 
@@ -78,7 +78,7 @@ State encoding and transition table are implemented in
   Temperature if Body Temperature channel is faulted (fallback is logged, not
   silent).
 
-Implemented in `FB_TemperatureSwing.st` (`fRateOfChange` calculation block) and
+Implemented in `FB_Temperature_Swing.st` (`fRateOfChange` calculation block) and
 mirrored for host-side display in `temperature_swing_manager.py`.
 
 ---
@@ -153,9 +153,9 @@ Full OPC node map: [`backend/config_temperature_swing.py`](../backend/config_tem
 
 | Requirement | Section | Where enforced |
 |---|---|---|
-| F.1.9 Temperature Testing (ramp/hold/return) | 2 | `FB_TemperatureSwing.st` state machine |
-| F.1.10 Hold Periods / Stabilisation (<0.5 C/min) | 3 | `FB_TemperatureSwing.st` rate check |
-| F.1.11 Pressure/Temperature Cycles | 4, 5 | `FB_TemperatureSwing.st` pressure blocks |
+| F.1.9 Temperature Testing (ramp/hold/return) | 2 | `FB_Temperature_Swing.st` state machine |
+| F.1.10 Hold Periods / Stabilisation (<0.5 C/min) | 3 | `FB_Temperature_Swing.st` rate check |
+| F.1.11 Pressure/Temperature Cycles | 4, 5 | `FB_Temperature_Swing.st` pressure blocks |
 | Overshoot <= 11 C | 2, 3 | `OVERSHOOT_CHECK` state, logged not enforced-abort |
 
 ---
@@ -164,7 +164,7 @@ Full OPC node map: [`backend/config_temperature_swing.py`](../backend/config_tem
 
 | File | Purpose |
 |---|---|
-| `codesys/FB_TemperatureSwing.st` | State machine, rate calc, pressure control (Structured Text) |
+| `codesys/FB_Temperature_Swing.st` | State machine, rate calc, pressure control (Structured Text) |
 | `codesys/GVL_TemperatureSwing.st` | New global variables |
 | `backend/temperature_swing_manager.py` | Python OPC UA manager class |
 | `backend/config_temperature_swing.py` | OPC node ID map |
