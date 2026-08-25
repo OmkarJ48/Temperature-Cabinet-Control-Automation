@@ -8,11 +8,19 @@
 - ▶ **Left Hand Small Temperature Cabinet (DLS008)**: Cable button switch to relays connection done; awaiting 37-pin connector wiring to pins 13, 14, and GND
 - ▶ **Right Hand Small Temperature Cabinet**: Panel mount replaced; button switch to relays connection done; Pi to USB connection made in DLS; RS232 to USB cable connected; awaiting 37-pin connector wiring to pins 13 and 14
 
-**EL1859 received.** The Beckhoff EL1859 16-channel Digital Input/Output module has arrived and is
-available for the I/O expansion work (JOB 4 in [`ROLLOUT-CHECKLIST.md`](../ROLLOUT-CHECKLIST.md)) —
-moving cabinet start/stop off 37-way pins 36/37 and wiring independent run-status feedback into a DI
-channel. It is **not a prerequisite** for the two remaining cabinet commissionings, which continue on
-the existing EL2869 CH15/CH16 route.
+**EL1859 received.** The Beckhoff EL1859 16-channel Digital Input/Output module has arrived. It gives
+cabinet start/stop its own card and adds measured run feedback, releasing EL2869 CH15/CH16 back to
+the valve functions they are allocated to in the IO Schedule. Design issued for build on the Left
+Hand Large cabinet: **[`EL1859-INTEGRATION.md`](EL1859-INTEGRATION.md)**.
+
+It is **not a prerequisite** for the two remaining cabinet commissionings, which continue on the
+existing EL2869 CH15/CH16 route.
+
+> ⚠ **Checked against 7168-DWG-100 REV B while preparing that design:** every pin on the DI/DO
+> 37-way (`-202X3`) is already wired to a card inside the panel — there are no free pins. Pins 13
+> and 14, which the as-built relay wiring uses, are shown on drawing sheet 216 as EL1409 digital
+> **inputs** I11/I12 (wires 21603/21604). This needs tracing in the panel before the EL1859 work
+> starts. Detail and consequences in the integration document.
 
 ---
 

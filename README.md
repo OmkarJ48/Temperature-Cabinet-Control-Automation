@@ -443,17 +443,29 @@ every case.
 | 5 | Right Hand Small Temperature Cabinet | ▶ In progress (~80%) — awaiting 37-pin connector wiring to pins 13 & 14 |
 
 **Hardware update:** the **Beckhoff EL1859** 16-channel digital combi terminal (8× DI + 8× DO, 24 V DC)
-and its carriage have now been **received**. It is not needed for the two outstanding commissionings —
-those complete on the existing EL2869 CH15/CH16 route — but it unblocks JOB 4 of the rollout
-checklist, which:
+and its carriage have now been **received**, and the integration design is issued for build on the
+Left Hand Large cabinet. It is not needed for the two outstanding commissionings — those complete on
+the existing EL2869 CH15/CH16 route — but it makes the cabinet start/stop permanent rather than
+borrowed, by:
 
-- moves cabinet start/stop off 37-way pins **36/37**, resolving the allocation conflict where the I/O
-  schedule lists those pins as `3 Way BV01` / `BV02` while cabinet start/stop is already using them;
-- adds a **DI channel for independent run-status feedback**, replacing `xCabinetRunning`, which today
-  is a commanded-state proxy and cannot detect a cabinet that failed to start.
+- giving cabinet start/stop **its own card** in the IO Schedule and releasing **EL2869 CH15/CH16**
+  back to `3 Way BV03` / `3 Way BV02`, the functions they are actually allocated to;
+- adding a **DI channel for measured run feedback**, replacing `xCabinetRunning`, which today is a
+  commanded-state proxy and cannot detect a cabinet that failed to start.
+
+Design, wiring, safe build procedure and test record:
+[`commissioning of temperature cabinets/EL1859-INTEGRATION.md`](<commissioning of temperature cabinets/EL1859-INTEGRATION.md>).
+
+**One finding worth carrying forward.** Preparing that design meant checking the DI/DO 37-way
+(`-202X3`) pin by pin against 7168-DWG-100 REV B. Every pin is already wired to a card inside the
+panel — there are no free pins — and pins 13/14, which the as-built relay wiring uses, are drawn as
+EL1409 digital **inputs** I11/I12. So the EL1859 job is not "find spare pins", it is "re-land three
+internal wires onto the new terminal and leave the whole field side untouched". Keeping the field
+side unchanged is what lets the already-recorded M1–M6 manual authority results stay valid.
 
 Full as-built wiring, the M1–M6 test suite, per-cabinet detail, procurement tracker and
 troubleshooting: [`commissioning of temperature cabinets/README.md`](<commissioning of temperature cabinets/README.md>).
+Card and pin allocation: [`commissioning of temperature cabinets/IO_Schedule.xlsx`](<commissioning of temperature cabinets/IO_Schedule.xlsx>).
 Forward plan and job sequence: [`ROLLOUT-CHECKLIST.md`](ROLLOUT-CHECKLIST.md).
 
 ---
