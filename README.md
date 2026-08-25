@@ -449,8 +449,8 @@ borrowed, by:
 
 - giving cabinet start/stop **its own card** in the IO Schedule and releasing **EL2869 CH15/CH16**
   back to `3 Way BV03` / `3 Way BV02`, the functions they are actually allocated to;
-- adding a **DI channel for measured run feedback**, replacing `xCabinetRunning`, which today is a
-  commanded-state proxy and cannot detect a cabinet that failed to start.
+- providing **measured run feedback** via EL1859 DI 1 (latch auxiliary contact), so CODESYS can now
+  detect a cabinet that failed to start, rather than relying on the commanded-state proxy `xCabinetRunning`.
 
 Design, wiring, safe build procedure and test record:
 [`commissioning of temperature cabinets/EL1859-INTEGRATION.md`](<commissioning of temperature cabinets/EL1859-INTEGRATION.md>).
