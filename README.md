@@ -541,7 +541,7 @@ of it, and nothing underneath should need to change.
 - [ ] Operator test pass on the finished page, and capture Drill 3 (runtime restart) with evidence
 
 A first-pass operator page already exists at
-[`codesys modbus proof of concept and test logs/WebVisu/codesys_hmi.html`](<codesys modbus proof of concept and test logs/WebVisu/codesys_hmi.html>)
+[`codesys webvisu hmi/WebVisu/html/codesys_hmi.html`](<codesys webvisu hmi/WebVisu/html/codesys_hmi.html>)
 as a layout reference for that work.
 
 ---
